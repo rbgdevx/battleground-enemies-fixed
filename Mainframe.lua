@@ -1390,7 +1390,7 @@ BattleGroundEnemies.Enemies = CreateMainFrame(BattleGroundEnemies.consts.PlayerT
 BattleGroundEnemies.Enemies.Counter = {}
 
 function BattleGroundEnemies.Allies:GroupInSpecT_Update(event, GUID, unitID, info)
-  if not GUID or not info.class then
+  if not GUID or type(GUID) ~= "string" or not info.class then
     return
   end
 
@@ -1403,7 +1403,7 @@ function BattleGroundEnemies.Allies:AddGroupMember(name, isLeader, isAssistant, 
   local raceName, raceFile, raceID = UnitRace(unitID)
   local GUID = UnitGUID(unitID)
 
-  if not GUID then
+  if not GUID or type(GUID) ~= "string" then
     return
   end
 
