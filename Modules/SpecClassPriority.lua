@@ -1,0 +1,465 @@
+---@type string
+local AddonName = ...
+---@class Data
+local Data = select(2, ...)
+---@class BattleGroundEnemies
+local BattleGroundEnemies = BattleGroundEnemies
+local L = Data.L
+local CreateFrame = CreateFrame
+local GameTooltip = GameTooltip
+local GetSpellTexture = C_Spell and C_Spell.GetSpellTexture or GetSpellTexture
+local GetClassAtlas = GetClassAtlas
+
+local locTypePriority = {
+  STUN = 8,
+  STUN_MECHANIC = 8,
+  FEAR = 7,
+  FEAR_MECHANIC = 7,
+  DISORIENT = 7,
+  CONFUSE = 7,
+  INCAPACITATE = 6,
+  SILENCE = 5,
+  PACIFYSILENCE = 5,
+  ROOT = 3,
+  PACIFY = 2,
+  DISARM = 2,
+  POSSESS = 9,
+}
+
+-- MiniCC's InterestedIn optimization: skip a full rebuild when the UNIT_AURA
+-- updateInfo tells us nothing CC-related changed. In BGs with 40 players this
+-- avoids rebuilding on every food buff / proc / heal aura update.
+-- Returns true if we should proceed with UpdateLossOfControl, false to skip.
+local function IsInterestedInUpdate(unitID, updateInfo, existingPriorityAuras)
+  if not updateInfo or updateInfo.isFullUpdate then
+    return true
+  end
+
+  -- Added auras: pass the CC filter?
+  if updateInfo.addedAuras then
+    for _, aura in pairs(updateInfo.addedAuras) do
+      local id = aura.auraInstanceID
+      if id and C_UnitAuras.IsAuraFilteredOutByInstanceID and
+         not C_UnitAuras.IsAuraFilteredOutByInstanceID(unitID, id, "HARMFUL|CROWD_CONTROL") then
+        return true
+      end
+    end
+  end
+
+  -- Updated auras: pass the CC filter?
+  if updateInfo.updatedAuraInstanceIDs then
+    for _, id in pairs(updateInfo.updatedAuraInstanceIDs) do
+      if id and C_UnitAuras.IsAuraFilteredOutByInstanceID and
+         not C_UnitAuras.IsAuraFilteredOutByInstanceID(unitID, id, "HARMFUL|CROWD_CONTROL") then
+        return true
+      end
+    end
+  end
+
+  -- Removed auras: was any of them a CC we were tracking?
+  -- (Removed auras are already gone so the filter API can't be used — match by ID instead.)
+  if updateInfo.removedAuraInstanceIDs and next(updateInfo.removedAuraInstanceIDs) ~= nil then
+    for _, id in pairs(updateInfo.removedAuraInstanceIDs) do
+      for _, entry in ipairs(existingPriorityAuras) do
+        if entry.auraInstanceID == id then
+          return true
+        end
+      end
+    end
+  end
+
+  return false
+end
+
+local generalDefaults = {
+  showSpecIfExists = true,
+  showHighestPriority = true,
+}
+
+local defaultSettings = {
+  Enabled = true,
+  Parent = "Button",
+  Cooldown = {
+    ShowNumber = true,
+    FontSize = 12,
+    FontOutline = "OUTLINE",
+    EnableShadow = false,
+    DrawSwipe = true,
+    ShadowColor = { 0, 0, 0, 1 },
+  },
+  Width = 36,
+  ActivePoints = 1,
+  Points = {
+    {
+      Point = "TOPRIGHT",
+      RelativeFrame = "Button",
+      RelativePoint = "TOPLEFT",
+    },
+  },
+  UseButtonHeightAsHeight = true,
+}
+
+local generalOptions = function(location)
+  return {
+    showSpecIfExists = {
+      type = "toggle",
+      name = L.ShowSpecIfExists,
+      desc = L.ShowSpecIfExists_Desc,
+      width = "full",
+      order = 1,
+    },
+    showHighestPriority = {
+      type = "toggle",
+      name = L.ShowHighestPriority,
+      desc = L.ShowHighestPriority_Desc,
+      width = "full",
+      order = 2,
+    },
+  }
+end
+
+local options = function(location)
+  return {
+    CooldownTextSettings = {
+      type = "group",
+      name = L.Countdowntext,
+      inline = true,
+      get = function(option)
+        return Data.GetOption(location.Cooldown, option)
+      end,
+      set = function(option, ...)
+        return Data.SetOption(location.Cooldown, option, ...)
+      end,
+      order = 3,
+      args = Data.AddCooldownSettings(location.Cooldown),
+    },
+  }
+end
+
+local SpecClassPriority = BattleGroundEnemies:NewButtonModule({
+  moduleName = "SpecClassPriority",
+  localizedModuleName = L.SpecClassPriority,
+  defaultSettings = defaultSettings,
+  generalDefaults = generalDefaults,
+  options = options,
+  generalOptions = generalOptions,
+  events = {
+    "GotInterrupted",
+    "UnitDied",
+  },
+  enabledInThisExpansion = true,
+  flags = {
+    SetZeroWidthWhenDisabled = true,
+  },
+})
+
+local function attachToPlayerButton(playerButton)
+  local frame = CreateFrame("frame", nil, playerButton)
+  frame.Background = frame:CreateTexture(nil, "BACKGROUND")
+  frame.Background:SetAllPoints()
+  frame.Background:SetColorTexture(0, 0, 0, 0.8)
+  frame.PriorityAuras = {}
+  frame.ActiveInterrupt = false
+  frame.ShowsSpec = false
+  frame.SpecClassIcon = frame:CreateTexture(nil, "BORDER", nil, 2)
+  frame.SpecClassIcon:SetAllPoints()
+  frame.PriorityIcon = frame:CreateTexture(nil, "BORDER", nil, 3)
+  frame.PriorityIcon:SetAllPoints()
+  frame.Cooldown = BattleGroundEnemies.MyCreateCooldown(frame)
+  frame.Cooldown:SetScript("OnCooldownDone", function(self)
+    frame:Update()
+  end)
+
+  frame:HookScript("OnLeave", function(self)
+    if GameTooltip:IsOwned(self) then
+      GameTooltip:Hide()
+    end
+  end)
+
+  frame:HookScript("OnEnter", function(self)
+    BattleGroundEnemies:ShowTooltip(self, function()
+      if frame.DisplayedAura and frame.DisplayedAura.spellId then
+        GameTooltip:SetSpellByID(frame.DisplayedAura.spellId)
+      elseif not frame.DisplayedAura then
+        local playerDetails = playerButton.PlayerDetails
+        if not playerDetails.PlayerClass then
+          return
+        end
+        local numClasses = GetNumClasses()
+        local localizedClass
+        for i = 1, numClasses do -- we could also just save the localized class name it into the button itself, but since its only used for this tooltip no need for that
+          local className, classFile, classID = GetClassInfo(i)
+          if classFile and classFile == playerDetails.PlayerClass then
+            localizedClass = className
+          end
+        end
+        if not localizedClass then
+          return
+        end
+
+        if playerDetails.PlayerSpecName then
+          GameTooltip:SetText(localizedClass .. " " .. playerDetails.PlayerSpecName)
+        else
+          return GameTooltip:SetText(localizedClass)
+        end
+      end
+    end)
+  end)
+
+  frame:SetScript("OnSizeChanged", function(self, width, height)
+    self:CropImage()
+  end)
+
+  frame:Hide()
+
+  function frame:MakeSureWeAreOnTop()
+    if true then
+      return
+    end
+    local numPoints = self:GetNumPoints()
+    local highestLevel = 0
+    for i = 1, numPoints do
+      local point, relativeTo, relativePoint, xOfs, yOfs = self:GetPoint(i)
+      if relativeTo then
+        local level = relativeTo:GetFrameLevel()
+        if level and level > highestLevel then
+          highestLevel = level
+        end
+      end
+    end
+    self:SetFrameLevel(highestLevel + 1)
+  end
+
+  function frame:Update()
+    self:MakeSureWeAreOnTop()
+    local highestPrioritySpell
+    local currentTime = GetTime()
+
+    local priorityAuras = self.PriorityAuras
+    for i = 1, #priorityAuras do
+      local priorityAura = priorityAuras[i]
+      if priorityAura.expirationTime > currentTime then
+        if not highestPrioritySpell or (priorityAura.Priority > highestPrioritySpell.Priority) then
+          highestPrioritySpell = priorityAura
+        end
+      end
+    end
+    if frame.ActiveInterrupt then
+      if frame.ActiveInterrupt.expirationTime < currentTime then
+        frame.ActiveInterrupt = false
+      else
+        if not highestPrioritySpell or (frame.ActiveInterrupt.Priority > highestPrioritySpell.Priority) then
+          highestPrioritySpell = frame.ActiveInterrupt
+        end
+      end
+    end
+
+    if highestPrioritySpell then
+      frame.SpecClassIcon:Hide()
+      frame.DisplayedAura = highestPrioritySpell
+      frame.PriorityIcon:Show()
+      -- aura.icon from GetUnitAuras is always populated by Blizzard and not a secret
+      -- value, so this should never be nil in practice. Guard anyway.
+      local iconToShow = highestPrioritySpell.icon or GetSpellTexture(118)
+      frame.PriorityIcon:SetTexture(iconToShow)
+      if highestPrioritySpell.durationObject and frame.Cooldown.SetCooldownFromDurationObject then
+        frame.Cooldown:SetCooldownFromDurationObject(highestPrioritySpell.durationObject)
+      else
+        frame.Cooldown:SetCooldown(
+          highestPrioritySpell.expirationTime - highestPrioritySpell.duration,
+          highestPrioritySpell.duration
+        )
+      end
+    else
+      frame.SpecClassIcon:Show()
+      frame.DisplayedAura = false
+      frame.PriorityIcon:Hide()
+      frame.Cooldown:Clear()
+    end
+  end
+
+  function frame:ResetPriorityData()
+    self.ActiveInterrupt = false
+    wipe(self.PriorityAuras)
+    if self._locExpiryTimer then
+      self._locExpiryTimer:Cancel()
+      self._locExpiryTimer = nil
+    end
+    self:Update()
+  end
+
+  function frame:GotInterrupted(spellId, interruptDuration)
+    self.ActiveInterrupt = {
+      spellId = spellId,
+      icon = GetSpellTexture(spellId),
+      expirationTime = GetTime() + interruptDuration,
+      duration = interruptDuration,
+      Priority = BattleGroundEnemies:GetSpellPriority(spellId) or 4,
+    }
+    self:Update()
+  end
+
+  function frame:UpdateLossOfControl(unitID, updateInfo)
+    if not self.config or not self.config.showHighestPriority then
+      return
+    end
+    -- Dead units can't be CC'd — clear immediately so icons don't linger after death.
+    -- Mirrors MiniCC's RebuildStates() death check.
+    if UnitIsDeadOrGhost(unitID) then
+      if self._locExpiryTimer then
+        self._locExpiryTimer:Cancel()
+        self._locExpiryTimer = nil
+      end
+      wipe(self.PriorityAuras)
+      self:Update()
+      return
+    end
+
+    -- If the local player is a ghost, GetUnitAuras returns empty for living units due to
+    -- phase separation. Don't wipe existing CC state — we can't verify it expired.
+    if UnitIsDeadOrGhost("player") and #self.PriorityAuras > 0 then
+      return
+    end
+
+    -- Skip full rebuild if updateInfo tells us nothing CC-related changed.
+    -- Critical in BGs: UNIT_AURA fires constantly for food buffs, procs, heals, etc.
+    if not IsInterestedInUpdate(unitID, updateInfo, self.PriorityAuras) then
+      return
+    end
+
+    wipe(self.PriorityAuras)
+
+    -- Use C_UnitAuras exclusively, same as MiniCC. C_LossOfControl was removed because:
+    --   1. locType/spellID/iconTexture/timing fields are all secret in Midnight PvP.
+    --   2. It doesn't work reliably for party members anyway.
+    --   3. C_UnitAuras.GetUnitAuras gives us icon directly (never secret), and
+    --      GetAuraDuration gives a DurationObject for SetCooldownFromDurationObject
+    --      so no arithmetic on secret values is needed at all.
+    if C_UnitAuras and C_UnitAuras.GetUnitAuras then
+      local auras = C_UnitAuras.GetUnitAuras(unitID, "HARMFUL|CROWD_CONTROL")
+      if auras then
+        for _, aura in ipairs(auras) do
+          if aura.auraInstanceID then
+            local icon = aura.icon  -- texture fileDataID; populated by Blizzard, not secret
+            local spellId = aura.spellId
+            local spellIdSecret = issecretvalue and spellId ~= nil and issecretvalue(spellId)
+            -- MiniCC pattern: validate the aura is actually CC.
+            -- Include if isCC is secret (can't verify, be safe) or confirmed true.
+            -- This guards against garbage data that slips through the filter.
+            local isCC = C_Spell and C_Spell.IsSpellCrowdControl and
+                         C_Spell.IsSpellCrowdControl(spellId)
+            local includeAura = (issecretvalue and isCC ~= nil and issecretvalue(isCC)) or isCC
+            if includeAura then
+              local durObj = C_UnitAuras.GetAuraDuration and
+                             C_UnitAuras.GetAuraDuration(unitID, aura.auraInstanceID)
+              if durObj then
+                self.PriorityAuras[#self.PriorityAuras + 1] = {
+                  spellId        = (not spellIdSecret) and spellId or nil,
+                  icon           = icon,
+                  expirationTime = GetTime() + 30, -- dummy; real timing via durationObject
+                  duration       = 30,
+                  Priority       = 5,
+                  durationObject = durObj,
+                  auraInstanceID = aura.auraInstanceID, -- needed for removal detection
+                }
+              end
+            end
+          end
+        end
+      end
+    end
+
+    -- Cancel any pending expiry timer before possibly starting a new one.
+    if self._locExpiryTimer then
+      self._locExpiryTimer:Cancel()
+      self._locExpiryTimer = nil
+    end
+
+    if #self.PriorityAuras > 0 then
+      -- Poll every second as a safety net in case UNIT_AURA misses the expiry.
+      -- Normally UNIT_AURA fires when the CC aura is removed, which re-calls this
+      -- function, finds an empty aura list, and clears the icon automatically.
+      self._locExpiryTimer = C_Timer.NewTicker(1, function(ticker)
+        if UnitIsDeadOrGhost(unitID) then
+          ticker:Cancel()
+          self._locExpiryTimer = nil
+          wipe(self.PriorityAuras)
+          self:Update()
+          return
+        end
+        local checkAuras = C_UnitAuras.GetUnitAuras and
+                           C_UnitAuras.GetUnitAuras(unitID, "HARMFUL|CROWD_CONTROL")
+        if not checkAuras or #checkAuras == 0 then
+          -- If the local player is a ghost, GetUnitAuras returns empty for living units
+          -- due to phase separation — don't clear, we can't verify the CC expired.
+          if UnitIsDeadOrGhost("player") then return end
+          ticker:Cancel()
+          self._locExpiryTimer = nil
+          wipe(self.PriorityAuras)
+          self:Update()
+        end
+      end)
+    end
+
+    self:Update()
+  end
+
+  function frame:UnitDied()
+    self:ResetPriorityData()
+  end
+
+  frame.CropImage = function(self)
+    local width = self:GetWidth()
+    local height = self:GetHeight()
+    if width and height and width > 0 and height > 0 then
+      if self.ShowsSpec then
+        BattleGroundEnemies.CropImage(self.SpecClassIcon, width, height)
+      end
+      BattleGroundEnemies.CropImage(self.PriorityIcon, width, height)
+    end
+  end
+
+  frame.ApplyAllSettings = function(self)
+    if not self.config then
+      return
+    end
+    local moduleSettings = self.config
+    self:Show()
+    local playerDetails = playerButton.PlayerDetails
+    if not playerDetails then
+      return
+    end
+    self.ShowsSpec = false
+
+    local specData = playerButton:GetSpecData()
+    if specData and self.config.showSpecIfExists then
+      self.SpecClassIcon:SetTexture(specData.specIcon)
+      self.ShowsSpec = true
+    else
+      local classIconAtlas = GetClassAtlas and GetClassAtlas(playerDetails.PlayerClass)
+      if classIconAtlas then
+        self.SpecClassIcon:SetAtlas(classIconAtlas)
+      else
+        local coords = CLASS_ICON_TCOORDS[playerDetails.PlayerClass]
+        if playerDetails.PlayerClass and coords then
+          self.SpecClassIcon:SetTexture("Interface\\TargetingFrame\\UI-Classes-Circles")
+          self.SpecClassIcon:SetTexCoord(unpack(coords))
+        else
+          self.SpecClassIcon:SetTexture(nil)
+        end
+      end
+    end
+    self:CropImage()
+    self.Cooldown:ApplyCooldownSettings(moduleSettings.Cooldown, true, { 0, 0, 0, 0.5 })
+    if not moduleSettings.showHighestPriority then
+      self:ResetPriorityData()
+    end
+    self:MakeSureWeAreOnTop()
+  end
+  return frame
+end
+
+function SpecClassPriority:AttachToPlayerButton(playerButton)
+  playerButton.SpecClassPriority = attachToPlayerButton(playerButton)
+  return playerButton.SpecClassPriority
+end
