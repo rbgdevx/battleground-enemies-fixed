@@ -22,7 +22,7 @@ Data.L = setmetatable({}, { --key set by all non english clients, Table gets acc
         end)
         missingReported = true
       end
-      --t[k] = defaultLocale[k] --add it to the table so we dont have to invoce the metatable in the future
+      --t[k] = defaultLocale[k] --add it to the table so we dont have to invoice the metatable in the future
       return defaultLocale[k]
     else
       C_Timer.After(3, function()
