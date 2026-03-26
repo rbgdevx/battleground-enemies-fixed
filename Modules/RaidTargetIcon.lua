@@ -54,6 +54,10 @@ function raidTargetIcon:AttachToPlayerButton(playerButton)
     self:SetWidth(height)
   end
 
+  function playerButton.RaidTargetIcon:Reset()
+    self.Icon:Hide()
+  end
+
   function playerButton.RaidTargetIcon:ApplyAllSettings()
     if not self.config then
       return

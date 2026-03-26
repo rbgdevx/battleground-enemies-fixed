@@ -323,6 +323,17 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
   end
 
   function playerButton:UpdateRaidTargetIcon(forceIndex)
+    -- In arena, raid target markers on enemies are always stale data
+    -- (e.g. from when the player was an ally in a previous solo shuffle round).
+    -- Only allow markers on allies; in BGs, enemy markers are valid (target calling).
+    if self.PlayerIsEnemy and BattleGroundEnemies.states.real.isInArena and not forceIndex then
+      if self.RaidTargetIconIndex then
+        self.RaidTargetIconIndex = nil
+        self:DispatchEvent("UpdateRaidTargetIcon", nil)
+      end
+      return
+    end
+
     local unit = self:GetUnitID()
     local newIndex = forceIndex --used for testmode, otherwise it will just be nil and overwritten when one actually exists
     if unit then
@@ -349,26 +360,33 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
 
   -- Query the API for real trinket cooldown data and apply it.
   -- Returns true if the API returned real data, false otherwise.
+  -- Uses GetArenaCrowdControlInfo for the spellId and GetArenaCrowdControlDuration
+  -- for the DurationObject — avoids arithmetic on secret millisecond values entirely.
   function playerButton:UpdateCrowdControlCooldown(unitID)
-    local spellId, itemID, startTimeMs, durationMs
-    local one, two, three, four = C_PvP.GetArenaCrowdControlInfo(unitID)
-    if four then --classsic uses four returns, extra item id
-      spellId, itemID, startTimeMs, durationMs = one, two, three, four
-    else
-      spellId, startTimeMs, durationMs = one, two, three
+    -- Get spell ID from GetArenaCrowdControlInfo (only need the first return value)
+    local spellId = C_PvP.GetArenaCrowdControlInfo(unitID)
+    -- Get duration as a LuaDurationObject — no secret value arithmetic needed
+    local durationObj = C_PvP.GetArenaCrowdControlDuration and C_PvP.GetArenaCrowdControlDuration(unitID)
+
+    if not self.Trinket or not spellId then
+      return false
     end
 
-    if self.Trinket and spellId and startTimeMs and durationMs then
-      self.Trinket:ResetFakeCooldown() -- real data supersedes fake
-      local startSec, durSec
-      local ok = pcall(function()
-        startSec = startTimeMs / 1000.0
-        durSec = durationMs / 1000.0
-      end)
-      if ok then
-        self.Trinket:SetTrinketCooldown(startSec, durSec)
-        return true
+    self.Trinket:ResetFakeCooldown()
+    self.Trinket:DisplayTrinket(spellId)
+
+    if durationObj then
+      -- IsZero() returns a secret boolean — we can't do boolean tests on it.
+      -- SetAlphaFromBoolean accepts secret booleans: alpha 0 when IsZero (no
+      -- active cooldown / CDs reset between rounds), alpha 1 when not zero
+      -- (trinket was actually used). This mirrors Blizzard's enabled = duration > 0.
+      self.Trinket:SetAlphaFromBoolean(durationObj:IsZero(), 0, 1)
+
+      if self.Trinket.Cooldown.SetCooldownFromDurationObject then
+        -- clearIfZero defaults to true — cooldown swipe clears when duration is zero
+        self.Trinket.Cooldown:SetCooldownFromDurationObject(durationObj)
       end
+      return true
     end
     return false
   end
@@ -388,8 +406,8 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       -- We don't know the ally's trinket spell ahead of time; DisplayTrinket(nil) shows
       -- the Gladiator's Medallion fallback icon (see Trinket.lua DisplayTrinket logic).
       self.Trinket:DisplayTrinket(nil)
-      -- SetCooldownFromDurationObject handles secret timing without arithmetic
       if self.Trinket.Cooldown.SetCooldownFromDurationObject then
+        -- clearIfZero defaults to true, so zero-span objects are handled automatically
         self.Trinket.Cooldown:SetCooldownFromDurationObject(durationObj)
       end
     end
@@ -988,6 +1006,12 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
   end
 
   function playerButton:UNIT_HEALTH(unitID)
+    -- Between solo shuffle rounds, ignore all health events — stale data
+    -- (0 hp from the previous round) would overwrite our synthetic 100%.
+    if BattleGroundEnemies.betweenRounds then
+      return
+    end
+
     local isAlly = not self.PlayerIsEnemy
 
     if not isAlly and not self.isShown then
@@ -1013,7 +1037,7 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       health = UnitHealth(queryID)
       healthMissing = UnitHealthMissing(queryID)
       maxHealth = UnitHealthMax(queryID)
-      healthPercent = UnitHealthPercent(queryID)
+      healthPercent = UnitHealthPercent(queryID, true, CurveConstants.ScaleTo100)
     else
       local ok, h = pcall(UnitHealth, queryID, true)
       if not ok then
@@ -1449,8 +1473,7 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
   playerButton:SetScript("OnDragStop", playerButton.OnDragStop)
 
   --MyTarget, indicating the current target of the player
-  playerButton.MyTarget =
-    CreateFrame("Frame", nil, playerButton, BackdropTemplateMixin and "BackdropTemplate")
+  playerButton.MyTarget = CreateFrame("Frame", nil, playerButton, BackdropTemplateMixin and "BackdropTemplate")
 
   playerButton.MyTarget:Hide()
 

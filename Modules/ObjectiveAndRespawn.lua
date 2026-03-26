@@ -117,7 +117,9 @@ end
 -- In Kotmogu BG, WoW assigns arena tokens (arena1-5) to orb carriers
 local isCheckingOrbs = false
 local function CheckAllOrbs()
-  if isCheckingOrbs then return end
+  if isCheckingOrbs then
+    return
+  end
   isCheckingOrbs = true
 
   local ok, err = pcall(function()
@@ -152,7 +154,9 @@ local function CheckAllOrbs()
   end)
 
   isCheckingOrbs = false
-  if not ok then error(err) end
+  if not ok then
+    error(err)
+  end
 end
 
 -- Helper: Find the correct button for a flag carrier
@@ -196,7 +200,9 @@ end
 -- Module-level function to check flags for all arena units (WSG, Twin Peaks, Deephaul Ravine)
 local isCheckingFlags = false
 local function CheckAllFlags()
-  if isCheckingFlags then return end
+  if isCheckingFlags then
+    return
+  end
   isCheckingFlags = true
 
   local ok, err = pcall(function()
@@ -232,7 +238,9 @@ local function CheckAllFlags()
   end)
 
   isCheckingFlags = false
-  if not ok then error(err) end
+  if not ok then
+    error(err)
+  end
 end
 
 -- Module-level event frame for objective detection triggers

@@ -130,10 +130,14 @@ function trinket:AttachToPlayerButton(playerButton)
   end
 
   function frame:StartFakeCooldown(duration)
-    if self._fakeCdActive then return end
+    if self._fakeCdActive then
+      return
+    end
     self._fakeCdActive = true
     self.Cooldown:SetCooldown(GetTime(), duration)
-    if self._fakeTimer then self._fakeTimer:Cancel() end
+    if self._fakeTimer then
+      self._fakeTimer:Cancel()
+    end
     self._fakeTimer = C_Timer.NewTimer(duration, function()
       self._fakeCdActive = false
     end)
