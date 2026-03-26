@@ -26,7 +26,39 @@ Data.PlayerRoles = { "TANK", "HEALER", "DAMAGER" }
 -- Localized race name → clientFileString (replaces LibRaces for locale-independent race tokens)
 Data.RaceNameToToken = {}
 do
-  local playableRaces = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 22, 24, 25, 26, 27, 28, 29, 30, 31, 32, 34, 35, 36, 37, 52, 70, 84, 85, 86, 91 }
+  local playableRaces = {
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    22,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    34,
+    35,
+    36,
+    37,
+    52,
+    70,
+    84,
+    85,
+    86,
+    91,
+  }
   for i = 1, #playableRaces do
     local info = C_CreatureInfo.GetRaceInfo(playableRaces[i])
     if info and info.raceName and info.clientFileString then

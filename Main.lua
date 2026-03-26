@@ -881,7 +881,6 @@ function BattleGroundEnemies:RegisterEvents()
       end
     end
   end
-
 end
 
 function BattleGroundEnemies:UnregisterEvents()
@@ -1065,7 +1064,6 @@ local function StopButtonUpdateTicker()
 end
 
 function BattleGroundEnemies:Disable()
-  self:Debug("BattleGroundEnemies disabled")
   self.enabled = false
   self:UnregisterEvents()
   RequestFrame:Hide()
@@ -1079,7 +1077,6 @@ function BattleGroundEnemies:Disable()
 end
 
 function BattleGroundEnemies:Enable()
-  self:Debug("BattleGroundEnemies enabled")
   self.enabled = true
 
   self:RegisterEvents()
@@ -1106,7 +1103,6 @@ function BattleGroundEnemies:Enable()
 end
 
 function BattleGroundEnemies:CheckEnableState()
-  self:Debug("CheckEnableState")
   local states = BattleGroundEnemies:GetActiveStates()
   if states.isInArena and BattleGroundEnemies.db.profile.ShowBGEInArena then
     return self:Enable()
@@ -1340,13 +1336,9 @@ end
 --fires when a arena enemy appears and a frame is ready to be shown
 function BattleGroundEnemies:ARENA_OPPONENT_UPDATE(unitID, unitEvent)
   --unitEvent can be: "seen", "unseen", "destroyed", "cleared"
-  self:Debug("ARENA_OPPONENT_UPDATE", unitID, unitEvent, UnitName(unitID))
-
   if unitEvent == "cleared" then --"unseen", "cleared" or "destroyed"
     local playerButton = self.ArenaIDToPlayerButton[unitID]
     if playerButton then
-      self:Debug("ARENA_OPPONENT_UPDATE cleared", playerButton.DisplayedName)
-
       self.ArenaIDToPlayerButton[unitID] = nil
       playerButton:UpdateEnemyUnitID("Arena", false)
       playerButton:DispatchEvent("ArenaOpponentHidden")
@@ -1584,7 +1576,6 @@ do
       if not (BattleGroundEnemies.DuplicateLog or {})[warnKey] then
         BattleGroundEnemies.DuplicateLog = BattleGroundEnemies.DuplicateLog or {}
         BattleGroundEnemies.DuplicateLog[warnKey] = true
-        -- print(string.format("[BGE] Warning: Unsupported race '%s' for player %s", p.PlayerRace, p.PlayerName or "?"))
       end
     end
     -- Gender: try GetPlayerInfoByGUID (may return nil for unseen enemies)
@@ -1640,6 +1631,17 @@ do
 
     if playerType == "Allies" and IsEnemyFactionUnit(unitID) then
       return nil
+    end
+
+    -- For arena tokens, check the direct ArenaIDToPlayerButton mapping first.
+    -- This is authoritative (set by UpdateArenaPlayers from CreateArenaEnemies data)
+    -- and avoids ambiguity when multiple enemies share the same class.
+    if playerType == "Enemies" and unitID:match("^arena%d+$") and self.ArenaIDToPlayerButton[unitID] then
+      local arenaBtn = self.ArenaIDToPlayerButton[unitID]
+      if not ignoreExistingArena then
+        scanCycleCache[unitID] = arenaBtn
+      end
+      return arenaBtn
     end
 
     -- Check per-cycle cache (same unitID already resolved this scan tick)
@@ -1763,35 +1765,32 @@ do
     end
 
     -- Class+race unique match: disambiguate same-class candidates by race.
-    local unitRaceID = 0
+    -- Uses first return of UnitRace (localized name) which always returns the real race,
+    -- even in mercenary mode (second return / raceID are disguised).
+    local unitRace = nil
     if hasMultipleCandidates then
-      local okRace, _, unitRaceToken = pcall(UnitRace, unitID)
-      if okRace and unitRaceToken then
-        unitRaceID = RaceTokenToID[unitRaceToken] or 0
-        unitRaceID = RaceCollapseMap[unitRaceID] or unitRaceID
-        if unitRaceID > 0 then
-          local match = nil
-          local count = 0
-          for _, button in pairs(self[playerType].Players) do
-            if not ignoreExistingArena and button.UnitIDs and button.UnitIDs.Arena then
-              -- Already identified via arena token, skip
-            elseif button.PlayerDetails and button.PlayerDetails.PlayerClass == unitClassToken then
-              local btnRaceID = RaceTokenToID[button.PlayerDetails.PlayerRace or ""] or 0
-              btnRaceID = RaceCollapseMap[btnRaceID] or btnRaceID
-              if btnRaceID == unitRaceID then
-                count = count + 1
-                match = button
-              end
+      local okRace, unitRaceLocalized = pcall(UnitRace, unitID)
+      if okRace and unitRaceLocalized then
+        unitRace = unitRaceLocalized
+        local match = nil
+        local count = 0
+        for _, button in pairs(self[playerType].Players) do
+          if not ignoreExistingArena and button.UnitIDs and button.UnitIDs.Arena then
+            -- Already identified via arena token, skip
+          elseif button.PlayerDetails and button.PlayerDetails.PlayerClass == unitClassToken then
+            if (button.PlayerDetails.PlayerRace or "") == unitRace then
+              count = count + 1
+              match = button
             end
           end
-          if count == 1 and match then
-            scanCycleCache[unitID] = match
-            stickyPIDCache[unitID] = {
-              button = match,
-              classToken = unitClassToken,
-            }
-            return match
-          end
+        end
+        if count == 1 and match then
+          scanCycleCache[unitID] = match
+          stickyPIDCache[unitID] = {
+            button = match,
+            classToken = unitClassToken,
+          }
+          return match
         end
       end
     end
@@ -1811,10 +1810,8 @@ do
             and button.PlayerDetails.gender == unitGender
           then
             local dominated = true
-            if unitRaceID > 0 then
-              local btnRaceID = RaceTokenToID[button.PlayerDetails.PlayerRace or ""] or 0
-              btnRaceID = RaceCollapseMap[btnRaceID] or btnRaceID
-              dominated = (btnRaceID == unitRaceID)
+            if unitRace then
+              dominated = ((button.PlayerDetails.PlayerRace or "") == unitRace)
             end
             if dominated then
               count = count + 1
@@ -1852,10 +1849,8 @@ do
             and button.PlayerDetails.honorLevel == unitHonor
           then
             local dominated = true
-            if dominated and unitRaceID > 0 then
-              local btnRaceID = RaceTokenToID[button.PlayerDetails.PlayerRace or ""] or 0
-              btnRaceID = RaceCollapseMap[btnRaceID] or btnRaceID
-              dominated = (btnRaceID == unitRaceID)
+            if dominated and unitRace then
+              dominated = ((button.PlayerDetails.PlayerRace or "") == unitRace)
             end
             if dominated and okGender and unitGender and unitGender > 0 then
               dominated = (button.PlayerDetails.gender == unitGender)
@@ -1899,10 +1894,8 @@ do
             and button.PlayerDetails.GuildName == unitGuild
           then
             local dominated = true
-            if dominated and unitRaceID > 0 then
-              local btnRaceID = RaceTokenToID[button.PlayerDetails.PlayerRace or ""] or 0
-              btnRaceID = RaceCollapseMap[btnRaceID] or btnRaceID
-              dominated = (btnRaceID == unitRaceID)
+            if dominated and unitRace then
+              dominated = ((button.PlayerDetails.PlayerRace or "") == unitRace)
             end
             if dominated and okGender and unitGender and unitGender > 0 then
               dominated = (button.PlayerDetails.gender == unitGender)
@@ -2086,7 +2079,6 @@ function BattleGroundEnemies:ScanTargets()
       end
     end
   end
-
 
   -- Scan nameplates (enemy only — faction check prevents friendly→enemy matching)
   local maxNameplate = self.maxNameplateIndex or 40
@@ -2536,15 +2528,16 @@ function BattleGroundEnemies:GetPlayerbuttonByGUID(GUID)
   if not self.PlayerGUIDs then
     return nil
   end
+
   if not GUID then
     return nil
   end
 
   -- Force taint check on GUID and safely access table
   local ok, guidData = pcall(function()
-    local s = tostring(GUID) -- Safe conversion attempt
     return self.PlayerGUIDs[GUID]
   end)
+
   if not ok or not guidData then
     return nil
   end
@@ -2585,9 +2578,6 @@ end
 function BattleGroundEnemies:HandleTargetChanged(newTarget)
   local targetName = self:SafeGetUnitName("target")
 
-  -- if self.db.profile.Debug then
-  -- print("BGE Dbg: HandleTargetChanged. TargetName: " .. tostring(targetName) .. " ButtonFound: " .. tostring(newTarget and newTarget.PlayerDetails.PlayerName or "nil"))
-  -- end
   if BattleGroundEnemies.currentTarget then
     BattleGroundEnemies.currentTarget:UpdateEnemyUnitID("Target", false)
 
@@ -2622,33 +2612,54 @@ function BattleGroundEnemies:PLAYER_TARGET_CHANGED()
   local btn = nil
   local isAlly = false
 
-  -- Check if target is an arena unit first (e.g., Kotmogu orb carriers)
-  -- This is needed because PID matching skips buttons with arena tokens,
-  -- but if the target IS an arena unit, we should use ArenaIDToPlayerButton directly
-  for i = 1, 5 do
-    local arenaID = "arena" .. i
-    if UnitIsUnit("target", arenaID) then
-      btn = self.ArenaIDToPlayerButton[arenaID]
-      break
+  -- Structural ally check FIRST — in solo shuffle everyone is the same faction,
+  -- so faction-based checks can't distinguish. Unit token identity is reliable:
+  -- party*/player = always allies, arena* = always enemies (Blizzard's own approach).
+  if UnitExists("target") then
+    if UnitIsUnit("target", "player") then
+      isAlly = true
+    else
+      for i = 1, 4 do
+        if UnitIsUnit("target", "party" .. i) then
+          isAlly = true
+          break
+        end
+      end
+    end
+    -- In BGs, allies are on raid tokens (raid1-raid40), not party tokens.
+    -- UnitIsFriend works correctly in BGs (different factions). Only skip it
+    -- in arena where solo shuffle puts everyone on the same faction.
+    if not isAlly then
+      local _, instanceType = IsInInstance()
+      if instanceType == "pvp" and UnitIsFriend("player", "target") then
+        isAlly = true
+      end
     end
   end
 
-  -- Fall back to regular PID matching if not an arena unit
-  if not btn then
-    btn = self:GetPlayerbuttonByUnitID("target", "Enemies")
-  end
-
-  -- If not found and target is a friend, check ally frames
-  if not btn and UnitExists("target") and UnitIsFriend("player", "target") then
-    isAlly = true
-    local targetName = GetUnitName("target", true) -- with realm
-    if targetName and BattleGroundEnemies.Allies and BattleGroundEnemies.Allies.Players then
-      btn = BattleGroundEnemies.Allies.Players[targetName]
+  if isAlly then
+    -- Ally target — look up in Allies.Players by name
+    local targetName = GetUnitName("target", true)
+    if targetName and self.Allies and self.Allies.Players then
+      btn = self.Allies.Players[targetName]
       if not btn then
-        -- Try without realm
         targetName = GetUnitName("target", false)
-        btn = BattleGroundEnemies.Allies.Players[targetName]
+        btn = self.Allies.Players[targetName]
       end
+    end
+  else
+    -- Enemy target — check arena token mapping first, then PID matching
+    local matchedArena = nil
+    for i = 1, 5 do
+      local arenaID = "arena" .. i
+      if UnitIsUnit("target", arenaID) then
+        matchedArena = arenaID
+        btn = self.ArenaIDToPlayerButton[arenaID]
+        break
+      end
+    end
+    if not btn then
+      btn = self:GetPlayerbuttonByUnitID("target", "Enemies")
     end
   end
 
@@ -2687,31 +2698,51 @@ function BattleGroundEnemies:PLAYER_FOCUS_CHANGED()
   local btn = nil
   local isAlly = false
 
-  -- Check if focus is an arena unit first (e.g., Kotmogu orb carriers)
-  for i = 1, 4 do
-    local arenaID = "arena" .. i
-    if UnitIsUnit("focus", arenaID) then
-      btn = self.ArenaIDToPlayerButton[arenaID]
-      break
+  -- Structural ally check FIRST — same approach as PLAYER_TARGET_CHANGED.
+  -- Unit token identity is reliable in solo shuffle where factions are shared.
+  if UnitExists("focus") then
+    if UnitIsUnit("focus", "player") then
+      isAlly = true
+    else
+      for i = 1, 4 do
+        if UnitIsUnit("focus", "party" .. i) then
+          isAlly = true
+          break
+        end
+      end
+    end
+    -- In BGs, allies are on raid tokens (raid1-raid40), not party tokens.
+    -- UnitIsFriend works correctly in BGs (different factions). Only skip it
+    -- in arena where solo shuffle puts everyone on the same faction.
+    if not isAlly then
+      local _, instanceType = IsInInstance()
+      if instanceType == "pvp" and UnitIsFriend("player", "focus") then
+        isAlly = true
+      end
     end
   end
 
-  -- Fall back to regular PID matching if not an arena unit
-  if not btn then
-    btn = self:GetPlayerbuttonByUnitID("focus", "Enemies")
-  end
-
-  -- If not found and focus is a friend, check ally frames
-  if not btn and UnitExists("focus") and UnitIsFriend("player", "focus") then
-    isAlly = true
-    local focusName = GetUnitName("focus", true) -- with realm
-    if focusName and BattleGroundEnemies.Allies and BattleGroundEnemies.Allies.Players then
-      btn = BattleGroundEnemies.Allies.Players[focusName]
+  if isAlly then
+    -- Ally focus — look up in Allies.Players by name
+    local focusName = GetUnitName("focus", true)
+    if focusName and self.Allies and self.Allies.Players then
+      btn = self.Allies.Players[focusName]
       if not btn then
-        -- Try without realm
         focusName = GetUnitName("focus", false)
-        btn = BattleGroundEnemies.Allies.Players[focusName]
+        btn = self.Allies.Players[focusName]
       end
+    end
+  else
+    -- Enemy focus — check arena token mapping first, then PID matching
+    for i = 1, 5 do
+      local arenaID = "arena" .. i
+      if UnitIsUnit("focus", arenaID) then
+        btn = self.ArenaIDToPlayerButton[arenaID]
+        break
+      end
+    end
+    if not btn then
+      btn = self:GetPlayerbuttonByUnitID("focus", "Enemies")
     end
   end
 
@@ -2792,16 +2823,16 @@ BattleGroundEnemies.LOSS_OF_CONTROL_UPDATE = BattleGroundEnemies.LOSS_OF_CONTROL
 -- C_LossOfControl is unreliable for party/raid members in tainted addon code, so we use
 -- UNIT_AURA as the trigger and let UpdateLossOfControl fall back to C_UnitAuras when needed.
 function BattleGroundEnemies:UNIT_AURA(unitID, updateInfo)
-  if not unitID then return end
+  if not unitID then
+    return
+  end
 
   -- Route by unit token pattern, NOT UnitIsFriend — UnitIsFriend can return a
   -- secret value in arena (Midnight PvP secrecy). Secret values are truthy in
   -- Lua so "if UnitIsFriend(...)" would match enemy arena units as allies,
   -- causing enemy CC to appear on ally buttons.
   -- Since we use RegisterUnitEvent for specific tokens we know exactly what each is.
-  local isAlly = (unitID == "player")
-              or (unitID:match("^party%d") ~= nil)
-              or (unitID:match("^raid%d") ~= nil)
+  local isAlly = (unitID == "player") or (unitID:match("^party%d") ~= nil) or (unitID:match("^raid%d") ~= nil)
   local isArenaEnemy = (unitID:match("^arena%d") ~= nil)
 
   if isAlly then
@@ -2873,14 +2904,13 @@ function BattleGroundEnemies:ARENA_CROWD_CONTROL_SPELL_UPDATE(unitID, ...)
   end
 
   if playerButton and playerButton.Trinket then
-    playerButton.Trinket:DisplayTrinket(spellId, itemID)
-    -- Only show the icon here — do NOT apply a cooldown. This event announces which
-    -- trinket/CC-break the unit HAS, not that they used it. Cooldowns are applied in
-    -- ARENA_COOLDOWNS_UPDATE when the ability is actually used.
-    -- For enemies we still call UpdateCrowdControlCooldown so that if they already used
-    -- their trinket before we zoned in, we catch the active cooldown immediately.
-    if playerButton.PlayerIsEnemy then
-      playerButton:UpdateCrowdControlCooldown(unitID)
+    -- For allies: show the trinket icon so we can see what CC-break they have.
+    -- For enemies: do NOT show the icon here. This event only announces which
+    -- trinket the unit HAS, not that they used it. Showing it preemptively is
+    -- misleading (especially in solo shuffle where CDs reset between rounds).
+    -- Enemy trinket icons are set in ARENA_COOLDOWNS_UPDATE when actually used.
+    if not playerButton.PlayerIsEnemy then
+      playerButton.Trinket:DisplayTrinket(spellId, itemID)
     end
   end
 
@@ -3102,6 +3132,15 @@ function BattleGroundEnemies:ResetAllDeadStates()
         -- The 3-second timer will clear betweenRounds and re-query
         -- real health once units have respawned.
         playerButton:UpdateHealth(nil, 1, 0, 100, 1)
+        -- Clear stale raid target icons — players swap sides between
+        -- rounds so old markers are no longer valid.
+        playerButton.RaidTargetIconIndex = nil
+        playerButton:DispatchEvent("UpdateRaidTargetIcon", nil)
+        -- Clear trinket icons — players swap sides between rounds
+        -- so an ally's trinket shouldn't carry over to their enemy button.
+        if playerButton.Trinket then
+          playerButton.Trinket:Reset()
+        end
       end
     end
   end
@@ -3146,10 +3185,8 @@ function BattleGroundEnemies:UNIT_TARGET(unitID)
       end
 
       if targetName and type(targetName) == "string" then
-        -- print("BGE Dbg: Snapshot check for " .. targetName)
         local enemyButton = self:SafeGetPlayerButton(self.Enemies.Players, targetName)
         if enemyButton then
-          -- print("BGE Dbg: Snapshot UPDATE for " .. targetName)
           -- Force an update since we have a valid unitID pointing to them right now
           enemyButton:UNIT_HEALTH(targetUnitID)
           enemyButton:UNIT_POWER_FREQUENT(targetUnitID)
@@ -3194,7 +3231,6 @@ local function checkEffectiveEnableStateForArenaFrames()
     changeVisibility(CompactArenaFrame, true)
   end
 end
-
 
 function BattleGroundEnemies:ToggleArenaFrames()
   if InCombatLockdown() then
@@ -3257,20 +3293,23 @@ function BattleGroundEnemies:UpdateArenaPlayers()
     for i = 1, GetNumArenaOpponents() do
       local unitID = "arena" .. i
       self:Debug(unitID, UnitName(unitID))
+      -- Try PID matching first (works when GUID/name aren't secret)
       local playerButton = BattleGroundEnemies:GetPlayerbuttonByUnitID(unitID, "Enemies")
+
+      -- Fallback: find the button directly by its PlayerArenaUnitID.
+      -- In 12.0 combat, GUID and names are secret so PID matching fails.
+      -- CreateArenaEnemies already tagged each button with PlayerArenaUnitID.
+      if not playerButton then
+        for _, btn in pairs(BattleGroundEnemies.Enemies.Players) do
+          if btn.PlayerDetails and btn.PlayerDetails.PlayerArenaUnitID == unitID then
+            playerButton = btn
+            break
+          end
+        end
+      end
+
       if playerButton then
         playerButton:ArenaOpponentShown(unitID)
-      elseif UnitExists(unitID) then
-        -- Match failed but unit exists - retry after short delay (data may not be ready)
-        C_Timer.After(0.15, function()
-          if UnitExists(unitID) then
-            BattleGroundEnemies:ClearScanCycleCache()
-            local btn = BattleGroundEnemies:GetPlayerbuttonByUnitID(unitID, "Enemies")
-            if btn then
-              btn:ArenaOpponentShown(unitID)
-            end
-          end
-        end)
       end
     end
   else
@@ -3492,6 +3531,10 @@ function BattleGroundEnemies:PVP_MATCH_STATE_CHANGED()
     -- Use a short timer rather than waiting for Engaged, which may not
     -- fire again between solo shuffle rounds.
     if state == Enum.PvPMatchState.PostRound then
+      -- Clear cached trinket spells so stale data from the previous round
+      -- doesn't get applied to buttons that swap sides in solo shuffle.
+      self._ccSpellCache = nil
+
       -- Push synthetic 100% then freeze all visual updates until
       -- the next PVP_MATCH_STATE_CHANGED fires (Engaged/Complete).
       self:ResetAllDeadStates()
@@ -3599,6 +3642,7 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
     local classToken = score.classToken
 
     if faction and name and classToken then
+      local side = (faction == self.EnemyFaction) and "ENEMY" or "ALLY"
       if faction == self.EnemyFaction then
         if updateEnemies then
           BattleGroundEnemies.Enemies:AddPlayerToSource(self.consts.PlayerSources.Scoreboard, score)
@@ -3681,6 +3725,13 @@ function BattleGroundEnemies:GROUP_ROSTER_UPDATE()
   )
   self.Allies:AfterPlayerSourceUpdate()
   self.Allies:UpdateAllUnitIDs()
+
+  -- unitIDs are now assigned — refresh raid target icons on ally buttons
+  if self.Allies.Players then
+    for _, allyButton in pairs(self.Allies.Players) do
+      allyButton:UpdateRaidTargetIcon()
+    end
+  end
 
   -- unitIDs are now assigned — refresh trinket icons if we're in an arena.
   local _, instanceType = IsInInstance()

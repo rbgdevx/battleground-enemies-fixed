@@ -118,10 +118,14 @@ function power:AttachToPlayerButton(playerButton)
   end
 
   function playerButton.Power:CheckForNewPowerColor(powerToken)
-    if not powerToken then return end
+    if not powerToken then
+      return
+    end
     -- If we already have a class-confirmed power token, don't let scan results
     -- override it (PID mismatch can feed us the wrong unit's power type)
-    if self.classConfirmedToken then return end
+    if self.classConfirmedToken then
+      return
+    end
 
     if self.powerToken ~= powerToken then
       local color = PowerBarColor[powerToken]
@@ -135,7 +139,9 @@ function power:AttachToPlayerButton(playerButton)
   function playerButton.Power:UnitIdUpdate(unitID)
     if unitID then
       local ok, powerType, powerToken = pcall(UnitPowerType, unitID)
-      if not ok then return end -- compound token rejected
+      if not ok then
+        return
+      end -- compound token rejected
 
       self:CheckForNewPowerColor(powerToken)
       self:UpdatePower(unitID)

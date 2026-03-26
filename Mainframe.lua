@@ -694,7 +694,11 @@ local function CreateMainFrame(playerType)
 
   function mainframe:SetRealPlayerCount(realCount)
     self:Debug("SetRealPlayerCount", realCount)
+    local oldCount = self.RealPlayerCount
     self.RealPlayerCount = realCount
+    if not oldCount or oldCount ~= realCount then
+      self:SelectPlayerCountProfile()
+    end
     self:UpdatePlayerCountText()
   end
 
@@ -786,6 +790,7 @@ local function CreateMainFrame(playerType)
     playerButton.UnitIDs = { TargetedByEnemy = {}, HasAllyUnitID = false }
     playerButton.unitID = nil
     playerButton.unit = nil
+    playerButton.RaidTargetIconIndex = nil
 
     playerButton.powerBarUsedHeight = 0
 
@@ -1044,7 +1049,7 @@ local function CreateMainFrame(playerType)
       PlayerName = name,
       PlayerClass = string.upper(classToken), --apparently it can happen that we get a lowercase "druid" from GetBattlefieldScore() in TBCC, IsTBCC
       PlayerClassColor = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classToken],
-      PlayerRace = race and Data.RaceNameToToken[race] or "Unknown",
+      PlayerRace = race or "Unknown", -- store localized race name directly (merc-mode safe)
       PlayerSpecName = spec, --set to false since we use Mixin() and Mixin doesnt mixin nil values and therefore we dont overwrite values with nil
       PlayerRole = (specData and specData.roleID) -- 1st priority: spec-based role
         or (additionalData and additionalData.groupRole) -- 2nd priority: group role (allies only)
@@ -1403,12 +1408,17 @@ function BattleGroundEnemies.Allies:AddGroupMember(name, isLeader, isAssistant, 
   local raceName, raceFile, raceID = UnitRace(unitID)
   local GUID = UnitGUID(unitID)
 
-  if not GUID or type(GUID) ~= "string" then
+  if not GUID or type(GUID) ~= "string" or (issecretvalue and issecretvalue(GUID)) then
     return
   end
 
   if name and raceName and classToken then
-    local specName = BattleGroundEnemies.specCache[GUID]
+    local ok, specName = pcall(function()
+      return BattleGroundEnemies.specCache[GUID]
+    end)
+    if not ok then
+      specName = nil
+    end
     local groupRole = UnitGroupRolesAssigned(unitID) -- Get assigned role from group
 
     self:AddPlayerToSource(BattleGroundEnemies.consts.PlayerSources.GroupMembers, {
@@ -1684,7 +1694,6 @@ local function UpdateUnitIDForToken(self, tokenKey, unitID)
 
   -- local name = GetUnitName(unitID, true) or "nil"
   -- local found = button and button.PlayerDetails.PlayerName or "nil"
-  -- print("BGE Debug:", tokenKey, unitID, "Name:", name, "=> Button:", found)
 
   local previousButtonKey = tokenKey .. "Button" -- e.g. FocusButton
 

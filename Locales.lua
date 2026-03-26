@@ -119,7 +119,8 @@ L["ContainerPosition"] = "Container position"
 L["ContainerSettings"] = "Container settings"
 L["ConvertCyrillic"] = "Convert Cyrillic"
 L["DisableRoleCheckWarning"] = "Disable Role Check Warning Window"
-L["DisableRoleCheckWarning_Desc"] = "Hides the roster check warning window that appears when entering a battleground or arena"
+L["DisableRoleCheckWarning_Desc"] =
+  "Hides the roster check warning window that appears when entering a battleground or arena"
 L["ConvertCyrillic_Desc"] =
   "Converts cyrillic characters which makes it easier to read names if you are playing against russians"
 L["Cooldown"] = "Cooldown"
@@ -3524,7 +3525,8 @@ elseif LOCALE_ruRU then
   L["DrTrackingSettings"] = "Отслеживание DR"
   L["DrTrackingSettings_Desc"] = "Настройки касающиеся отслеживания DR"
   L["DrTracking_ShowDRCount"] = "Показать счётчик DR"
-  L["DrTracking_ShowDRCount_Desc"] = "Показывает счётчик убывающей отдачи (1/2, 2/2) на иконке"
+  L["DrTracking_ShowDRCount_Desc"] =
+    "Показывает счётчик убывающей отдачи (1/2, 2/2) на иконке"
   L["DurationFilter"] = "Фильтровать по длительности"
   L["DurationFilter_OnlyShowWhenDuration"] =
     "Показывать только если длительность меньше или равна"
