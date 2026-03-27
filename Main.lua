@@ -3628,7 +3628,6 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
   end
   BattleGroundEnemies.Allies:AfterPlayerSourceUpdate()
 
-
   -- Check if we captured a full enemy roster (lobby freeze)
   -- Use instance max player count (per-team) instead of GetBattlefieldTeamInfo
   -- which can return partial counts when enemies fill in gradually (Training Grounds).
