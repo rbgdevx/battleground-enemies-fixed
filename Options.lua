@@ -2210,4 +2210,3 @@ SLASH_BattleGroundEnemies1, SLASH_BattleGroundEnemies2 = "/BattleGroundEnemies",
 SlashCmdList["BattleGroundEnemies"] = function(msg)
   AceConfigDialog:Open("BattleGroundEnemies")
 end
-
