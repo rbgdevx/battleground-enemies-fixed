@@ -1399,56 +1399,20 @@ end
 
 -- Faction check helper: returns true if the unit belongs to the enemy faction.
 -- Uses UnitFactionGroup (string-based) instead of UnitIsEnemy (can return secret values in 12.0).
--- Handles mercenary mode via UnitIsMercenary if available.
--- Returns false if faction can't be determined (safe default = don't match).
-local factionStringToID = { Horde = 0, Alliance = 1 }
--- Returns the resolved faction ID for a unit (0=Horde, 1=Alliance), or nil on failure/secret.
--- Handles mercenary mode (UnitIsMercenary flips the disguised faction).
-local function GetUnitFactionID(unitID)
-  local ok, faction = pcall(UnitFactionGroup, unitID)
-  if not ok or not faction then
-    return nil
+-- Returns true when the unit is likely an enemy.
+-- In BGs (including cross-faction Blitz): uses UnitIsFriend which correctly
+-- reflects team assignment regardless of actual player faction.
+-- In arena: returns true (don't filter — ArenaIDToPlayerButton and structural
+-- checks handle correctness; faction/reaction APIs are unreliable in solo shuffle).
+local function IsEnemyUnit(unitID)
+  local _, instanceType = IsInInstance()
+  if instanceType == "pvp" then
+    return not UnitIsFriend("player", unitID)
   end
-  if issecretvalue and issecretvalue(faction) then
-    return nil
-  end
-  local factionID = factionStringToID[faction]
-  if factionID == nil then
-    return nil
-  end
-  if UnitIsMercenary and UnitIsMercenary(unitID) then
-    factionID = (factionID == 0) and 1 or 0
-  end
-  return factionID
-end
-
--- Returns true when the unit is CONFIRMED to be on the enemy faction.
--- Returns false on failure/secret (conservative: don't block unknown units).
-local function IsEnemyFactionUnit(unitID)
-  local factionID = GetUnitFactionID(unitID)
-  if factionID == nil then
-    return false
-  end
-  if BattleGroundEnemies.EnemyFaction == nil then
-    return true -- faction unknown yet, allow through
-  end
-  return factionID == BattleGroundEnemies.EnemyFaction
+  return true
 end
 -- Expose for Mainframe.lua
-BattleGroundEnemies.IsEnemyFactionUnit = IsEnemyFactionUnit
-
--- Returns true ONLY when the unit is positively confirmed as friendly (our faction).
--- Returns false on failure/secret — never blocks legitimate enemies on uncertainty.
-local function IsConfirmedFriendlyUnit(unitID)
-  local factionID = GetUnitFactionID(unitID)
-  if factionID == nil then
-    return false -- unknown → don't block
-  end
-  if BattleGroundEnemies.AllyFaction == nil then
-    return false -- ally faction unknown yet → don't block
-  end
-  return factionID == BattleGroundEnemies.AllyFaction
-end
+BattleGroundEnemies.IsEnemyUnit = IsEnemyUnit
 
 -- PID Matching System (hoisted to module scope to avoid per-call allocations)
 do
@@ -1624,13 +1588,19 @@ do
       return nil
     end
 
-    -- Reject units of the wrong faction to prevent PID match cross-contamination
-    if playerType == "Enemies" and IsConfirmedFriendlyUnit(unitID) then
-      return nil
-    end
-
-    if playerType == "Allies" and IsEnemyFactionUnit(unitID) then
-      return nil
+    -- Reject units of the wrong side to prevent PID match cross-contamination.
+    -- In BGs (including cross-faction Blitz), use UnitIsFriend/UnitIsEnemy which
+    -- correctly reflect team assignment regardless of actual faction.
+    -- In arena, skip guards entirely — arena tokens use ArenaIDToPlayerButton,
+    -- and target/focus use structural ally checks in the event handlers.
+    local _, instanceType = IsInInstance()
+    if instanceType == "pvp" then
+      if playerType == "Enemies" and UnitIsFriend("player", unitID) then
+        return nil
+      end
+      if playerType == "Allies" and UnitIsEnemy("player", unitID) then
+        return nil
+      end
     end
 
     -- For arena tokens, check the direct ArenaIDToPlayerButton mapping first.
@@ -2007,7 +1977,7 @@ function BattleGroundEnemies:ScanTargets()
     for i = 1, numMembers do
       local targetUnitID = raidTargetUnits[i]
       local sourceUnit = "raid" .. i
-      if targetUnitID and UnitExists(targetUnitID) and IsEnemyFactionUnit(targetUnitID) then
+      if targetUnitID and UnitExists(targetUnitID) and IsEnemyUnit(targetUnitID) then
         local btn = self:GetPlayerbuttonByUnitID(targetUnitID, "Enemies")
         local oldButton = self.Enemies.UnitTargets[sourceUnit]
 
@@ -2037,7 +2007,7 @@ function BattleGroundEnemies:ScanTargets()
     for i = 1, numMembers do
       local targetUnitID = partyTargetUnits[i]
       local sourceUnit = "party" .. i
-      if targetUnitID and UnitExists(targetUnitID) and IsEnemyFactionUnit(targetUnitID) then
+      if targetUnitID and UnitExists(targetUnitID) and IsEnemyUnit(targetUnitID) then
         local btn = self:GetPlayerbuttonByUnitID(targetUnitID, "Enemies")
         local oldButton = self.Enemies.UnitTargets[sourceUnit]
 
@@ -2080,11 +2050,11 @@ function BattleGroundEnemies:ScanTargets()
     end
   end
 
-  -- Scan nameplates (enemy only — faction check prevents friendly→enemy matching)
+  -- Scan nameplates (enemy only)
   local maxNameplate = self.maxNameplateIndex or 40
   for i = 1, maxNameplate do
     local unitID = nameplateUnits[i]
-    if UnitExists(unitID) and IsEnemyFactionUnit(unitID) then
+    if UnitExists(unitID) and IsEnemyUnit(unitID) then
       local btn = self:GetPlayerbuttonByUnitID(unitID, "Enemies")
       if btn then
         -- Persist the Nameplate token if not already assigned to this button.
@@ -2120,7 +2090,7 @@ function BattleGroundEnemies:ScanTargets()
     local targetUnitID = nameplateTargetUnits[i]
 
     -- Track enemy nameplates targeting other enemies
-    if UnitExists(targetUnitID) and IsEnemyFactionUnit(targetUnitID) then
+    if UnitExists(targetUnitID) and IsEnemyUnit(targetUnitID) then
       local btn = self:GetPlayerbuttonByUnitID(targetUnitID, "Enemies")
       local oldButton = self.Enemies.NameplateTargets[sourceUnit]
 
@@ -2246,7 +2216,7 @@ function BattleGroundEnemies:ScanTargets()
 
   -- Scan pettarget (your pet's target — direct reference)
   -- Persist PetTarget token to fill gaps when UNIT_TARGET event missed in combat.
-  if UnitExists("pettarget") and IsEnemyFactionUnit("pettarget") then
+  if UnitExists("pettarget") and IsEnemyUnit("pettarget") then
     local btn = self:GetPlayerbuttonByUnitID("pettarget", "Enemies")
     local oldBtn = self.Enemies.PetTargetButton
     if oldBtn and oldBtn ~= btn then
@@ -2270,7 +2240,7 @@ function BattleGroundEnemies:ScanTargets()
 
   -- Scan focustarget (your focus's target — indirect)
   -- Persist FocusTarget token to fill gaps when UNIT_TARGET event missed in combat.
-  if UnitExists("focustarget") and IsEnemyFactionUnit("focustarget") then
+  if UnitExists("focustarget") and IsEnemyUnit("focustarget") then
     local btn = self:GetPlayerbuttonByUnitID("focustarget", "Enemies")
     local oldBtn = self.Enemies.FocusTargetButton
     if oldBtn and oldBtn ~= btn then
@@ -2301,7 +2271,7 @@ function BattleGroundEnemies:ScanTargets()
     local targetUnitID = arenaTargetUnits[i]
 
     -- Track arena enemies targeting other enemies
-    if UnitExists(targetUnitID) and IsEnemyFactionUnit(targetUnitID) then
+    if UnitExists(targetUnitID) and IsEnemyUnit(targetUnitID) then
       local btn = self:GetPlayerbuttonByUnitID(targetUnitID, "Enemies")
       local oldButton = self.Enemies.ArenaTargets[sourceUnit]
 
@@ -2438,7 +2408,7 @@ function BattleGroundEnemies:ScanTargets()
     for i = 1, numMembers do
       local sourceUnit = "raidpet" .. i
       local targetUnitID = raidPetTargetUnits[i]
-      if targetUnitID and UnitExists(targetUnitID) and IsEnemyFactionUnit(targetUnitID) then
+      if targetUnitID and UnitExists(targetUnitID) and IsEnemyUnit(targetUnitID) then
         local btn = self:GetPlayerbuttonByUnitID(targetUnitID, "Enemies")
         local oldButton = self.Enemies.GroupPetTargets[sourceUnit]
 
@@ -2468,7 +2438,7 @@ function BattleGroundEnemies:ScanTargets()
     for i = 1, numMembers do
       local sourceUnit = "partypet" .. i
       local targetUnitID = partyPetTargetUnits[i]
-      if targetUnitID and UnitExists(targetUnitID) and IsEnemyFactionUnit(targetUnitID) then
+      if targetUnitID and UnitExists(targetUnitID) and IsEnemyUnit(targetUnitID) then
         local btn = self:GetPlayerbuttonByUnitID(targetUnitID, "Enemies")
         local oldButton = self.Enemies.GroupPetTargets[sourceUnit]
 
@@ -3657,6 +3627,7 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
     BattleGroundEnemies.Enemies:AfterPlayerSourceUpdate()
   end
   BattleGroundEnemies.Allies:AfterPlayerSourceUpdate()
+
 
   -- Check if we captured a full enemy roster (lobby freeze)
   -- Use instance max player count (per-team) instead of GetBattlefieldTeamInfo

@@ -1632,8 +1632,7 @@ end
 function BattleGroundEnemies.Enemies:NAME_PLATE_UNIT_ADDED(unitID)
   -- Only process enemy nameplates — friendly nameplates must be ignored
   -- or they can PID-match to enemy buttons and cause false in-range.
-  -- Uses faction check instead of UnitIsEnemy (which returns secret values in 12.0).
-  if not BattleGroundEnemies.IsEnemyFactionUnit(unitID) then
+  if not BattleGroundEnemies.IsEnemyUnit(unitID) then
     return
   end
   -- Clear stale sticky cache for this nameplate (may have been recycled from a different enemy)
@@ -1654,7 +1653,7 @@ function BattleGroundEnemies.Enemies:NAME_PLATE_UNIT_ADDED(unitID)
     -- but this gets us there faster.
     local enemies = self
     C_Timer.After(0.1, function()
-      if UnitExists(unitID) and BattleGroundEnemies.IsEnemyFactionUnit(unitID) then
+      if UnitExists(unitID) and BattleGroundEnemies.IsEnemyUnit(unitID) then
         BattleGroundEnemies:ClearScanCycleCache()
         local btn = enemies:GetPlayerbuttonByUnitID(unitID, "Enemies")
         if btn then
