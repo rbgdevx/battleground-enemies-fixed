@@ -203,7 +203,6 @@ local playerSpells
 ---@field isRatedBG boolean
 ---@field isSoloRBG boolean
 
-BattleGroundEnemies.lobbyRosterCaptured = false
 BattleGroundEnemies.scoreboardFrozen = false
 
 BattleGroundEnemies.states = {
@@ -1717,7 +1716,7 @@ do
       local count = 0
       for _, button in pairs(self[playerType].Players) do
         if not ignoreExistingArena and button.UnitIDs and button.UnitIDs.Arena then
-          -- Already identified via arena token, skip
+        -- Already identified via arena token, skip
         elseif button.PlayerDetails and button.PlayerDetails.PlayerClass == unitClassToken then
           count = count + 1
           match = button
@@ -1746,7 +1745,7 @@ do
         local count = 0
         for _, button in pairs(self[playerType].Players) do
           if not ignoreExistingArena and button.UnitIDs and button.UnitIDs.Arena then
-            -- Already identified via arena token, skip
+          -- Already identified via arena token, skip
           elseif button.PlayerDetails and button.PlayerDetails.PlayerClass == unitClassToken then
             if (button.PlayerDetails.PlayerRace or "") == unitRace then
               count = count + 1
@@ -1773,7 +1772,7 @@ do
         local count = 0
         for _, button in pairs(self[playerType].Players) do
           if not ignoreExistingArena and button.UnitIDs and button.UnitIDs.Arena then
-            -- Already identified via arena token, skip
+          -- Already identified via arena token, skip
           elseif
             button.PlayerDetails
             and button.PlayerDetails.PlayerClass == unitClassToken
@@ -1812,7 +1811,7 @@ do
         local count = 0
         for _, button in pairs(self[playerType].Players) do
           if not ignoreExistingArena and button.UnitIDs and button.UnitIDs.Arena then
-            -- Already identified via arena token, skip
+          -- Already identified via arena token, skip
           elseif
             button.PlayerDetails
             and button.PlayerDetails.PlayerClass == unitClassToken
@@ -1857,7 +1856,7 @@ do
         local count = 0
         for _, button in pairs(self[playerType].Players) do
           if not ignoreExistingArena and button.UnitIDs and button.UnitIDs.Arena then
-            -- Already identified via arena token, skip
+          -- Already identified via arena token, skip
           elseif
             button.PlayerDetails
             and button.PlayerDetails.PlayerClass == unitClassToken
@@ -1897,7 +1896,7 @@ do
     if hasMultipleCandidates then
       for _, button in pairs(self[playerType].Players) do
         if not ignoreExistingArena and button.UnitIDs and button.UnitIDs.Arena then
-          -- Already identified via arena token, skip
+        -- Already identified via arena token, skip
         elseif button.PlayerDetails and button.PlayerDetails.PlayerClass == unitClassToken then
           scanCycleCache[unitID] = button
           stickyPIDCache[unitID] = {
@@ -2575,6 +2574,13 @@ function BattleGroundEnemies:HandleTargetChanged(newTarget)
 end
 
 function BattleGroundEnemies:PLAYER_TARGET_CHANGED()
+  -- Defer off the secure execution path to avoid tainting Blizzard UnitFrame
+  C_Timer.After(0, function()
+    self:PLAYER_TARGET_CHANGED_Deferred()
+  end)
+end
+
+function BattleGroundEnemies:PLAYER_TARGET_CHANGED_Deferred()
   -- Clear stale scan-cycle cache for "target" so we do a fresh lookup
   -- (the previous ScanTargets tick may have cached a different/nil result)
   self:ClearScanCycleCache()
@@ -3044,6 +3050,21 @@ function BattleGroundEnemies:PLAYER_REGEN_ENABLED()
     tbl[funcName](tbl)
   end
   wipe(self.PendingUpdates)
+
+  -- Hide any buttons that were deferred during combat
+  for _, buttons in pairs({
+    self.Enemies and self.Enemies.InactivePlayerButtons,
+    self.Allies and self.Allies.InactivePlayerButtons,
+  }) do
+    if buttons then
+      for _, btn in ipairs(buttons) do
+        if btn.pendingHide then
+          btn:Hide()
+          btn.pendingHide = nil
+        end
+      end
+    end
+  end
 end
 
 function BattleGroundEnemies:PLAYER_REGEN_DISABLED()
@@ -3407,7 +3428,7 @@ function BattleGroundEnemies:ShowRosterCheck()
     f.heading:SetTextColor(1, 1, 1)
 
     f.message = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    f.message:SetText("All players must be present before gates\nopen for BGE to track anyone.")
+    f.message:SetText("All players must be present before gates open\nfor BGE to track enemies (and be clickable).")
     f.message:SetJustifyH("CENTER")
 
     f.progress = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -3481,9 +3502,7 @@ function BattleGroundEnemies:PVP_MATCH_STATE_CHANGED()
   end
 
   if state == Enum.PvPMatchState.Engaged or state == Enum.PvPMatchState.StartUp then
-    if self.lobbyRosterCaptured then
-      self.scoreboardFrozen = true
-    end
+    self.scoreboardFrozen = true
     self.betweenRounds = false
     -- Refresh raid target icons — updates during the lobby were
     -- swallowed by the DispatchEvent block, so icons may be stale
@@ -3491,7 +3510,6 @@ function BattleGroundEnemies:PVP_MATCH_STATE_CHANGED()
     self:RAID_TARGET_UPDATE()
   elseif state == Enum.PvPMatchState.Complete or state == Enum.PvPMatchState.PostRound then
     self.scoreboardFrozen = false
-    self.lobbyRosterCaptured = false
     self:UPDATE_BATTLEFIELD_SCORE() -- Full refresh with readable data
 
     -- Solo shuffle: reset dead states so health bars don't stay empty
@@ -3512,7 +3530,6 @@ function BattleGroundEnemies:PVP_MATCH_STATE_CHANGED()
     end
   elseif state == Enum.PvPMatchState.Inactive then
     self.scoreboardFrozen = false
-    self.lobbyRosterCaptured = false
     self.betweenRounds = false
   end
 end
@@ -3523,6 +3540,32 @@ function BattleGroundEnemies:SetAllyFaction(allyFaction)
 end
 
 function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
+  -- Leaver detection: runs even when scoreboard is frozen, since it only
+  -- removes players and never overwrites the cached enemy list.
+  if self.scoreboardFrozen then
+    local removedAny = false
+    for playerName, playerButton in pairs(self.Enemies.Players) do
+      local guid = playerButton.PlayerDetails and playerButton.PlayerDetails.guid
+      if guid then
+        local info = C_PvP.GetScoreInfoByPlayerGuid(guid)
+        if not info then
+          self.Enemies:RemovePlayer(playerButton)
+          removedAny = true
+        end
+      end
+    end
+    if removedAny then
+      self.Enemies:SortPlayers()
+      -- Update the displayed player count
+      local remainingCount = 0
+      for _ in pairs(self.Enemies.Players) do
+        remainingCount = remainingCount + 1
+      end
+      self.Enemies:SetPlayerCount(remainingCount)
+      self.Enemies:SetRealPlayerCount(remainingCount)
+    end
+  end
+
   -- Guard 1: If scoreboard is frozen (active match), skip entirely
   if self.scoreboardFrozen then
     return
@@ -3536,16 +3579,6 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
       self.scoreboardFrozen = true
       return
     end
-  end
-
-  -- Guard 3: If lobby roster already captured, skip enemy scoreboard update to protect cached list
-  if self.lobbyRosterCaptured then
-    self:SetAllyFaction(self.AllyFaction or 0)
-    local _, _, _, _, numAllies = GetBattlefieldTeamInfo(self.AllyFaction)
-    if numAllies then
-      self.Allies:SetRealPlayerCount(numAllies)
-    end
-    return
   end
 
   self:SetAllyFaction(self.AllyFaction or 0) --set fallback value
@@ -3627,18 +3660,6 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
     BattleGroundEnemies.Enemies:AfterPlayerSourceUpdate()
   end
   BattleGroundEnemies.Allies:AfterPlayerSourceUpdate()
-
-  -- Check if we captured a full enemy roster (lobby freeze)
-  -- Use instance max player count (per-team) instead of GetBattlefieldTeamInfo
-  -- which can return partial counts when enemies fill in gradually (Training Grounds).
-  local maxPlayers = GetCorrectedMaxPlayers()
-  if maxPlayers and maxPlayers > 0 then
-    self.bgMaxPlayers = maxPlayers
-  end
-  local expectedEnemyCount = self.bgMaxPlayers
-  if expectedEnemyCount and expectedEnemyCount > 0 and currentEnemyButtons >= expectedEnemyCount then
-    self.lobbyRosterCaptured = true
-  end
 
   self:UpdateRosterCheck()
 end
@@ -3743,8 +3764,7 @@ function BattleGroundEnemies:PLAYER_ENTERING_WORLD()
   self:StartTargetScanTicker()
   self:DisableTestOrEditmode()
 
-  -- Reset scoreboard freeze flags
-  self.lobbyRosterCaptured = false
+  -- Reset scoreboard freeze flag
   self.scoreboardFrozen = false
 
   self:ClearPIDCaches()

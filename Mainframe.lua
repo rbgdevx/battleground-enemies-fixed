@@ -857,7 +857,12 @@ local function CreateMainFrame(playerType)
       playerButton:IsNoLongerTarging(targetEnemyButton)
     end
 
-    playerButton:Hide()
+    if InCombatLockdown() then
+      playerButton.pendingHide = true
+      BattleGroundEnemies:RegisterEvent("PLAYER_REGEN_ENABLED")
+    else
+      playerButton:Hide()
+    end
 
     table_insert(self.InactivePlayerButtons, playerButton)
     self.Players[playerButton.PlayerDetails.PlayerName] = nil
