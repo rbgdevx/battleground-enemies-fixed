@@ -122,5 +122,11 @@
     "string": "disable",
     "table": "disable",
     "utf8": "disable"
-  }
+  },
+  "Lua.workspace.library": [
+    "c:\\Users\\17186\\.antigravity\\extensions\\ketho.wow-api-0.22.3\\Annotations\\Core"
+  ],
+  "Lua.diagnostics.disable": [
+    "assign-type-mismatch"
+  ]
 }
