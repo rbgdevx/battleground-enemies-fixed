@@ -743,6 +743,11 @@ function BattleGroundEnemies:AddModulesSettings(location, playerCountConfigDefau
     local moduleOptions = BattleGroundEnemies:GetModuleOptions(locationn, moduleFrame.options)
 
     if condidtionFunc(moduleFrame) then
+      -- DR Tracking and Trinket are only useful in arena (1-5 players)
+      local disabledInBracket = (moduleName == "DRTracking" or moduleName == "Trinket")
+        and location.minPlayerCount
+        and location.minPlayerCount > 5
+
       temp[moduleName] = {
         type = "group",
         name = moduleFrame.localizedModuleName,
@@ -754,7 +759,7 @@ function BattleGroundEnemies:AddModulesSettings(location, playerCountConfigDefau
           return Data.SetOption(locationn, option, ...)
         end,
         disabled = function()
-          return not BattleGroundEnemies:IsModuleEnabledOnThisExpansion(moduleName)
+          return disabledInBracket or not BattleGroundEnemies:IsModuleEnabledOnThisExpansion(moduleName)
         end,
         childGroups = "tab",
         args = {
@@ -1724,16 +1729,8 @@ function BattleGroundEnemies:SetupOptions()
             func = self.ToggleTestmode,
             order = 2,
           },
-          Editmode_Enabled = {
-            type = "execute",
-            name = L.Editmode_Toggle,
-            desc = L.Editmode_Toggle_Desc,
-            disabled = function()
-              return InCombatLockdown()
-            end,
-            func = self.ToggleEditmode,
-            order = 2,
-          },
+          -- Editmode button removed — too error-prone; no slash command exposes it
+
           Testmode_ToggleAnimation = {
             type = "execute",
             name = L.Testmode_ToggleAnimation,
