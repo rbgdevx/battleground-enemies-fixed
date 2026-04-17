@@ -283,14 +283,18 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
 
     --this further checks dont seem necessary since they dont seem to rule out any other unitiDs (all unit ids that exist also are a button and are also this frame)
 
-    --[[ BattleGroundEnemies:Debug("UpdateAll", 2)
+    -- BattleGroundEnemies:Debug("UpdateAll", 2)
 
-		local playerButton = BattleGroundEnemies:GetPlayerbuttonByUnitID(unitID)
+    -- local playerButton = BattleGroundEnemies:GetPlayerbuttonByUnitID(unitID)
 
-		if not playerButton then return end
-		BattleGroundEnemies:Debug("UpdateAll", 3)
-		if playerButton ~= self then return	end
-		BattleGroundEnemies:Debug("UpdateAll", 4) ]]
+    -- if not playerButton then
+    --   return
+    -- end
+    -- BattleGroundEnemies:Debug("UpdateAll", 3)
+    -- if playerButton ~= self then
+    --   return
+    -- end
+    -- BattleGroundEnemies:Debug("UpdateAll", 4)
 
     if updateStuffWithEvents then
       self:UNIT_POWER_FREQUENT(unitID)
@@ -1013,7 +1017,6 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     end
 
     local isAlly = not self.PlayerIsEnemy
-
     if not isAlly and not self.isShown then
       return
     end
@@ -1036,36 +1039,24 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       maxHealth = self:FakeUnitHealthMax()
     elseif isAlly then
       local ok, h = pcall(UnitHealth, queryID)
-      if not ok then
-        return
-      end
       local ok2, hMissing = pcall(UnitHealthMissing, queryID)
       local ok3, hMax = pcall(UnitHealthMax, queryID)
-      if not ok3 then
-        return
-      end
       local ok4, hPct = pcall(UnitHealthPercent, queryID, true, CurveConstants.ScaleTo100)
 
-      health = h
+      health = (ok and h) or nil
       healthMissing = (ok2 and hMissing) or nil
       healthPercent = (ok4 and hPct) or nil
-      maxHealth = hMax
+      maxHealth = (ok3 and hMax) or nil
     else
       local ok, h = pcall(UnitHealth, queryID, true)
-      if not ok then
-        return
-      end
       local ok2, hMissing = pcall(UnitHealthMissing, queryID, true)
       local ok3, hMax = pcall(UnitHealthMax, queryID)
-      if not ok3 then
-        return
-      end
       local ok4, hPct = pcall(UnitHealthPercent, queryID, true, CurveConstants.ScaleTo100)
 
-      health = h
+      health = (ok and h) or nil
       healthMissing = (ok2 and hMissing) or nil
       healthPercent = (ok4 and hPct) or nil
-      maxHealth = hMax
+      maxHealth = (ok3 and hMax) or nil
     end
 
     self:UpdateHealth(queryID, health, healthMissing, healthPercent, maxHealth)
@@ -1099,6 +1090,7 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
   -- Shows/Hides targeting indicators for a button
   function playerButton:UpdateTargetIndicators()
     self:DispatchEvent("UpdateTargetIndicators")
+
     local isAlly = false
     local isPlayer = false
 
@@ -1119,31 +1111,28 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
 
     local enemyTargets = i
 
-    --[[
-		if BattleGroundEnemies:GetActiveStates().isRatedBG then
-			if isAlly then
-				if BattleGroundEnemies.db.profile.RBG.EnemiesTargetingAllies_Enabled then
-					if enemyTargets >= (BattleGroundEnemies.db.profile.RBG.EnemiesTargetingAllies_Amount or 1) then
-						local path = LSM:Fetch("sound", BattleGroundEnemies.db.profile.RBG.EnemiesTargetingAllies_Sound,
-							true)
-						if path then
-							PlaySoundFile(path, "Master")
-						end
-					end
-				end
-			end
-			if isPlayer then
-				if BattleGroundEnemies.db.profile.RBG.EnemiesTargetingMe_Enabled then
-					if enemyTargets >= BattleGroundEnemies.db.profile.RBG.EnemiesTargetingMe_Amount then
-						local path = LSM:Fetch("sound", BattleGroundEnemies.db.profile.RBG.EnemiesTargetingMe_Sound, true)
-						if path then
-							PlaySoundFile(path, "Master")
-						end
-					end
-				end
-			end
-		end
-]]
+    -- if BattleGroundEnemies:GetActiveStates().isRatedBG then
+    --   if isAlly then
+    --     if BattleGroundEnemies.db.profile.RBG.EnemiesTargetingAllies_Enabled then
+    --       if enemyTargets >= (BattleGroundEnemies.db.profile.RBG.EnemiesTargetingAllies_Amount or 1) then
+    --         local path = LSM:Fetch("sound", BattleGroundEnemies.db.profile.RBG.EnemiesTargetingAllies_Sound, true)
+    --         if path then
+    --           PlaySoundFile(path, "Master")
+    --         end
+    --       end
+    --     end
+    --   end
+    --   if isPlayer then
+    --     if BattleGroundEnemies.db.profile.RBG.EnemiesTargetingMe_Enabled then
+    --       if enemyTargets >= BattleGroundEnemies.db.profile.RBG.EnemiesTargetingMe_Amount then
+    --         local path = LSM:Fetch("sound", BattleGroundEnemies.db.profile.RBG.EnemiesTargetingMe_Sound, true)
+    --         if path then
+    --           PlaySoundFile(path, "Master")
+    --         end
+    --       end
+    --     end
+    --   end
+    -- end
   end
 
   function playerButton:UpdateRange(inRange, forceUpdate)
@@ -1219,7 +1208,6 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     end
 
     local myInRange = false
-
     -- Range helpers: shortest distance to longest distance.
     -- checkInteractDist (11-28y) -> isItemInRange (38-50y) -> isSpellInRange (15-40y class)
     if UnitExists(unitID) then
@@ -1533,6 +1521,7 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       playerButton[moduleName].moduleName = moduleName
     end
   end
+
   playerButton:SetScript("OnAttributeChanged", function(self, name, value)
     if name == "unit" then
       if value then
