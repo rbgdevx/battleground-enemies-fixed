@@ -229,10 +229,12 @@ function healthBar:AttachToPlayerButton(playerButton)
   function playerButton.healthBar:UpdateHealth(unitID, health, healthMissing, healthPercent, maxHealth)
     -- Fetch live health if arguments are missing
     if not health and unitID then
-      health = UnitHealth(unitID)
+      local ok, h = pcall(UnitHealth, unitID)
+      health = (ok and h) or nil
     end
     if not maxHealth and unitID then
-      maxHealth = UnitHealthMax(unitID)
+      local ok3, hMax = pcall(UnitHealthMax, unitID)
+      maxHealth = (ok3 and hMax) or nil
     end
 
     -- Dead: force health to 0, hide prediction
@@ -246,6 +248,12 @@ function healthBar:AttachToPlayerButton(playerButton)
       playerButton.overAbsorbGlow:Hide()
       playerButton.myHealAbsorb:Hide()
       playerButton.overHealAbsorbGlow:Hide()
+      return
+    end
+
+    -- If pcall fell back to nil, don't clobber the bar — keep prior values.
+    -- SetMinMaxValues/SetValue require numbers and will error on nil.
+    if not health or not maxHealth then
       return
     end
 
@@ -448,9 +456,11 @@ function healthBarText:AttachToPlayerButton(playerButton)
         end
       end
     end
+
     if config.Parent then
       self:SetParent(playerButton:GetAnchor(config.Parent))
     end
+
     local width = config.Width or 500
     if config.UseButtonHeightAsWidth then
       width = playerButton:GetHeight()
