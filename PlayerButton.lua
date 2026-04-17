@@ -1018,12 +1018,13 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       return
     end
 
-    -- For enemies: always query health from the button's primary unitID (self.unitID)
-    -- rather than whatever unitID triggered the event. Different tokens ("target",
-    -- "nameplate3", "raid5target") can return different display-health values for the
-    -- same enemy, causing jitter. The event is just a notification; read from one source.
+    -- Always query health from the button's primary unitID (self.unitID) rather
+    -- than whatever unitID triggered the event. Different tokens ("target",
+    -- "nameplate3", "arena2target") can return different display-health values
+    -- for the same player, causing jitter. Compound tokens like "arena2target"
+    -- are also rejected by UnitHealth in 12.0+.
     local queryID = unitID
-    if not isAlly and self.unitID then
+    if self.unitID then
       queryID = self.unitID
     end
 
@@ -1034,10 +1035,21 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       healthPercent = self:FakeUnitHealthPercent()
       maxHealth = self:FakeUnitHealthMax()
     elseif isAlly then
-      health = UnitHealth(queryID)
-      healthMissing = UnitHealthMissing(queryID)
-      maxHealth = UnitHealthMax(queryID)
-      healthPercent = UnitHealthPercent(queryID, true, CurveConstants.ScaleTo100)
+      local ok, h = pcall(UnitHealth, queryID)
+      if not ok then
+        return
+      end
+      local ok2, hMissing = pcall(UnitHealthMissing, queryID)
+      local ok3, hMax = pcall(UnitHealthMax, queryID)
+      if not ok3 then
+        return
+      end
+      local ok4, hPct = pcall(UnitHealthPercent, queryID, true, CurveConstants.ScaleTo100)
+
+      health = h
+      healthMissing = (ok2 and hMissing) or nil
+      healthPercent = (ok4 and hPct) or nil
+      maxHealth = hMax
     else
       local ok, h = pcall(UnitHealth, queryID, true)
       if not ok then
@@ -1274,8 +1286,9 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     if not self.isShown then
       return
     end
-    -- Use primary unitID for consistency (same reason as UNIT_HEALTH)
-    local queryID = (self.PlayerIsEnemy and self.unitID) or unitID
+    -- Use primary unitID for consistency (same reason as UNIT_HEALTH).
+    -- Avoids compound tokens like "arena2target" which are rejected in 12.0+.
+    local queryID = self.unitID or unitID
     self:DispatchEvent("UpdatePower", queryID, powerToken)
   end
 
