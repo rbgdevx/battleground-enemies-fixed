@@ -2354,7 +2354,7 @@ elseif LOCALE_itIT then
   L["ShowRealmnames_Desc"] = "Mostra il reame del nemico"
   L["ShowTooltips"] = "Mostra suggerimenti"
   L["ShowTooltips_Desc"] =
-    "Mostra i suggerimenti quando sposti il ​​mouse su oggetti come le icone dei monili e dell'aura"
+    "Mostra i suggerimenti quando sposti il mouse su oggetti come le icone dei monili e dell'aura"
   L["Side"] = "Lato"
   L["SideAtObject"] = "Lato all'oggetto"
   L["Size"] = "Dimensione"
@@ -3905,7 +3905,7 @@ elseif LOCALE_zhCN then
   L["BarBackground"] = "背景颜色"
   L["BarHeight_Desc"] = "每行的高度。由于暴雪的功能保护，此设置无法在战斗中使用。"
   L["BarSettings"] = "血条设置"
-  L["BarSettings_Desc"] = "这��可以设置横列。"
+  L["BarSettings_Desc"] = "这里可以设置横列。"
   L["BarTexture"] = "血条材质"
   L["BarWidth_Desc"] = "每行的宽度 ，由于暴雪的战斗保护，此设置无法在战斗中使用。"
   L["BattlegroundSize"] = "战场大小"
@@ -4639,8 +4639,8 @@ elseif LOCALE_zhTW then
   L["OldVersion"] = "舊版本"
   L["OnlyShowForHealers"] = "只顯示補師"
   L["OutOfCombat"] = "非戰鬥中"
-  L["OverwriteMirroredConfirm"] = "是否確定要覆蓋 %​​s 的設定 (使用 %s 的鏡像設定)？"
-  L["OverwriteNormalConfirm"] = "是否確定要覆蓋 %​​s 的設定 (使用 %s 的設定)？"
+  L["OverwriteMirroredConfirm"] = "是否確定要覆蓋 %s 的設定 (使用 %s 的鏡像設定)？"
+  L["OverwriteNormalConfirm"] = "是否確定要覆蓋 %s 的設定 (使用 %s 的設定)？"
   L["PlayerCount"] = "玩家數量"
   L["PlayerCount_Enabled_Desc"] =
     "是否要顯示目前玩家數量的文字。請注意，這個數量可能會和目前的橫列數量不同，因為插件的戰鬥中保護功能或離開隨機戰場的人數。"
