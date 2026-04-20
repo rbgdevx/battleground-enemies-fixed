@@ -4,7 +4,11 @@ local AddonName = ...
 local Data = select(2, ...)
 
 if not Data.L then
-  Data.L = setmetatable({}, { __index = function(_, k) return k end })
+  Data.L = setmetatable({}, {
+    __index = function(_, k)
+      return k
+    end,
+  })
   print("|cffff0000BattleGroundEnemiesFixed|r: Locales.lua failed to load. Reinstall the addon.")
 end
 local L = Data.L

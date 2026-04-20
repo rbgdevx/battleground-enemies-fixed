@@ -366,7 +366,7 @@ function Data.AddPositionSetting(location, moduleName, moduleFrame, playerType)
           },
           RelativePoint = {
             type = "select",
-            name = "Relative Point",
+            name = L.RelativePoint,
             values = Data.AllPositions,
             order = 3,
           },
@@ -440,7 +440,7 @@ function Data.AddPositionSetting(location, moduleName, moduleFrame, playerType)
       },
       UseButtonWidthAsWidth = {
         type = "toggle",
-        name = "Use Button Width", -- Localization key might be needed, using string for now
+        name = L.UseButtonWidth,
         order = 1.5,
         hidden = function()
           return location.UseButtonHeightAsWidth
