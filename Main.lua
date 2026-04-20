@@ -3,7 +3,11 @@ local AddonName = ...
 ---@class Data
 local Data = select(2, ...)
 if not Data.L then
-  Data.L = setmetatable({}, { __index = function(_, k) return k end })
+  Data.L = setmetatable({}, {
+    __index = function(_, k)
+      return k
+    end,
+  })
   print("|cffff0000BattleGroundEnemiesFixed|r: Locales.lua failed to load. Reinstall the addon.")
 end
 local L = Data.L
@@ -2610,8 +2614,7 @@ function BattleGroundEnemies:PLAYER_TARGET_CHANGED_Deferred()
     -- UnitIsFriend works correctly in BGs (different factions). Only skip it
     -- in arena where solo shuffle puts everyone on the same faction.
     if not isAlly then
-      local _, instanceType = IsInInstance()
-      if instanceType == "pvp" and UnitIsFriend("player", "target") then
+      if self.cachedInstanceType == "pvp" and UnitIsFriend("player", "target") then
         isAlly = true
       end
     end
@@ -2620,11 +2623,13 @@ function BattleGroundEnemies:PLAYER_TARGET_CHANGED_Deferred()
   if isAlly then
     -- Ally target — look up in Allies.Players by name
     local targetName = GetUnitName("target", true)
-    if targetName and self.Allies and self.Allies.Players then
+    if type(targetName) == "string" and self.Allies and self.Allies.Players then
       btn = self.Allies.Players[targetName]
       if not btn then
         targetName = GetUnitName("target", false)
-        btn = self.Allies.Players[targetName]
+        if type(targetName) == "string" then
+          btn = self.Allies.Players[targetName]
+        end
       end
     end
   else
@@ -2695,8 +2700,7 @@ function BattleGroundEnemies:PLAYER_FOCUS_CHANGED()
     -- UnitIsFriend works correctly in BGs (different factions). Only skip it
     -- in arena where solo shuffle puts everyone on the same faction.
     if not isAlly then
-      local _, instanceType = IsInInstance()
-      if instanceType == "pvp" and UnitIsFriend("player", "focus") then
+      if self.cachedInstanceType == "pvp" and UnitIsFriend("player", "focus") then
         isAlly = true
       end
     end
@@ -2705,11 +2709,13 @@ function BattleGroundEnemies:PLAYER_FOCUS_CHANGED()
   if isAlly then
     -- Ally focus — look up in Allies.Players by name
     local focusName = GetUnitName("focus", true)
-    if focusName and self.Allies and self.Allies.Players then
+    if type(focusName) == "string" and self.Allies and self.Allies.Players then
       btn = self.Allies.Players[focusName]
       if not btn then
         focusName = GetUnitName("focus", false)
-        btn = self.Allies.Players[focusName]
+        if type(focusName) == "string" then
+          btn = self.Allies.Players[focusName]
+        end
       end
     end
   else
@@ -3689,7 +3695,7 @@ function BattleGroundEnemies:GROUP_ROSTER_UPDATE()
       local name, rank, subgroup, level, localizedClass, classToken, zone, online, isDead, role, isML, combatRole =
         GetRaidRosterInfo(i)
 
-      if name and name ~= self.UserDetails.PlayerName and rank and classToken then
+      if type(name) == "string" and name ~= self.UserDetails.PlayerName and rank and classToken then
         self.Allies:AddGroupMember(name, rank == 2, rank == 1, classToken, "raid" .. i)
         addedCount = addedCount + 1
       end
@@ -3702,7 +3708,7 @@ function BattleGroundEnemies:GROUP_ROSTER_UPDATE()
 
       local classToken = select(2, UnitClass(unitID))
 
-      if name and classToken then
+      if type(name) == "string" and classToken then
         self.Allies:AddGroupMember(name, UnitIsGroupLeader(unitID), UnitIsGroupAssistant(unitID), classToken, unitID)
         addedCount = addedCount + 1
       end
@@ -3776,6 +3782,7 @@ function BattleGroundEnemies:PLAYER_ENTERING_WORLD()
   self.Enemies:RemoveAllPlayersFromAllSources()
   self.Allies:RemoveAllPlayersFromSource(self.consts.PlayerSources.Scoreboard)
   local _, zone = IsInInstance()
+  self.cachedInstanceType = zone
 
   if zone == "pvp" or zone == "arena" then
     if GetBattlefieldArenaFaction then

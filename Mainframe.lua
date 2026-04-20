@@ -74,6 +74,10 @@ local testEvents = {
     if playerButton.isDead then
       return
     end
+    -- DR and Trinket only work in arena (<=5 players); skip for larger team sizes
+    if (BattleGroundEnemies.Testmode.PlayerCountTestmode or 5) > 5 then
+      return
+    end
     -- Trinket testmode: simulate a trinket use via the Trinket module if it exists
     if playerButton.Trinket and playerButton.Trinket.TrinketCheck and BattleGroundEnemies.Testmode.RandomTrinkets then
       local randomTrinket =

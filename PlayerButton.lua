@@ -707,15 +707,17 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
         self:Debug("something went wrong in ApplyModuleSettings")
       end
     until allModulesSet or i > 10 --maxium of 10 tries
+    -- Disabled Power frame is collapsed/repositioned, so anchor highlight to healthBar instead.
+    local bottomAnchor = self.Power.Enabled and self.Power or self.healthBar
     self.MyTarget:SetParent(self)
     self.MyTarget:ClearAllPoints()
     self.MyTarget:SetPoint("TOPLEFT", self.healthBar, "TOPLEFT")
-    self.MyTarget:SetPoint("BOTTOMRIGHT", self.Power, "BOTTOMRIGHT")
+    self.MyTarget:SetPoint("BOTTOMRIGHT", bottomAnchor, "BOTTOMRIGHT")
     self.MyTarget:SetFrameLevel(self.Power:GetFrameLevel() + 5)
     self.MyFocus:SetParent(self)
     self.MyFocus:ClearAllPoints()
     self.MyFocus:SetPoint("TOPLEFT", self.healthBar, "TOPLEFT")
-    self.MyFocus:SetPoint("BOTTOMRIGHT", self.Power, "BOTTOMRIGHT")
+    self.MyFocus:SetPoint("BOTTOMRIGHT", bottomAnchor, "BOTTOMRIGHT")
     self.MyFocus:SetFrameLevel(self.Power:GetFrameLevel() + 5)
   end
 
@@ -942,26 +944,22 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
   end
 
   local maxHealths = {} --key = playerbutton, value = {}
-  local deadPlayers = {}
 
   function playerButton:FakeUnitHealth()
-    local now = GetTime()
-    if deadPlayers[self] then
-      --this player is dead, check if we can revive him
-      if deadPlayers[self] + 26 < now then -- he died more than 26 seconds ago
-        deadPlayers[self] = nil
-      else
-        return 0 -- let the player be dead
-      end
+    -- Dead players stay at 0 until the respawn cooldown on the ObjectiveAndRespawn
+    -- module fires PlayerIsAlive via its OnCooldownDone handler.
+    if self.isDead then
+      return 0
     end
     local maxHealth = self:FakeUnitHealthMax()
 
-    local health = math_random(0, 100)
-    if health == 0 then
-      deadPlayers[self] = now
+    local roll = math_random(0, 100)
+    if roll == 0 then
+      -- Trigger the real dead-state so the graveyard icon and respawn timer show.
+      self:PlayerIsDead()
       return 0
     else
-      return math_floor((health / 100) * maxHealth)
+      return math_floor((roll / 100) * maxHealth)
     end
   end
 
@@ -973,22 +971,6 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       maxHealths[self] = playerMaxHealth
     end
     return maxHealths[self]
-  end
-
-  function playerButton:FakeUnitHealthMissing()
-    local health = self:FakeUnitHealth()
-    local maxHealth = self:FakeUnitHealthMax()
-    return maxHealth - health
-  end
-
-  function playerButton:FakeUnitHealthPercent()
-    local health = self:FakeUnitHealth()
-    local maxHealth = self:FakeUnitHealthMax()
-    if maxHealth > 0 then
-      return (health / maxHealth) * 100 -- Return 0-100 percentage
-    else
-      return 0
-    end
   end
 
   function playerButton:UpdateHealth(unitID, health, healthMissing, healthPercent, maxHealth)
@@ -1033,10 +1015,10 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
 
     local health, healthMissing, healthPercent, maxHealth
     if self.PlayerDetails.isFakePlayer then
-      health = self:FakeUnitHealth()
-      healthMissing = self:FakeUnitHealthMissing()
-      healthPercent = self:FakeUnitHealthPercent()
       maxHealth = self:FakeUnitHealthMax()
+      health = self:FakeUnitHealth()
+      healthMissing = maxHealth - health
+      healthPercent = maxHealth > 0 and (health / maxHealth) * 100 or 0
     elseif isAlly then
       local ok, h = pcall(UnitHealth, queryID)
       local ok2, hMissing = pcall(UnitHealthMissing, queryID)
