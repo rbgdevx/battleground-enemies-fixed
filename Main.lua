@@ -3511,7 +3511,7 @@ function BattleGroundEnemies:PVP_MATCH_STATE_CHANGED()
     self._ccSpellCache = nil
   end
 
-  if state == Enum.PvPMatchState.Engaged or state == Enum.PvPMatchState.StartUp then
+  if state == Enum.PvPMatchState.Engaged then
     self.scoreboardFrozen = true
     self.betweenRounds = false
     -- Refresh raid target icons — updates during the lobby were
