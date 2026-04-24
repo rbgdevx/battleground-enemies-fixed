@@ -1,9 +1,9 @@
-## Interface: 120005, 120001
+## Interface: 120005
 ## Title: BattleGroundEnemiesFixed
-## Version: 12.0.1.30
+## Version: 12.0.5.4
 ## Author: RBGDEV
 ## Category: RBGDEV
-## Notes: Credit to BattleGroundEnemies for the original code. Author: Bullsei
+## Notes: Credit to BattleGroundEnemies for the original code, author: Bullsei
 ## SavedVariables: BattleGroundEnemiesDB
 ## OptionalDeps: Ace3, LibStub, LibRaces-1.0, UTF8, LibSharedMedia-3.0, AceGUI-3.0-SharedMediaWidgets
 ## IconTexture: Interface\AddOns\BattleGroundEnemiesFixed\bge_logo.tga
@@ -26,12 +26,6 @@ Messaging.lua
 ImportExport.lua
 Mainframe.lua
 PlayerButton.lua
-
-Editmode\EditModeMixins.lua
-Editmode\EditModeUtil.lua
-Editmode\EditModeManagerMixin.lua
-Editmode\EditMode.lua
-Editmode\ShrinkUntilTruncateFontStringMixin.lua
 
 Modules\ContainerTemplate.lua
 Modules\HealthBar.lua

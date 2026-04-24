@@ -1,2 +1,30 @@
 .libraries
 .claude
+
+# macOS metadata / junk
+.DS_Store
+._*
+__MACOSX/
+.AppleDouble/
+.LSOverride
+.Spotlight-V100/
+.Trashes/
+.fseventsd/
+.TemporaryItems/
+.DocumentRevisions-V100/
+.apdisk
+.VolumeIcon.icns
+Icon?
+
+# Windows metadata (belt and suspenders since this is a WoW addon)
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+desktop.ini
+
+# Editor / IDE
+.idea/
+*.swp
+*.swo
+*~

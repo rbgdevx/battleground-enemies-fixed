@@ -177,7 +177,6 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     mainframe,
     "SecureUnitButtonTemplate"
   )
-  BattleGroundEnemies.EditMode.EditModeManager:AddFrame(playerButton, "playerButton", L.Button, playerButton)
   playerButton:RegisterForClicks("AnyUp")
   playerButton:SetPropagateMouseMotion(true) --to send the mouse wheel event to the other frame behind it (the mainframe)
   playerButton:Hide()
@@ -312,10 +311,12 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     if not self.PlayerDetails then
       return
     end
-    if self.PlayerDetails.PlayerClass and self.PlayerDetails.PlayerSpecName then
-      local t = Data.Classes[self.PlayerDetails.PlayerClass]
+    local class = self.PlayerDetails.PlayerClass
+    local spec = self.PlayerDetails.PlayerSpecName
+    if class and spec and not (issecretvalue and (issecretvalue(class) or issecretvalue(spec))) then
+      local t = Data.Classes[class]
       if t then
-        t = t[self.PlayerDetails.PlayerSpecName]
+        t = t[spec]
         return t
       end
     end
@@ -576,6 +577,18 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       unitIDs[key] = value
     end
 
+    -- Arena-token click-targeting: when a flag/orb carrier gets assigned an
+    -- arena token, mirror it onto PlayerArenaUnitID so SetBindings wires the
+    -- button's secure `unit` attribute to arenaN. Click = targets the carrier.
+    -- When the arena token is cleared, wipe the field so the attribute drops.
+    -- SetBindings itself handles combat-lockdown deferral via QueueForUpdateAfterCombat.
+    if key == "Arena" and self.PlayerDetails then
+      self.PlayerDetails.PlayerArenaUnitID = value or nil
+      if self.SetBindings then
+        self:SetBindings()
+      end
+    end
+
     -- Priority order: direct references first, then indirect
     -- Direct: Arena, Target, Focus, SoftEnemy, Mouseover, Nameplate, PetTarget
     -- Indirect: TargetTarget, FocusTarget, GroupTarget, GroupPetTarget, NameplateTarget, ArenaTarget
@@ -597,7 +610,8 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       self:UpdateUnitID(unitID, unitID .. "target")
     elseif unitIDs.Ally then
       unitIDs.HasAllyUnitID = true
-      local playerButton = BattleGroundEnemies:GetPlayerbuttonByUnitID(unitIDs.Ally, "Allies")
+      -- Direct token map — no PID matching.
+      local playerButton = BattleGroundEnemies.Allies:GetAllyButtonByUnitID(unitIDs.Ally)
       if playerButton and playerButton == self then
         self:UpdateUnitID(unitIDs.Ally, unitIDs.Ally .. "target")
         unitIDs.HasAllyUnitID = true
@@ -845,11 +859,14 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       end
 
       if self.PlayerIsEnemy then
-        if self.PlayerDetails.PlayerArenaUnitID then --its a arena enemy
+        if self.PlayerDetails.PlayerArenaUnitID then --its a arena enemy / flag/orb carrier
+          -- Secure unit-action targeting via the arenaN token. Works in combat,
+          -- no macrotext / no PlayerName needed (and PlayerName is secret
+          -- post-12.0.5 anyway). Left-click targets, right-click focuses.
           newAttributes.unit = self.PlayerDetails.PlayerArenaUnitID
-          -- newAttributes.type1 = "target"    -- type1 = LEFT-Click to target
-          -- newAttributes.type2 = "focus"     -- type2 = Right-Click to focus
-          -- setupUsualAttributes = false
+          newAttributes.type1 = "target"
+          newAttributes.type2 = "focus"
+          setupUsualAttributes = false
         end
       else
         if BattleGroundEnemies.db.profile[self.PlayerType].UseClique then
@@ -860,27 +877,35 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       end
 
       if setupUsualAttributes then
-        newAttributes.type1 = "macro" -- type1 = LEFT-Click
-        newAttributes.type2 = "macro" -- type2 = Right-Click
-        newAttributes.type3 = "macro" -- type3 = Middle-Click
+        -- Macrotext path needs a non-secret PlayerName (string-concat into
+        -- "/targetexact <name>" would taint on a secret). Skip the whole
+        -- macrotext build when the name is secret — clicks become no-ops
+        -- until a cleanse/cache path exists or the player gets an arena token.
+        local pname = self.PlayerDetails and self.PlayerDetails.PlayerName
+        local nameIsSecret = issecretvalue and pname and issecretvalue(pname)
+        if not nameIsSecret then
+          newAttributes.type1 = "macro" -- type1 = LEFT-Click
+          newAttributes.type2 = "macro" -- type2 = Right-Click
+          newAttributes.type3 = "macro" -- type3 = Middle-Click
 
-        for i = 1, 3 do
-          local bindingType = self.config[mouseButtons[i] .. "Type"]
+          for i = 1, 3 do
+            local bindingType = self.config[mouseButtons[i] .. "Type"]
 
-          if bindingType == "Target" then
-            newAttributes["macrotext" .. i] = "/cleartarget\n" .. "/targetexact " .. self.PlayerDetails.PlayerName
-          elseif bindingType == "Focus" then
-            newAttributes["macrotext" .. i] = "/targetexact "
-              .. self.PlayerDetails.PlayerName
-              .. "\n"
-              .. "/focus\n"
-              .. "/targetlasttarget"
-          else -- Custom
-            local macrotext = (BattleGroundEnemies.db.profile[self.PlayerType][mouseButtons[i] .. "Value"]):gsub(
-              "%%n",
-              self.PlayerDetails.PlayerName
-            )
-            newAttributes["macrotext" .. i] = macrotext
+            if bindingType == "Target" then
+              newAttributes["macrotext" .. i] = "/cleartarget\n" .. "/targetexact " .. self.PlayerDetails.PlayerName
+            elseif bindingType == "Focus" then
+              newAttributes["macrotext" .. i] = "/targetexact "
+                .. self.PlayerDetails.PlayerName
+                .. "\n"
+                .. "/focus\n"
+                .. "/targetlasttarget"
+            else -- Custom
+              local macrotext = (BattleGroundEnemies.db.profile[self.PlayerType][mouseButtons[i] .. "Value"]):gsub(
+                "%%n",
+                self.PlayerDetails.PlayerName
+              )
+              newAttributes["macrotext" .. i] = macrotext
+            end
           end
         end
       end
@@ -1131,6 +1156,15 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       return
     end
 
+    -- When the user is dead, nothing can actually be in-range of them
+    -- (they can't cast or attack). Force everyone to the "out of range"
+    -- dimmed alpha so the panel doesn't mislead the user mid-corpse-run.
+    -- forceUpdate so this applies even if wasInRange was true at death.
+    if not BattleGroundEnemies.states.userIsAlive then
+      inRange = false
+      forceUpdate = true
+    end
+
     -- Default to FALSE (Faded) if inRange is nil (unknown state/stealth/vanished)
     -- Previously true, but that caused vanished Rogues to appear fully visible.
     if inRange == nil then
@@ -1179,13 +1213,18 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     if not unitID then
       return
     end
-    if not BattleGroundEnemies.states.userIsAlive then
-      return
-    end
     if not self.config then
       return
     end
     if not self.config.RangeIndicator_Enabled then
+      return
+    end
+    -- Dead-user guard: don't try to compute real range (can't cast from
+    -- a corpse anyway), but DO still push a "false" through UpdateRange
+    -- so this button gets dimmed. Previously we early-returned here,
+    -- which left any button created post-death at default full alpha.
+    if not BattleGroundEnemies.states.userIsAlive then
+      self:UpdateRange(false, true)
       return
     end
 
@@ -1318,10 +1357,11 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     local newTargetPlayerButton
 
     if self.TargetUnitID then
-      -- Try enemies first, then allies (target could be on either team)
+      -- Try enemies first (PID matcher), then allies (direct token/UnitIsUnit
+      -- resolution — no PID). Target can be on either team.
       newTargetPlayerButton = BattleGroundEnemies:GetPlayerbuttonByUnitID(self.TargetUnitID, "Enemies")
       if not newTargetPlayerButton then
-        newTargetPlayerButton = BattleGroundEnemies:GetPlayerbuttonByUnitID(self.TargetUnitID, "Allies")
+        newTargetPlayerButton = BattleGroundEnemies.Allies:GetAllyButtonByUnitID(self.TargetUnitID)
       end
     end
 
@@ -1381,6 +1421,9 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
   playerButton.Counter = {}
   playerButton:SetScript("OnEvent", function(self, event, ...)
     --self.Counter[event] = (self.Counter[event] or 0) + 1
+    if not BattleGroundEnemies:IsInPvPInstance() then
+      return
+    end
     if self.db and self.db.profile and self.db.profile.DebugBlizzEvents then
       self:Debug("OnEvent", event, ...)
     end
@@ -1474,16 +1517,6 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
   for moduleName, moduleFrame in pairs(BattleGroundEnemies.ButtonModules) do
     if moduleFrame.AttachToPlayerButton then
       local moduleOnFrame = moduleFrame:AttachToPlayerButton(playerButton)
-      if moduleOnFrame then
-        if not moduleFrame.attachSettingsToButton and not (moduleFrame.flags and moduleFrame.flags.noEditMode) then
-          BattleGroundEnemies.EditMode.EditModeManager:AddFrame(
-            moduleOnFrame,
-            moduleName,
-            moduleFrame.localizedModuleName,
-            playerButton
-          )
-        end
-      end
 
       playerButton[moduleName].GetConfig = function(self)
         self.config = playerButton.playerCountConfig.ButtonModules[moduleName]

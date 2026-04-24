@@ -223,8 +223,9 @@ function power:AttachToPlayerButton(playerButton)
 
     local t = Data.Classes[playerDetails.PlayerClass]
     if t then
-      if playerDetails.PlayerSpecName then
-        t = t[playerDetails.PlayerSpecName]
+      local spec = playerDetails.PlayerSpecName
+      if spec and not (issecretvalue and issecretvalue(spec)) then
+        t = t[spec]
       end
     end
     if t then
