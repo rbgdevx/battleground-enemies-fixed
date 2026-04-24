@@ -1729,7 +1729,6 @@ function BattleGroundEnemies:SetupOptions()
             func = self.ToggleTestmode,
             order = 2,
           },
-          -- Editmode button removed — too error-prone; no slash command exposes it
 
           Testmode_ToggleAnimation = {
             type = "execute",
@@ -1828,19 +1827,6 @@ function BattleGroundEnemies:SetupOptions()
                 name = " ",
                 width = "full",
                 order = 1.2,
-              },
-              DisableRoleCheckWarning = {
-                type = "toggle",
-                name = L.DisableRoleCheckWarning,
-                desc = L.DisableRoleCheckWarning_Desc,
-                width = "double",
-                order = 1.5,
-              },
-              Spacer2 = {
-                type = "description",
-                name = " ",
-                width = "full",
-                order = 1.6,
               },
               EnableMouseWheelPlayerTargeting = {
                 type = "toggle",

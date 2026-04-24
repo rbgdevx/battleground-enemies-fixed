@@ -75,12 +75,12 @@ local orbSpells = {
 }
 
 -- Helper: Find the correct button for an arena orb carrier
--- Uses full PID matching and handles bidirectional cleanup when orbs change hands
--- Searches both Enemies and Allies since arena tokens cover both factions
+-- Enemy side uses PID matching (needed — arena tokens to unknown-identity
+-- enemies). Ally side uses the direct token map — no PID for allies, ever.
 local function GetOrbCarrierButton(unitID)
   BattleGroundEnemies:ClearScanCycleCache()
   local matchedButton = BattleGroundEnemies:GetPlayerbuttonByUnitID(unitID, "Enemies", true)
-    or BattleGroundEnemies:GetPlayerbuttonByUnitID(unitID, "Allies", true)
+    or BattleGroundEnemies.Allies:GetAllyButtonByUnitID(unitID)
 
   if not matchedButton then
     return nil
@@ -123,20 +123,13 @@ local function CheckAllOrbs()
   isCheckingOrbs = true
 
   local ok, err = pcall(function()
-    -- First: clear stale arena tokens for buttons that no longer have orbs
-    for i = 1, 4 do
-      local unitID = "arena" .. i
-      local button = BattleGroundEnemies.ArenaIDToPlayerButton[unitID]
-      if button then
-        if not UnitExists(unitID) then
-          BattleGroundEnemies.ArenaIDToPlayerButton[unitID] = nil
-          button:UpdateEnemyUnitID("Arena", false)
-          button:DispatchEvent("ArenaOpponentHidden")
-        end
-      end
-    end
+    -- No "clear stale" sweep here: ARENA_OPPONENT_UPDATE with
+    -- unitEvent=="cleared" is the authoritative signal for arena-token
+    -- invalidation (see Main.lua:1268). Using UnitExists as our own
+    -- invalidation check produces false positives (e.g., user dies, all
+    -- arena tokens report nonexistent, we wrongly wipe the carrier icon).
 
-    -- Second: show orbs on players who have them
+    -- Show orbs on players who have them
     for i = 1, 4 do
       local unitID = "arena" .. i
       if UnitExists(unitID) then
@@ -160,12 +153,11 @@ local function CheckAllOrbs()
 end
 
 -- Helper: Find the correct button for a flag carrier
--- Uses full PID matching and handles bidirectional cleanup when flags change hands
--- Searches both Enemies and Allies since arena tokens cover both factions
+-- Enemy side uses PID matching. Ally side uses the direct token map — no PID.
 local function GetFlagCarrierButton(unitID)
   BattleGroundEnemies:ClearScanCycleCache()
   local matchedButton = BattleGroundEnemies:GetPlayerbuttonByUnitID(unitID, "Enemies", true)
-    or BattleGroundEnemies:GetPlayerbuttonByUnitID(unitID, "Allies", true)
+    or BattleGroundEnemies.Allies:GetAllyButtonByUnitID(unitID)
 
   if not matchedButton then
     return nil
@@ -206,21 +198,13 @@ local function CheckAllFlags()
   isCheckingFlags = true
 
   local ok, err = pcall(function()
-    -- First: clear stale arena tokens for buttons that no longer have flags
-    for i = 1, 2 do
-      local unitID = "arena" .. i
-      local button = BattleGroundEnemies.ArenaIDToPlayerButton[unitID]
-      if button then
-        if not UnitExists(unitID) then
-          -- This arena unit doesn't exist anymore (flag was dropped/captured)
-          BattleGroundEnemies.ArenaIDToPlayerButton[unitID] = nil
-          button:UpdateEnemyUnitID("Arena", false)
-          button:DispatchEvent("ArenaOpponentHidden")
-        end
-      end
-    end
+    -- No "clear stale" sweep here: ARENA_OPPONENT_UPDATE with
+    -- unitEvent=="cleared" is the authoritative signal for arena-token
+    -- invalidation (see Main.lua:1268). Using UnitExists as our own
+    -- invalidation check produces false positives (e.g., user dies, all
+    -- arena tokens report nonexistent, we wrongly wipe the carrier icon).
 
-    -- Second: show flags on players who have them
+    -- Show flags on players who have them
     for i = 1, 2 do
       local unitID = "arena" .. i
       if UnitExists(unitID) then
@@ -243,6 +227,14 @@ local function CheckAllFlags()
   end
 end
 
+-- Public refresh: re-scans orb and flag carriers right now.
+-- Called by BGEF's UBS handler so mid-match joiners / reloads pick up state
+-- that was established before their per-button PLAYER_ENTERING_WORLD fired.
+function BattleGroundEnemies:RefreshObjectiveCarriers()
+  CheckAllOrbs()
+  CheckAllFlags()
+end
+
 -- Module-level event frame for objective detection triggers
 -- Supplements per-button UPDATE_UI_WIDGET handlers with additional event sources
 local objectiveEventFrame = CreateFrame("Frame")
@@ -250,6 +242,11 @@ objectiveEventFrame:RegisterEvent("UPDATE_UI_WIDGET")
 objectiveEventFrame:RegisterEvent("UNIT_CLASSIFICATION_CHANGED")
 objectiveEventFrame:RegisterEvent("ARENA_OPPONENT_UPDATE")
 objectiveEventFrame:SetScript("OnEvent", function(self, event, ...)
+  -- PvE hard gate: UPDATE_UI_WIDGET fires constantly for raid boss widgets.
+  -- Stop all objective processing outside PvP instances.
+  if not BattleGroundEnemies:IsInPvPInstance() then
+    return
+  end
   if event == "UPDATE_UI_WIDGET" then
     local widgetInfo = ...
     if not widgetInfo or not widgetInfo.widgetID then
@@ -313,6 +310,9 @@ function objectiveAndRespawn:AttachToPlayerButton(playerButton)
   frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 
   frame:SetScript("OnEvent", function(self, event, ...)
+    if not BattleGroundEnemies:IsInPvPInstance() then
+      return
+    end
     if self[event] then
       self[event](self, ...)
     end
@@ -336,15 +336,10 @@ function objectiveAndRespawn:AttachToPlayerButton(playerButton)
   end)
 
   function frame:Reset()
-    if BattleGroundEnemies.states.editmodeActive and self.Enabled then
-      self:Show()
-      self.Icon:SetTexture(GetSpellTexture(8326))
-    else
-      self:Hide()
-      self.Icon:SetTexture()
-      if self.AuraText:GetFont() then
-        self:HideText()
-      end
+    self:Hide()
+    self.Icon:SetTexture()
+    if self.AuraText:GetFont() then
+      self:HideText()
     end
     self.ActiveRespawnTimer = false
     self.Cooldown:Clear() -- this doesn't seem to trigger OnCooldownDone for some reason, i am sure it used to in the past

@@ -456,7 +456,6 @@ Data.defaultSettings = {
     ShowTooltips = false,
     EnableMouseWheelPlayerTargeting = false,
     ConvertCyrillic = true,
-    DisableRoleCheckWarning = false,
 
     PlayerCount = {
       Text = {

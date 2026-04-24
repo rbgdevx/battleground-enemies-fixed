@@ -371,7 +371,7 @@ function healthBarText:AttachToPlayerButton(playerButton)
 
     local ok, err = pcall(function()
       -- Test mode: Use fake health values (old math-based approach works here)
-      if BattleGroundEnemies:IsTestmodeOrEditmodeActive() then
+      if BattleGroundEnemies:IsTestmodeActive() then
         if not health or not maxHealth then
           health = 50000
           healthPercent = 50

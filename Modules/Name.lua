@@ -100,32 +100,56 @@ function name:AttachToPlayerButton(playerButton)
       return
     end
 
-    local name, realm = strsplit("-", playerName, 2)
+    -- 12.0.5: Ambiguate is Blizzard's official realm-stripping helper,
+    -- added specifically for the new PvP-secrecy regime. Works on both
+    -- normal strings and secret strings without tainting (that's its
+    -- whole purpose — previously strsplit/utf8/gsub would taint on
+    -- secret names, forcing a passthrough-as-Name-Realm fallback).
+    --   "short" → "Name"          (realm stripped)
+    --   "none"  → "Name-Realm"    (realm preserved when present)
+    -- pcall-guarded just in case, with legacy strsplit fallback for
+    -- older clients that don't expose Ambiguate.
+    local context = self.config.ShowRealmnames and "none" or "short"
+    local ok, resolvedName
+    if Ambiguate then
+      ok, resolvedName = pcall(Ambiguate, playerName, context)
+    end
+    if not ok or type(resolvedName) ~= "string" then
+      -- Ambiguate unavailable or returned unexpected type — fall back to
+      -- the pre-12.0.5 path. Secret names passthrough without string ops.
+      if issecretvalue and issecretvalue(playerName) then
+        self.fs:SetText(playerName)
+        self.fs.DisplayedName = nil
+        return
+      end
+      local bareName, realm = strsplit("-", playerName, 2)
+      resolvedName = (realm and self.config.ShowRealmnames) and (bareName .. "-" .. realm) or bareName
+    end
 
-    if BattleGroundEnemies.db.profile.ConvertCyrillic then
-      playerName = ""
-      for i = 1, name:utf8len() do
-        local c = name:utf8sub(i, i)
-
+    -- Cyrillic → Roman transliteration requires string iteration which
+    -- would taint on a secret-tagged result. Skip the conversion in that
+    -- case; the displayed name is still correct (just not transliterated).
+    local resolvedIsSecret = issecretvalue and issecretvalue(resolvedName)
+    if BattleGroundEnemies.db.profile.ConvertCyrillic and not resolvedIsSecret then
+      local converted = ""
+      for i = 1, resolvedName:utf8len() do
+        local c = resolvedName:utf8sub(i, i)
         if Data.CyrillicToRomanian[c] then
-          playerName = playerName .. Data.CyrillicToRomanian[c]
+          converted = converted .. Data.CyrillicToRomanian[c]
           if i == 1 then
-            playerName = playerName:gsub("^.", string.upper) --uppercase the first character
+            converted = converted:gsub("^.", string.upper) --uppercase the first character
           end
         else
-          playerName = playerName .. c
+          converted = converted .. c
         end
       end
-      --self.DisplayedName = self.DisplayedName:gsub("-.",string.upper) --uppercase the realm name
-      name = playerName
+      resolvedName = converted
     end
 
-    if realm and self.config.ShowRealmnames then
-      name = name .. "-" .. realm
-    end
-
-    self.fs:SetText(name)
-    self.fs.DisplayedName = name
+    self.fs:SetText(resolvedName)
+    -- DisplayedName is read elsewhere for comparisons; storing a secret
+    -- value would taint those callers. Stash nil when secret.
+    self.fs.DisplayedName = resolvedIsSecret and nil or resolvedName
   end
 
   container.ApplyAllSettings = function(self)
