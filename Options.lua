@@ -906,6 +906,15 @@ local function addEnemyAndAllySettings(self, mainFrame)
         type = "toggle",
         name = ENABLE,
         order = 1,
+        -- Toggling Enable on a live panel can leave state-drift artifacts
+        -- (ghost buttons, dup rows) due to WoW's secure frame lockdown
+        -- rules interacting with mid-combat re-init. A UI reload gives a
+        -- clean cold start every time.
+        confirm = function() return L.ReloadRequired end,
+        set = function(option, ...)
+          Data.SetOption(location, option, ...)
+          ReloadUI()
+        end,
       },
       CustomPlayerCountConfigsEnabled = {
         type = "toggle",
@@ -1295,6 +1304,12 @@ local function addEnemyAndAllySettings(self, mainFrame)
           type = "toggle",
           name = ENABLE,
           order = 1,
+          -- Same reload rationale as the GeneralSettings Enable toggle.
+          confirm = function() return L.ReloadRequired end,
+          set = function(option, ...)
+            Data.SetOption(playerCountLocation, option, ...)
+            ReloadUI()
+          end,
         },
         --Fake = Data.AddVerticalSpacing(2),
         CopySettings = {
@@ -1801,11 +1816,24 @@ function BattleGroundEnemies:SetupOptions()
             type = "toggle",
             name = L.EnableInArenas,
             order = 2,
+            -- Toggling the per-instance-type enable on a live panel hits
+            -- the same state-drift issues as the per-panel Enable toggle.
+            -- Force a reload for a clean cold start.
+            confirm = function() return L.ReloadRequired end,
+            set = function(option, ...)
+              Data.SetOption(location, option, ...)
+              ReloadUI()
+            end,
           },
           ShowBGEInBattleground = {
             type = "toggle",
             name = L.EnableInBattlegrounds,
             order = 3,
+            confirm = function() return L.ReloadRequired end,
+            set = function(option, ...)
+              Data.SetOption(location, option, ...)
+              ReloadUI()
+            end,
           },
           miscellaneous = {
             type = "group",

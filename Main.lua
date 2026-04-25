@@ -3172,6 +3172,42 @@ function BattleGroundEnemies:PLAYER_REGEN_ENABLED()
       mf:Show()
     end
   end
+
+  -- Button-count watchdog: if combat-deferred cleanup or some other state
+  -- drift left more buttons in PlayerList than the authoritative NumPlayers,
+  -- force a clean rebuild now that combat is over. This is a safety net for
+  -- the duplicate-frame bug that's been hard to reproduce on demand —
+  -- whatever path leaks extra buttons, we self-correct here.
+  for _, mf in ipairs({ self.Enemies, self.Allies }) do
+    if mf and mf.PlayerList and mf.NumPlayers
+      and #mf.PlayerList > mf.NumPlayers
+      and mf.NumPlayers > 0
+    then
+      print(
+        "BGE Watchdog: PlayerList(",
+        #mf.PlayerList,
+        ") > NumPlayers(",
+        mf.NumPlayers,
+        ") for",
+        mf.PlayerType,
+        "— forcing rebuild"
+      )
+      -- Force the next UBS / GROUP_ROSTER_UPDATE to fully process by
+      -- clearing the signature gate and re-running AfterPlayerSourceUpdate.
+      -- AfterPlayerSourceUpdate's CreateOrRemovePlayerButtons will now
+      -- (out of combat) actually remove untouched buttons.
+      if mf.PlayerType == BattleGroundEnemies.consts.PlayerTypes.Enemies then
+        BattleGroundEnemies._lastEnemyCount = nil
+        if BattleGroundEnemies.UPDATE_BATTLEFIELD_SCORE then
+          BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
+        end
+      else
+        if BattleGroundEnemies.GROUP_ROSTER_UPDATE then
+          BattleGroundEnemies:GROUP_ROSTER_UPDATE()
+        end
+      end
+    end
+  end
 end
 
 function BattleGroundEnemies:PLAYER_REGEN_DISABLED()
@@ -3639,13 +3675,36 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
   -- mark-and-sweep cycle further down — any button whose scoreboard row
   -- is missing this tick gets status=2 (untouched) and is removed.
 
-  -- Fallback chain: last-known → UnitFactionGroup(player) → 0. Prevents the
-  -- default-0 trap where Alliance players' own team becomes "enemies".
-  -- AllyFaction is only used to identify which scoreboard rows belong to the
-  -- enemy team (the "not us" side). Ally frames themselves are driven entirely
-  -- by raidN/partyN tokens from GROUP_ROSTER_UPDATE — scoreboard is never read
-  -- for allies.
-  self:SetAllyFaction(self.AllyFaction or playerFactionAsInt() or 0)
+  -- AllyFaction is only used to identify which scoreboard rows belong to
+  -- the enemy team. Ally frames themselves are driven entirely by
+  -- raidN/partyN tokens from GROUP_ROSTER_UPDATE — scoreboard is never
+  -- read for allies.
+  --
+  -- Cache-miss re-derive: PLAYER_ENTERING_WORLD clears the cache and tries
+  -- to set from the live API (GetBattlefieldArenaFaction = the user's
+  -- assigned team number for this match, merc-safe). If the API wasn't
+  -- ready at zone-in, AllyFaction is still nil here and we retry. Once
+  -- set, we trust the cached value — no per-tick re-derivation overhead.
+  -- Merc-detection further below handles the rare case where the API
+  -- stays nil but the user happens to be mercing (only fires when the
+  -- user's name on the scoreboard is non-secret enough to compare).
+  if self.AllyFaction == nil then
+    local team = GetBattlefieldArenaFaction and GetBattlefieldArenaFaction()
+    if team then
+      self:SetAllyFaction(team)
+    elseif playerFactionAsInt() then
+      -- Last-resort fallback: character's home faction. Wrong for mercs
+      -- but better than blocking the whole pipeline. Merc-detection or
+      -- the next zone-in will correct.
+      self:SetAllyFaction(playerFactionAsInt())
+    end
+  end
+
+  -- If we still couldn't determine faction, bail — processing scoreboard
+  -- rows without a valid EnemyFaction would mis-bucket everyone.
+  if self.AllyFaction == nil then
+    return
+  end
 
   local _, _, _, _, numEnemies = GetBattlefieldTeamInfo(self.EnemyFaction)
 
@@ -3757,18 +3816,28 @@ function BattleGroundEnemies:GROUP_ROSTER_UPDATE()
 
   local addedCount = 0
 
+  -- Capture the user's own raid role so we can pass it to the explicit
+  -- self-add below (the raid loop skips self, but GetRaidRosterInfo is
+  -- the only source for raid-assigned MAINTANK / MAINASSIST).
+  local selfRaidRole = nil
+
   if IsInRaid() then
     for i = 1, numGroupMembers do -- the player itself only shows up here when he is in a raid
       local name, rank, subgroup, level, localizedClass, classToken, zone, online, isDead, role, isML, combatRole =
         GetRaidRosterInfo(i)
 
-      if type(name) == "string" and name ~= self.UserDetails.PlayerName and rank and classToken then
-        self.Allies:AddGroupMember(name, rank == 2, rank == 1, classToken, "raid" .. i)
+      if type(name) == "string" and name == self.UserDetails.PlayerName then
+        selfRaidRole = role
+      elseif type(name) == "string" and rank and classToken then
+        -- `role` is the 10th return: "MAINTANK", "MAINASSIST", or "" for
+        -- regular members. Pass it through so the sort comparator can
+        -- put MT/MA tiers before plain TANK.
+        self.Allies:AddGroupMember(name, rank == 2, rank == 1, classToken, "raid" .. i, role)
         addedCount = addedCount + 1
       end
     end
   else
-    -- we are in a party, 5 man group
+    -- we are in a party, 5 man group — no raid-assigned roles exist here.
     for i = 1, numGroupMembers do
       local unitID = "party" .. i
       local name = GetUnitName(unitID, true)
@@ -3789,7 +3858,8 @@ function BattleGroundEnemies:GROUP_ROSTER_UPDATE()
     self.UserDetails.isGroupLeader,
     self.UserDetails.isGroupAssistant,
     self.UserDetails.PlayerClass,
-    "player"
+    "player",
+    selfRaidRole
   )
   self.Allies:AfterPlayerSourceUpdate()
   self.Allies:UpdateAllUnitIDs()
@@ -3860,18 +3930,41 @@ function BattleGroundEnemies:PLAYER_ENTERING_WORLD()
   -- Allies are roster-driven (GROUP_ROSTER_UPDATE); never sourced from scoreboard.
   -- Reset UBS signature cache so the first UBS of this match always processes.
   self._lastEnemyCount = nil
+
+  local prevInstanceType = self.cachedInstanceType
   local _, zone = IsInInstance()
   self.cachedInstanceType = zone
 
+  -- Detect if we just crossed a BG/arena boundary (entering OR leaving).
+  -- PLAYER_ENTERING_WORLD also fires for mid-match transitions like
+  -- vehicle phases or /reload — those should NOT wipe faction state since
+  -- we're still in the same match and the cached value is valid.
+  local enteringPvP = (zone == "pvp" or zone == "arena")
+    and prevInstanceType ~= zone
+  local leavingPvP = (prevInstanceType == "pvp" or prevInstanceType == "arena")
+    and zone ~= prevInstanceType
+  if enteringPvP or leavingPvP then
+    -- Clear stale faction cache from the previous match. UBS will re-derive
+    -- on first tick. Without this, a wrong value from a prior zone-in (when
+    -- GetBattlefieldArenaFaction wasn't ready yet) would persist into the
+    -- new match — exactly the "team showing as Horde when we're Alliance"
+    -- bug.
+    self.AllyFaction = nil
+    self.EnemyFaction = nil
+  end
+
   if zone == "pvp" or zone == "arena" then
-    if GetBattlefieldArenaFaction then
-      -- Can return nil early in a BG (before full initialization) and on
-      -- mid-match reload. Fall through to UnitFactionGroup-based detection
-      -- so we don't default to 0/Horde for Alliance players.
-      self:SetAllyFaction(GetBattlefieldArenaFaction() or playerFactionAsInt() or 1)
-    else
-      self:SetAllyFaction(playerFactionAsInt() or 1) -- set a real value, we get data later from GetBattlefieldScore()
+    -- Try to set faction immediately if the API is ready. If it isn't
+    -- (common at zone-in), leave AllyFaction nil and UBS's first tick will
+    -- retry. This is the merc-safe path because GetBattlefieldArenaFaction
+    -- returns the user's TEAM number, not their character's home faction.
+    local team = GetBattlefieldArenaFaction and GetBattlefieldArenaFaction()
+    if team then
+      self:SetAllyFaction(team)
     end
+    -- Note: deliberately NOT falling back to playerFactionAsInt() here —
+    -- that returns the character's home faction, which is wrong for mercs.
+    -- UBS retries with the live API a moment later when it's ready.
 
     if zone == "arena" then
       BattleGroundEnemies.states.real.isInArena = true
