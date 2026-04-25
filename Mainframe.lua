@@ -24,6 +24,7 @@ local UnitRace = UnitRace
 
 --lua
 local math_floor = math.floor
+local math_huge = math.huge
 local math_max = math.max
 local math_min = math.min
 local math_random = math.random
@@ -1309,57 +1310,94 @@ local function CreateMainFrame(playerType)
       BlizzardsSortOrder[CLASS_SORT_ORDER[i]] = i --key = ENGLISH CLASS NAME, value = number
     end
 
+    -- Build the 6-tier role ordering from the user's 3-role setting.
+    -- The UI dropdown only exposes TANK / HEALER / DAMAGER. Internally
+    -- we expand the "TANK" slot into three sub-tiers in Blizzard's order
+    -- (MAINTANK → MAINASSIST → TANK) and always append NONE as the last
+    -- tier (not user-exposed). This matches Blizzard's CRFSort_Role priority.
+    --
+    -- Example: RoleSortingOrder = "HEALER_TANK_DAMAGER" →
+    --   HEALER=1, MAINTANK=2, MAINASSIST=3, TANK=4, DAMAGER=5, NONE=6
+    -- Example: "TANK_HEALER_DAMAGER" →
+    --   MAINTANK=1, MAINASSIST=2, TANK=3, HEALER=4, DAMAGER=5, NONE=6
+    local function buildRoleTiers()
+      local parts = { strsplit("_", BattleGroundEnemies.db.profile.RoleSortingOrder or "HEALER_TANK_DAMAGER") }
+      local tiers = {}
+      local t = 0
+      for i = 1, #parts do
+        local role = parts[i]
+        if role == "TANK" then
+          t = t + 1
+          tiers.MAINTANK = t
+          t = t + 1
+          tiers.MAINASSIST = t
+          t = t + 1
+          tiers.TANK = t
+        elseif role == "HEALER" then
+          t = t + 1
+          tiers.HEALER = t
+        elseif role == "DAMAGER" then
+          t = t + 1
+          tiers.DAMAGER = t
+        end
+      end
+      -- NONE always last, whether or not it appeared in the user setting.
+      t = t + 1
+      tiers.NONE = t
+      return tiers
+    end
+
+    -- Blizzard's chain for picking a player's effective role (CRFSort_Role):
+    --   1) Raid-assigned role (GetRaidRosterInfo 10th return: "MAINTANK" or
+    --      "MAINASSIST") — wins if present.
+    --   2) UnitGroupRolesAssigned result stored in PlayerRole (TANK / HEALER /
+    --      DAMAGER / NONE), derived upstream from specData or groupRole.
+    --   3) Otherwise NONE.
+    -- Secret values at any stage are treated as "not present" and skipped.
+    local function effectiveRole(details)
+      local raid = details.raidRole
+      if raid and raid ~= "" and not (issecretvalue and issecretvalue(raid)) then
+        if raid == "MAINTANK" or raid == "MAINASSIST" then
+          return raid
+        end
+      end
+      local role = details.PlayerRole
+      if role and not (issecretvalue and issecretvalue(role)) then
+        return role
+      end
+      return "NONE"
+    end
+
     local function PlayerSortingByRoleClassName(playerA, playerB) -- a and b are playerButtons
-      local detailsPlayerA = playerA.PlayerDetails
-      local detailsPlayerB = playerB.PlayerDetails
+      local tiers = buildRoleTiers()
+      local detailsA = playerA.PlayerDetails
+      local detailsB = playerB.PlayerDetails
 
-      --BattleGroundEnemies.db.profile.RoleSortingOrder is somethng like "HEALER_TANK_DAMAGER"
-
-      local roleT = { strsplit("_", BattleGroundEnemies.db.profile.RoleSortingOrder) }
-      local reverseRoleT = {}
-
-      for k, v in pairs(roleT) do
-        reverseRoleT[v] = k
+      local roleA = effectiveRole(detailsA)
+      local roleB = effectiveRole(detailsB)
+      local tierA = tiers[roleA] or tiers.NONE
+      local tierB = tiers[roleB] or tiers.NONE
+      if tierA ~= tierB then
+        return tierA < tierB
       end
 
-      local roleA = detailsPlayerA.PlayerRole
-      local roleB = detailsPlayerB.PlayerRole
-      local roleSortingNumerPlayerA = (roleA and not (issecretvalue and issecretvalue(roleA))) and reverseRoleT[roleA]
-        or nil
-      local roleSortingNumerPlayerB = (roleB and not (issecretvalue and issecretvalue(roleB))) and reverseRoleT[roleB]
-        or nil
-
-      local function namesComparable(a, b)
-        return a and b and not (issecretvalue and (issecretvalue(a) or issecretvalue(b)))
-      end
-
-      if roleSortingNumerPlayerA and roleSortingNumerPlayerB then
-        if roleSortingNumerPlayerA == roleSortingNumerPlayerB then
-          if BlizzardsSortOrder[detailsPlayerA.PlayerClass] == BlizzardsSortOrder[detailsPlayerB.PlayerClass] then
-            if
-              namesComparable(detailsPlayerA.PlayerName, detailsPlayerB.PlayerName)
-              and detailsPlayerA.PlayerName < detailsPlayerB.PlayerName
-            then
-              return true
-            end
-          elseif BlizzardsSortOrder[detailsPlayerA.PlayerClass] < BlizzardsSortOrder[detailsPlayerB.PlayerClass] then
-            return true
-          end
-        elseif roleSortingNumerPlayerA < roleSortingNumerPlayerB then
-          return true
+      -- Alphabetical tiebreak (matches Blizzard's CRFSort_Alphabetical).
+      -- Ally names are non-secret in practice, but guard anyway to avoid
+      -- tainting if a row ever comes through with a secret name.
+      local nameA = detailsA.PlayerName
+      local nameB = detailsB.PlayerName
+      local nameAOk = nameA and not (issecretvalue and issecretvalue(nameA))
+      local nameBOk = nameB and not (issecretvalue and issecretvalue(nameB))
+      if nameAOk and nameBOk then
+        if nameA ~= nameB then
+          return nameA < nameB
         end
-      else
-        if BlizzardsSortOrder[detailsPlayerA.PlayerClass] == BlizzardsSortOrder[detailsPlayerB.PlayerClass] then
-          if
-            namesComparable(detailsPlayerA.PlayerName, detailsPlayerB.PlayerName)
-            and detailsPlayerA.PlayerName < detailsPlayerB.PlayerName
-          then
-            return true
-          end
-        elseif BlizzardsSortOrder[detailsPlayerA.PlayerClass] < BlizzardsSortOrder[detailsPlayerB.PlayerClass] then
-          return true
-        end
+      elseif nameAOk ~= nameBOk then
+        return nameAOk and true or false -- non-secret names before secret ones
       end
+
+      -- Full tie. Stable fallback by button identity keeps strict weak ordering.
+      return tostring(playerA) < tostring(playerB)
     end
 
     local function PlayerSortingByArenaUnitID(playerA, playerB) -- a and b are playerButtons
@@ -1410,10 +1448,14 @@ local function CreateMainFrame(playerType)
 
  ]]
 
-      -- 12.0.5: sorting disabled. Under secret-value rules the comparators
-      -- can't do reliable Role/Class/Name comparisons (secret strings/numbers
-      -- taint on compare, guarded paths return false→unstable Lua sort).
-      -- Use PlayerList insertion order until we can sort reliably.
+      -- 12.0.5: enemy sorting in BGs is still disabled because scoreboard-
+      -- sourced role/class/name are often secret — comparators can't do
+      -- reliable compares, resulting in unstable Lua sort.
+      -- ALLY sorting IS safe though: ally role comes from
+      -- UnitGroupRolesAssigned (non-secret), class from GetRaidRosterInfo /
+      -- UnitClass on a raid/party token (non-secret), and ally names are
+      -- never secret. So PlayerSortingByRoleClassName works cleanly for
+      -- allies in both arena and BG.
       if BattleGroundEnemies.states.real.isInArena then
         if self.PlayerType == BattleGroundEnemies.consts.PlayerTypes.Enemies then
           local usePlayerSortingByArenaUnitID = true
@@ -1428,16 +1470,37 @@ local function CreateMainFrame(playerType)
             table.sort(newPlayerOrder, PlayerSortingByArenaUnitID)
           end
         else
-          local usePlayerSortingByUnitID = true -- fake players don't have unitid
+          -- Arena allies: prefer role-based sort (user-configured priority
+          -- via RoleSortingOrder). Fall back to CRFSort_Group_ (unitID order)
+          -- when role data isn't yet populated for everyone.
+          local allHaveRoles = true
           for i = 1, #newPlayerOrder do
-            if not newPlayerOrder[i].PlayerDetails.unitID then
-              usePlayerSortingByUnitID = false
+            if not newPlayerOrder[i].PlayerDetails.PlayerRole then
+              allHaveRoles = false
               break
             end
           end
-          if usePlayerSortingByUnitID then
-            table.sort(newPlayerOrder, CRFSort_Group_)
+          if allHaveRoles then
+            table.sort(newPlayerOrder, PlayerSortingByRoleClassName)
+          else
+            local usePlayerSortingByUnitID = true -- fake players don't have unitid
+            for i = 1, #newPlayerOrder do
+              if not newPlayerOrder[i].PlayerDetails.unitID then
+                usePlayerSortingByUnitID = false
+                break
+              end
+            end
+            if usePlayerSortingByUnitID then
+              table.sort(newPlayerOrder, CRFSort_Group_)
+            end
           end
+        end
+      else
+        -- BG. Sort allies by role (using RoleSortingOrder setting from the
+        -- options panel). Enemies stay in insertion order until scoreboard
+        -- secrecy is resolved.
+        if self.PlayerType == BattleGroundEnemies.consts.PlayerTypes.Allies then
+          table.sort(newPlayerOrder, PlayerSortingByRoleClassName)
         end
       end
 
@@ -1616,7 +1679,7 @@ function BattleGroundEnemies.Allies:GroupInSpecT_Update(event, GUID, unitID, inf
   BattleGroundEnemies:GROUP_ROSTER_UPDATE()
 end
 
-function BattleGroundEnemies.Allies:AddGroupMember(name, isLeader, isAssistant, classToken, unitID)
+function BattleGroundEnemies.Allies:AddGroupMember(name, isLeader, isAssistant, classToken, unitID, raidRole)
   local raceName, raceFile, raceID = UnitRace(unitID)
   local GUID = UnitGUID(unitID)
 
@@ -1644,6 +1707,11 @@ function BattleGroundEnemies.Allies:AddGroupMember(name, isLeader, isAssistant, 
         GUID = GUID,
         unitID = unitID,
         groupRole = groupRole, -- Store group role for fallback
+        -- Raid-assigned role ("MAINTANK" / "MAINASSIST"); empty string / nil
+        -- for regular members and for non-raid groups (parties). Used as a
+        -- higher-priority signal than UnitGroupRolesAssigned in the sort
+        -- comparator so MT/MA tiers can come before plain TANK.
+        raidRole = raidRole,
       },
     })
   end
