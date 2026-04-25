@@ -910,7 +910,9 @@ local function addEnemyAndAllySettings(self, mainFrame)
         -- (ghost buttons, dup rows) due to WoW's secure frame lockdown
         -- rules interacting with mid-combat re-init. A UI reload gives a
         -- clean cold start every time.
-        confirm = function() return L.ReloadRequired end,
+        confirm = function()
+          return L.ReloadRequired
+        end,
         set = function(option, ...)
           Data.SetOption(location, option, ...)
           ReloadUI()
@@ -1305,7 +1307,9 @@ local function addEnemyAndAllySettings(self, mainFrame)
           name = ENABLE,
           order = 1,
           -- Same reload rationale as the GeneralSettings Enable toggle.
-          confirm = function() return L.ReloadRequired end,
+          confirm = function()
+            return L.ReloadRequired
+          end,
           set = function(option, ...)
             Data.SetOption(playerCountLocation, option, ...)
             ReloadUI()
@@ -1819,7 +1823,9 @@ function BattleGroundEnemies:SetupOptions()
             -- Toggling the per-instance-type enable on a live panel hits
             -- the same state-drift issues as the per-panel Enable toggle.
             -- Force a reload for a clean cold start.
-            confirm = function() return L.ReloadRequired end,
+            confirm = function()
+              return L.ReloadRequired
+            end,
             set = function(option, ...)
               Data.SetOption(location, option, ...)
               ReloadUI()
@@ -1829,7 +1835,9 @@ function BattleGroundEnemies:SetupOptions()
             type = "toggle",
             name = L.EnableInBattlegrounds,
             order = 3,
-            confirm = function() return L.ReloadRequired end,
+            confirm = function()
+              return L.ReloadRequired
+            end,
             set = function(option, ...)
               Data.SetOption(location, option, ...)
               ReloadUI()
