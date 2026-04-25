@@ -3179,10 +3179,7 @@ function BattleGroundEnemies:PLAYER_REGEN_ENABLED()
   -- the duplicate-frame bug that's been hard to reproduce on demand —
   -- whatever path leaks extra buttons, we self-correct here.
   for _, mf in ipairs({ self.Enemies, self.Allies }) do
-    if mf and mf.PlayerList and mf.NumPlayers
-      and #mf.PlayerList > mf.NumPlayers
-      and mf.NumPlayers > 0
-    then
+    if mf and mf.PlayerList and mf.NumPlayers and #mf.PlayerList > mf.NumPlayers and mf.NumPlayers > 0 then
       print(
         "BGE Watchdog: PlayerList(",
         #mf.PlayerList,
@@ -3939,10 +3936,8 @@ function BattleGroundEnemies:PLAYER_ENTERING_WORLD()
   -- PLAYER_ENTERING_WORLD also fires for mid-match transitions like
   -- vehicle phases or /reload — those should NOT wipe faction state since
   -- we're still in the same match and the cached value is valid.
-  local enteringPvP = (zone == "pvp" or zone == "arena")
-    and prevInstanceType ~= zone
-  local leavingPvP = (prevInstanceType == "pvp" or prevInstanceType == "arena")
-    and zone ~= prevInstanceType
+  local enteringPvP = (zone == "pvp" or zone == "arena") and prevInstanceType ~= zone
+  local leavingPvP = (prevInstanceType == "pvp" or prevInstanceType == "arena") and zone ~= prevInstanceType
   if enteringPvP or leavingPvP then
     -- Clear stale faction cache from the previous match. UBS will re-derive
     -- on first tick. Without this, a wrong value from a prior zone-in (when
