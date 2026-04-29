@@ -14,24 +14,24 @@ local ButtonFrameTemplate_HidePortrait = ButtonFrameTemplate_HidePortrait
 local CreateFrame = CreateFrame
 
 local CopyTable = CopyTable
-  or function(settings, shallow)
-    local copy = {}
-    for k, v in pairs(settings) do
-      if type(v) == "table" and not shallow then
-        copy[k] = CopyTable(v)
-      else
-        copy[k] = v
+    or function(settings, shallow)
+      local copy = {}
+      for k, v in pairs(settings) do
+        if type(v) == "table" and not shallow then
+          copy[k] = CopyTable(v)
+        else
+          copy[k] = v
+        end
       end
+      return copy
     end
-    return copy
-  end
 
 local MergeTable = MergeTable
-  or function(destination, source)
-    for k, v in pairs(source) do
-      destination[k] = v
+    or function(destination, source)
+      for k, v in pairs(source) do
+        destination[k] = v
+      end
     end
-  end
 
 local frameShown
 function BattleGroundEnemies:CreateAceGUIImportExportFrame(mode)

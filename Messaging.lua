@@ -17,19 +17,22 @@ local BGE_VERSION = "11.2.0.6"
 local AddonPrefix = "BGE"
 local versionQueryString, versionResponseString = "Q^%s^%i", "V^%s^%i"
 local profileQueryString, profileResponseString = "PQ^%s", "PR^%s"
-local targetCallVolunteerQueryString = "TVQ^%s" -- wil be send to all the viewers to show if you are volunteering vor target calling
+local targetCallVolunteerQueryString =
+"TVQ^%s"                                        -- wil be send to all the viewers to show if you are volunteering vor target calling
 local targetCallVolunteerResponseString = "TVR^%s"
-local targetCallCallerQueryString = "TCQ" -- wil be send to all the viewers to show if you are volunteering vor target calling
-local targetCallCallerResponseString = "TCV^%s" -- wil be send to all the viewers to show if you are volunteering vor target calling
+local targetCallCallerQueryString =
+"TCQ"                                           -- wil be send to all the viewers to show if you are volunteering vor target calling
+local targetCallCallerResponseString =
+"TCV^%s"                                        -- wil be send to all the viewers to show if you are volunteering vor target calling
 
 local highestVersion = BGE_VERSION
 local playerData = {}
 
 local function generateStrings()
   versionQueryString =
-    versionQueryString:format(BGE_VERSION, BattleGroundEnemies.db.profile.shareActiveProfile and 1 or 0)
+      versionQueryString:format(BGE_VERSION, BattleGroundEnemies.db.profile.shareActiveProfile and 1 or 0)
   versionResponseString =
-    versionResponseString:format(BGE_VERSION, BattleGroundEnemies.db.profile.shareActiveProfile and 1 or 0)
+      versionResponseString:format(BGE_VERSION, BattleGroundEnemies.db.profile.shareActiveProfile and 1 or 0)
   return {
     vq = versionQueryString,
     vr = versionResponseString,
@@ -97,8 +100,8 @@ SlashCmdList.BattleGroundEnemiesVersion = function()
 
   local results = {
     current = {}, --users of the current version
-    old = {}, -- users of an old version
-    none = {}, -- no BGE detected
+    old = {},     -- users of an old version
+    none = {},    -- no BGE detected
   }
   local texts = {
     current = L.CurrentVersion,
@@ -285,8 +288,8 @@ function BattleGroundEnemies:CHAT_MSG_ADDON(addonPrefix, message, channel, sende
       local requestFromPlayerName = Ambiguate(info1, "none") -- name of the player he wants that profile from
 
       if
-        requestFromPlayerName == BattleGroundEnemies.UserDetails.PlayerName
-        and BattleGroundEnemies.db.profile.shareActiveProfile
+          requestFromPlayerName == BattleGroundEnemies.UserDetails.PlayerName
+          and BattleGroundEnemies.db.profile.shareActiveProfile
       then --sender wants my profile
         self:SendCurrentProfileTo(sender)
       end

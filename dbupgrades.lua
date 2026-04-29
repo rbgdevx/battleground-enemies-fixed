@@ -9,11 +9,11 @@ local BattleGroundEnemies = BattleGroundEnemies
 local currentDBVersion = 2
 
 local MergeTable = MergeTable
-  or function(destination, source)
-    for k, v in pairs(source) do
-      destination[k] = v
+    or function(destination, source)
+      for k, v in pairs(source) do
+        destination[k] = v
+      end
     end
-  end
 
 --destination is the new db table which already has the new defaults in them
 --just copy over the exsting settings without altering the structure of the destination table
@@ -97,8 +97,9 @@ function BattleGroundEnemies:UpgradeProfile(profile, profileName)
       if not beSilent then
         BattleGroundEnemies:Information(
           "profile "
-            .. profileName
-            .. " is not compatible with the current version of BattleGroundEnemies due to the fact that many options got merged into a single one its not possible to convert it. It will be reset to default settings"
+          .. profileName
+          ..
+          " is not compatible with the current version of BattleGroundEnemies due to the fact that many options got merged into a single one its not possible to convert it. It will be reset to default settings"
         )
       end
 

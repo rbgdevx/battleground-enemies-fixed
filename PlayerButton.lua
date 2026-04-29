@@ -8,9 +8,9 @@ local BattleGroundEnemies = BattleGroundEnemies
 local L = Data.L
 
 local FAKE_TRINKET = true
-local FAKE_TRINKET_DURATION = 120 -- DPS / Tank
+local FAKE_TRINKET_DURATION = 120       -- DPS / Tank
 local FAKE_TRINKET_HEALER_DURATION = 90 -- Healer (30s reduction)
-local FAKE_TRINKET_SPELL = 208683 -- Gladiator's Medallion (for icon texture)
+local FAKE_TRINKET_SPELL = 208683       -- Gladiator's Medallion (for icon texture)
 ---@class PlayerDetails: table
 ---@field PlayerName string
 ---@field PlayerClass string
@@ -61,19 +61,19 @@ local LRC = LibStub("LibRangeCheck-3.0")
 -- Format: { spellID, range_yards }
 -- Ordered shortest range to longest range in comments.
 local classHarmSpells = {
-  ROGUE = { 2094, 15 }, -- Blind (15y)
-  EVOKER = { 361469, 25 }, -- Living Flame (25y)
-  WARRIOR = { 57755, 30 }, -- Heroic Throw (30y)
-  PALADIN = { 20271, 30 }, -- Judgment (30y)
-  DEATHKNIGHT = { 47541, 30 }, -- Death Coil (30y)
+  ROGUE = { 2094, 15 },         -- Blind (15y)
+  EVOKER = { 361469, 25 },      -- Living Flame (25y)
+  WARRIOR = { 57755, 30 },      -- Heroic Throw (30y)
+  PALADIN = { 20271, 30 },      -- Judgment (30y)
+  DEATHKNIGHT = { 47541, 30 },  -- Death Coil (30y)
   DEMONHUNTER = { 185123, 30 }, -- Throw Glaive (30y)
-  HUNTER = { 185358, 40 }, -- Arcane Shot (40y)
-  MAGE = { 116, 40 }, -- Frostbolt (40y)
-  WARLOCK = { 686, 40 }, -- Shadow Bolt (40y)
-  PRIEST = { 585, 40 }, -- Smite (40y)
-  SHAMAN = { 188196, 40 }, -- Lightning Bolt (40y)
-  DRUID = { 8921, 40 }, -- Moonfire (40y)
-  MONK = { 117952, 40 }, -- Crackling Jade Lightning (40y)
+  HUNTER = { 185358, 40 },      -- Arcane Shot (40y)
+  MAGE = { 116, 40 },           -- Frostbolt (40y)
+  WARLOCK = { 686, 40 },        -- Shadow Bolt (40y)
+  PRIEST = { 585, 40 },         -- Smite (40y)
+  SHAMAN = { 188196, 40 },      -- Lightning Bolt (40y)
+  DRUID = { 8921, 40 },         -- Moonfire (40y)
+  MONK = { 117952, 40 },        -- Crackling Jade Lightning (40y)
 }
 
 -- Helper 1: CheckInteractDistance (out of combat only, shortest to longest)
@@ -340,15 +340,16 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     end
 
     local unit = self:GetUnitID()
-    local newIndex = forceIndex --used for testmode, otherwise it will just be nil and overwritten when one actually exists
+    local newIndex =
+    forceIndex                  --used for testmode, otherwise it will just be nil and overwritten when one actually exists
     if unit then
       newIndex = GetRaidTargetIndex(unit)
       if newIndex and not issecretvalue(newIndex) then
         if newIndex == 8 and (not self.RaidTargetIconIndex or self.RaidTargetIconIndex ~= 8) then
           -- Skull icon (8) is the target calling marker
           if
-            BattleGroundEnemies:GetActiveStates().isRatedBG
-            and BattleGroundEnemies.db.profile.RBG.TargetCalling_NotificationEnable
+              BattleGroundEnemies:GetActiveStates().isRatedBG
+              and BattleGroundEnemies.db.profile.RBG.TargetCalling_NotificationEnable
           then
             local LSM = LibStub("LibSharedMedia-3.0")
             local path = LSM:Fetch("sound", BattleGroundEnemies.db.profile.RBG.TargetCalling_NotificationSound, true)
@@ -593,18 +594,18 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     -- Direct: Arena, Target, Focus, SoftEnemy, Mouseover, Nameplate, PetTarget
     -- Indirect: TargetTarget, FocusTarget, GroupTarget, GroupPetTarget, NameplateTarget, ArenaTarget
     local unitID = unitIDs.Arena
-      or unitIDs.Target
-      or unitIDs.Focus
-      or unitIDs.SoftEnemy
-      or unitIDs.Mouseover
-      or unitIDs.Nameplate
-      or unitIDs.PetTarget
-      or unitIDs.TargetTarget
-      or unitIDs.FocusTarget
-      or unitIDs.GroupTarget
-      or unitIDs.GroupPetTarget
-      or unitIDs.NameplateTarget
-      or unitIDs.ArenaTarget
+        or unitIDs.Target
+        or unitIDs.Focus
+        or unitIDs.SoftEnemy
+        or unitIDs.Mouseover
+        or unitIDs.Nameplate
+        or unitIDs.PetTarget
+        or unitIDs.TargetTarget
+        or unitIDs.FocusTarget
+        or unitIDs.GroupTarget
+        or unitIDs.GroupPetTarget
+        or unitIDs.NameplateTarget
+        or unitIDs.ArenaTarget
     if unitID then
       unitIDs.HasAllyUnitID = false
       self:UpdateUnitID(unitID, unitID .. "target")
@@ -807,7 +808,7 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
 
     --MyTarget, indicating the current target of the player
     self.MyTarget:SetBackdrop({
-      bgFile = "Interface/Buttons/WHITE8X8", --drawlayer "BACKGROUND"
+      bgFile = "Interface/Buttons/WHITE8X8",   --drawlayer "BACKGROUND"
       edgeFile = "Interface/Buttons/WHITE8X8", --drawlayer "BORDER"
       edgeSize = BattleGroundEnemies.db.profile.MyTarget_BorderSize,
     })
@@ -816,7 +817,7 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
 
     --MyFocus, indicating the current focus of the player
     self.MyFocus:SetBackdrop({
-      bgFile = "Interface/Buttons/WHITE8X8", --drawlayer "BACKGROUND"
+      bgFile = "Interface/Buttons/WHITE8X8",   --drawlayer "BACKGROUND"
       edgeFile = "Interface/Buttons/WHITE8X8", --drawlayer "BORDER"
       edgeSize = BattleGroundEnemies.db.profile.MyFocus_BorderSize,
     })
@@ -895,10 +896,10 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
               newAttributes["macrotext" .. i] = "/cleartarget\n" .. "/targetexact " .. self.PlayerDetails.PlayerName
             elseif bindingType == "Focus" then
               newAttributes["macrotext" .. i] = "/targetexact "
-                .. self.PlayerDetails.PlayerName
-                .. "\n"
-                .. "/focus\n"
-                .. "/targetlasttarget"
+                  .. self.PlayerDetails.PlayerName
+                  .. "\n"
+                  .. "/focus\n"
+                  .. "/targetlasttarget"
             else -- Custom
               local macrotext = (BattleGroundEnemies.db.profile[self.PlayerType][mouseButtons[i] .. "Value"]):gsub(
                 "%%n",
@@ -921,7 +922,7 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       end
       local newRegisterForClicksValue = BattleGroundEnemies.db.profile[self.PlayerType].ActionButtonUseKeyDown
           and "AnyDown"
-        or "AnyUp"
+          or "AnyUp"
       if self.registerForClicksValue == nil or self.registerForClicksValue ~= newRegisterForClicksValue then
         updateNeeded = true
       end
@@ -1253,8 +1254,8 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       end
 
       local myClass = BattleGroundEnemies.UserButton
-        and BattleGroundEnemies.UserButton.PlayerDetails
-        and BattleGroundEnemies.UserButton.PlayerDetails.PlayerClass
+          and BattleGroundEnemies.UserButton.PlayerDetails
+          and BattleGroundEnemies.UserButton.PlayerDetails.PlayerClass
       local interactResult = checkInteractDist(unitID)
       local itemResult = isItemInRange(unitID)
       local spellResult = isSpellInRange(unitID, myClass)
@@ -1506,7 +1507,7 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
   --MyFocus, indicating the current focus of the player
   playerButton.MyFocus = CreateFrame("Frame", nil, playerButton, BackdropTemplateMixin and "BackdropTemplate")
   playerButton.MyFocus:SetBackdrop({
-    bgFile = "Interface/Buttons/WHITE8X8", --drawlayer "BACKGROUND"
+    bgFile = "Interface/Buttons/WHITE8X8",   --drawlayer "BACKGROUND"
     edgeFile = "Interface/Buttons/WHITE8X8", --drawlayer "BORDER"
     edgeSize = 1,
   })

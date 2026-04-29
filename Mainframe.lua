@@ -264,6 +264,16 @@ local function CreateMainFrame(playerType)
   mainframe:InitializeAllPlayerSources()
 
   function mainframe:RemoveAllPlayersFromAllSources()
+    -- DIAGNOSTIC (commented out — re-enable if the "enemies disappear in
+    -- lobby" bug returns. Prints when this path is called so we can see
+    -- if PEW or some other path is wiping all sources unexpectedly):
+    -- print(
+    --   string.format(
+    --     "BGE Diag: %s:RemoveAllPlayersFromAllSources called (PlayerList=%d)",
+    --     self.PlayerType,
+    --     #self.PlayerList
+    --   )
+    -- )
     self:InitializeAllPlayerSources()
     self.RealPlayerCount = nil
     self:AfterPlayerSourceUpdate()
@@ -363,7 +373,15 @@ local function CreateMainFrame(playerType)
   end
 
   function mainframe:AfterPlayerSourceUpdate()
-    self:Debug("AfterPlayerSourceUpdate")
+    -- if BattleGroundEnemies.LogButtonEvent then
+    --   BattleGroundEnemies:LogButtonEvent(
+    --     "TICK_START",
+    --     self.PlayerType,
+    --     nil,
+    --     "list=" .. #self.PlayerList .. " combat=" .. tostring(InCombatLockdown())
+    --   )
+    -- end
+
     local newPlayers = {} --contains combined data from PlayerSources
     if self.PlayerType == BattleGroundEnemies.consts.PlayerTypes.Enemies then
       if BattleGroundEnemies:IsTestmodeActive() then
@@ -373,11 +391,9 @@ local function CreateMainFrame(playerType)
         local numScoreboardEnemies = #scoreboardEnemies
         local addScoreBoardPlayers = false
         if BattleGroundEnemies:GetActiveStates().isInArena then
-          self:Debug("AfterPlayerSourceUpdate", "inArena")
           --use arenaPlayers is primary source to preserve same order arena1 to arena3, scoreboard doesn't offer this
           local arenaEnemies = self.PlayerSources[BattleGroundEnemies.consts.PlayerSources.ArenaPlayers]
           local numArenaEnemies = #arenaEnemies
-          self:Debug("AfterPlayerSourceUpdate", numArenaEnemies)
 
           if numArenaEnemies > 0 then
             for i = 1, numArenaEnemies do
@@ -389,10 +405,8 @@ local function CreateMainFrame(playerType)
                 --useful in solo shuffle in first round, then we can show a playername via data from scoreboard
                 local match = matchBattleFieldScoreToArenaEnemyPlayer(scoreboardEnemies, arenaEnemy)
                 if match then
-                  self:Debug("found a name match")
                   playerName = match.name
                 else
-                  self:Debug("didnt find a match", arenaEnemy.additionalData.PlayerArenaUnitID)
                   -- use the unitID
                   playerName = arenaEnemy.additionalData.PlayerArenaUnitID
                 end
@@ -475,6 +489,28 @@ local function CreateMainFrame(playerType)
       end
     end
     self:BeforePlayerUpdate()
+    -- DIAGNOSTIC (commented out — re-enable if the "enemies disappear in
+    -- lobby" bug returns. Logs when AfterPlayerSourceUpdate shrinks the
+    -- PlayerList, with which source emptied out):
+    -- if BattleGroundEnemies.LogButtonEvent and #newPlayers < #self.PlayerList then
+    --   local scoreboardSrc = self.PlayerSources
+    --     and self.PlayerSources[BattleGroundEnemies.consts.PlayerSources.Scoreboard]
+    --   local groupSrc = self.PlayerSources
+    --     and self.PlayerSources[BattleGroundEnemies.consts.PlayerSources.GroupMembers]
+    --   local arenaSrc = self.PlayerSources
+    --     and self.PlayerSources[BattleGroundEnemies.consts.PlayerSources.ArenaPlayers]
+    --   print(
+    --     string.format(
+    --       "BGE Diag: %s:AfterPlayerSourceUpdate SHRINKING PlayerList %d → %d (Scoreboard=%d Group=%d Arena=%d)",
+    --       self.PlayerType,
+    --       #self.PlayerList,
+    --       #newPlayers,
+    --       scoreboardSrc and #scoreboardSrc or -1,
+    --       groupSrc and #groupSrc or -1,
+    --       arenaSrc and #arenaSrc or -1
+    --     )
+    --   )
+    -- end
     for i = 1, #newPlayers do
       local newPlayer = newPlayers[i]
       local name = newPlayer.name
@@ -483,11 +519,20 @@ local function CreateMainFrame(playerType)
       local specName = newPlayer.specName
       local additionalData = newPlayer.additionalData
       local realmName = newPlayer.realmName
-      self:Debug("AfterPlayer", name, raceName, classToken, specName, additionalData)
       self:CreateOrUpdatePlayerDetails(name, raceName, classToken, specName, realmName, additionalData)
     end
+
     self:SetPlayerCount(#newPlayers)
     self:CreateOrRemovePlayerButtons()
+
+    -- if BattleGroundEnemies.LogButtonEvent then
+    --   BattleGroundEnemies:LogButtonEvent(
+    --     "TICK_END",
+    --     self.PlayerType,
+    --     nil,
+    --     "list=" .. #self.PlayerList .. " num=" .. (self.NumPlayers or -1)
+    --   )
+    -- end
 
     -- Hide mainframe when no players to show, to prevent empty frame blocking clicks
     if not BattleGroundEnemies:IsTestmodeActive() then
@@ -730,25 +775,30 @@ local function CreateMainFrame(playerType)
     local isEnemy = self.PlayerType == BattleGroundEnemies.consts.PlayerTypes.Enemies
     self:Debug("UpdatePlayerCountText", maxNumPlayers, isEnemy)
 
-    -- Fallback mapping must match playerFactionAsInt (Main.lua:3550):
-    -- Horde → 0, Alliance → 1. Previously inverted, which inverted labels
-    -- on Horde users until UPDATE_BATTLEFIELD_SCORE's merc-detection loop
-    -- flipped AllyFaction to the correct value.
-    BattleGroundEnemies:SetAllyFaction(
-      BattleGroundEnemies.AllyFaction or (BattleGroundEnemies.UserFaction == "Horde" and 0 or 1)
-    )
-
-    if self.playerCountConfig and self.playerCountConfig.PlayerCount.Enabled then
-      self.PlayerCount:Show()
-      self.PlayerCount:SetText(
-        format(
-          isEnemy == (BattleGroundEnemies.EnemyFaction == 0) and PLAYER_COUNT_HORDE or PLAYER_COUNT_ALLIANCE,
-          maxNumPlayers
-        )
-      )
-    else
+    if not self.playerCountConfig or not self.playerCountConfig.PlayerCount.Enabled then
       self.PlayerCount:Hide()
+      return
     end
+
+    -- Wait for faction to be authoritatively set by UBS / PEW (via the
+    -- user's own scoreboard-row GUID lookup). No defensive guess here —
+    -- "Alliance" / "Horde" labels would be wrong for mercs and for users
+    -- whose home faction differs from their assigned team. Better to
+    -- briefly show nothing than the wrong label. UBS will trigger another
+    -- UpdatePlayerCountText via SetAllyFaction's change-callback when it
+    -- gets a value.
+    if BattleGroundEnemies.EnemyFaction == nil then
+      self.PlayerCount:Hide()
+      return
+    end
+
+    self.PlayerCount:Show()
+    self.PlayerCount:SetText(
+      format(
+        isEnemy == (BattleGroundEnemies.EnemyFaction == 0) and PLAYER_COUNT_HORDE or PLAYER_COUNT_ALLIANCE,
+        maxNumPlayers
+      )
+    )
   end
 
   function mainframe:GetPlayerbuttonByUnitID(unitID, playerType)
@@ -865,6 +915,15 @@ local function CreateMainFrame(playerType)
     end
     table_insert(self.PlayerList, playerButton)
 
+    -- if BattleGroundEnemies.LogButtonEvent then
+    --   BattleGroundEnemies:LogButtonEvent(
+    --     "CREATE",
+    --     self.PlayerType,
+    --     playerButton,
+    --     "list=" .. #self.PlayerList
+    --   )
+    -- end
+
     return playerButton
   end
 
@@ -872,6 +931,15 @@ local function CreateMainFrame(playerType)
     if playerButton == BattleGroundEnemies.UserButton then
       return
     end -- dont remove the Player itself
+
+    -- if BattleGroundEnemies.LogButtonEvent then
+    --   BattleGroundEnemies:LogButtonEvent(
+    --     "REMOVE",
+    --     self.PlayerType,
+    --     playerButton,
+    --     "combat=" .. tostring(InCombatLockdown())
+    --   )
+    -- end
 
     local targetEnemyButton = playerButton.Target
     if targetEnemyButton then -- if that no longer exiting ally targeted something update the button of its target
@@ -1073,6 +1141,19 @@ local function CreateMainFrame(playerType)
 
   function mainframe:BeforePlayerUpdate()
     wipe(self.NewPlayersDetails)
+    -- Reset all buttons' "claimed-this-tick" status to 2 (carried-over /
+    -- unclaimed). The CreateOrRemovePlayerButtons combat-deferred path
+    -- early-returns mid-loop and does NOT reset claimed buttons (status=1)
+    -- back to 2 in that case. Without this, on the next tick's Stage 3
+    -- those stuck-at-1 buttons are excluded from match candidacy
+    -- (`btn.status ~= 1` filter), so source rows fall through to
+    -- PENDING_NEW and we create duplicate buttons on top of stuck ones.
+    -- Doing the reset here, at the start of every AfterPlayerSourceUpdate,
+    -- means each tick begins with a clean slate regardless of whether the
+    -- previous tick fully completed its cleanup.
+    for i = 1, #self.PlayerList do
+      self.PlayerList[i].status = 2
+    end
   end
 
   function mainframe:CreateOrUpdatePlayerDetails(name, race, classToken, specName, realmName, additionalData)
@@ -1129,6 +1210,7 @@ local function CreateMainFrame(playerType)
     -- silently dead code.
     local playerButton
     local strongMatch = false
+    local matchStage = "new" -- diagnostic: tracks which stage produced the match
     if name and not (issecretvalue and issecretvalue(name)) then
       local btn = self.Players[name]
       -- Must check status so the SAME button doesn't get claimed twice in
@@ -1138,6 +1220,7 @@ local function CreateMainFrame(playerType)
       if btn and btn.status ~= 1 then
         playerButton = btn
         strongMatch = true
+        matchStage = "stage1-name"
       end
     end
     if not playerButton and classToken and self.PlayerList then
@@ -1157,6 +1240,7 @@ local function CreateMainFrame(playerType)
           and (btn.PlayerDetails.PlayerRace or "") == raceKey
         then
           playerButton = btn
+          matchStage = "stage2-fingerprint"
           -- Not a strong match — live-captured attrs (gender, honor,
           -- guild) should not be preserved across this swap since we're
           -- attaching a potentially different player's scoreboard row
@@ -1265,8 +1349,24 @@ local function CreateMainFrame(playerType)
 
       playerButton.status = 1 --1 means found, already existing
       playerDetails = playerButton.PlayerDetails
+
+      -- if BattleGroundEnemies.LogButtonEvent then
+      --   BattleGroundEnemies:LogButtonEvent("MATCH", self.PlayerType, playerButton, matchStage)
+      -- end
     else
       table.insert(self.NewPlayersDetails, playerDetails)
+
+      -- if BattleGroundEnemies.LogButtonEvent then
+      --   -- Build a temporary button-shaped object so the logger gets the
+      --   -- name/class/race fields. Reuse the same playerDetails we just
+      --   -- inserted into NewPlayersDetails.
+      --   BattleGroundEnemies:LogButtonEvent(
+      --     "PENDING_NEW",
+      --     self.PlayerType,
+      --     { PlayerDetails = playerDetails },
+      --     "pending_count=" .. #self.NewPlayersDetails
+      --   )
+      -- end
     end
   end
 
@@ -2194,4 +2294,5 @@ function BattleGroundEnemies.Enemies:UNIT_DIED()
     end
   end
 end
+
 BattleGroundEnemies.Enemies:RegisterEvent("UNIT_DIED")
