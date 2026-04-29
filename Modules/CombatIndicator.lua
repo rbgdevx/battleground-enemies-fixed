@@ -277,8 +277,10 @@ function combatIndicator:AttachToPlayerButton(playerButton)
       StartSharedTicker(self.config.UpdatePeriod)
     end
   end
+
   function playerButton.CombatIndicator:UnitIdUpdate()
     self:Update()
   end
+
   return playerButton.CombatIndicator
 end

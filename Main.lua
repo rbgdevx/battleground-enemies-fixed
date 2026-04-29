@@ -213,6 +213,64 @@ BattleGroundEnemies.UserFaction = UnitFactionGroup("player")
 BattleGroundEnemies.UserButton = false --the button of the Player himself
 BattleGroundEnemies.specCache = {} -- key = GUID, value = specName (localized)
 
+-- ButtonEventLog: ring buffer of recent button-lifecycle events. Used by the
+-- watchdog to dump a timeline when PlayerList exceeds NumPlayers, so we can
+-- diagnose the duplicate-button bug without users running anything manually.
+-- Captured automatically; only printed when the watchdog fires.
+
+-- BattleGroundEnemies._buttonEventLog = {}
+-- local BUTTON_EVENT_LOG_MAX = 200
+
+-- local function safeStr(v)
+--   if v == nil then return "<nil>" end
+--   if issecretvalue and issecretvalue(v) then return "<secret>" end
+--   if type(v) == "string" then return v end
+--   return tostring(v)
+-- end
+
+-- function BattleGroundEnemies:LogButtonEvent(event, mfType, btn, extra)
+--   local pd = btn and btn.PlayerDetails
+--   local entry = {
+--     t = GetTime(),
+--     event = event,
+--     mfType = mfType,
+--     name = pd and safeStr(pd.PlayerName) or "<no-pd>",
+--     class = pd and safeStr(pd.PlayerClass) or "<no-pd>",
+--     race = pd and safeStr(pd.PlayerRace) or "<no-pd>",
+--     status = btn and btn.status,
+--     extra = extra,
+--   }
+--   local log = self._buttonEventLog
+--   log[#log + 1] = entry
+--   if #log > BUTTON_EVENT_LOG_MAX then
+--     table.remove(log, 1)
+--   end
+-- end
+
+-- function BattleGroundEnemies:DumpButtonEventLog(reason)
+--   local log = self._buttonEventLog
+--   print("BGE Event Log Dump (" .. (reason or "manual") .. ") — last", #log, "events:")
+--   local now = GetTime()
+--   for i = math.max(1, #log - 60), #log do
+--     local e = log[i]
+--     if e then
+--       print(
+--         string.format(
+--           "  [-%05.2fs] %-15s %-8s name=%s class=%s race=%s status=%s%s",
+--           now - e.t,
+--           e.event,
+--           e.mfType or "?",
+--           e.name,
+--           e.class,
+--           e.race,
+--           tostring(e.status),
+--           e.extra and (" " .. tostring(e.extra)) or ""
+--         )
+--       )
+--     end
+--   end
+-- end
+
 local playerSpells
 
 ---@class bgeState
@@ -491,6 +549,7 @@ function BattleGroundEnemies:PLAYER_TARGET_CHANGED()
     self.UserButton:UpdateTarget()
   end
 end
+
 BattleGroundEnemies:RegisterEvent("PLAYER_TARGET_CHANGED")
 
 -- Hard gate: this addon is strictly PvP-only. A crash report involving raid bosses
@@ -1108,6 +1167,7 @@ function BattleGroundEnemies:PLAYER_LOGIN()
   self:RegisterEvent("PLAYER_UNGHOST") --Fired when the player is alive after being a ghost.
   self:RegisterEvent("PLAYER_DEAD") --Fired when the player has died.
   self:RegisterEvent("UPDATE_BATTLEFIELD_SCORE")
+  -- self:RegisterEvent("PVP_MATCH_STATE_CHANGED")
 
   self:SetupOptions()
 
@@ -1720,7 +1780,7 @@ do
       for i = 1, #list do
         local button = list[i]
         if not ignoreExistingArena and button.UnitIDs and button.UnitIDs.Arena then
-        -- Already identified via arena token, skip
+          -- Already identified via arena token, skip
         elseif button.PlayerDetails and ClassTokenToID[button.PlayerDetails.PlayerClass or ""] == unitClassID then
           count = count + 1
           match = button
@@ -1771,7 +1831,7 @@ do
         for i = 1, #list do
           local button = list[i]
           if not ignoreExistingArena and button.UnitIDs and button.UnitIDs.Arena then
-          -- Already identified via arena token, skip
+            -- Already identified via arena token, skip
           elseif buttonClassMatches(button) and raceComparableAndEqual(button) then
             count = count + 1
             match = button
@@ -1795,7 +1855,7 @@ do
         for i = 1, #list do
           local button = list[i]
           if not ignoreExistingArena and button.UnitIDs and button.UnitIDs.Arena then
-          -- skip
+            -- skip
           elseif buttonClassMatches(button) and safeEq(button.PlayerDetails.gender, unitGender) then
             local dominated = true
             if unitRace then
@@ -1833,7 +1893,7 @@ do
         for i = 1, #list do
           local button = list[i]
           if not ignoreExistingArena and button.UnitIDs and button.UnitIDs.Arena then
-          -- skip
+            -- skip
           elseif buttonClassMatches(button) and safeEq(button.PlayerDetails.honorLevel, unitHonor) then
             local dominated = true
             if dominated and unitRace then
@@ -1874,7 +1934,7 @@ do
         for i = 1, #list do
           local button = list[i]
           if not ignoreExistingArena and button.UnitIDs and button.UnitIDs.Arena then
-          -- skip
+            -- skip
           elseif buttonClassMatches(button) and safeEq(button.PlayerDetails.GuildName, unitGuild) then
             local dominated = true
             if dominated and unitRace then
@@ -1968,7 +2028,7 @@ do
       for i = 1, #list do
         local button = list[i]
         if not ignoreExistingArena and button.UnitIDs and button.UnitIDs.Arena then
-        -- skip
+          -- skip
         elseif buttonClassMatches(button) then
           scanCycleCache[unitID] = button
           stickyPIDCache[unitID] = {
@@ -2180,7 +2240,7 @@ function BattleGroundEnemies:ScanTargets()
         self.Enemies.NameplateTargets[sourceUnit] = nil
       end
 
-    -- Track enemy nameplates targeting allies (for ally target indicators)
+      -- Track enemy nameplates targeting allies (for ally target indicators)
     elseif UnitExists(targetUnitID) and UnitIsFriend("player", targetUnitID) then
       -- Get the enemy button for the nameplate doing the targeting
       local enemyBtn = self:GetPlayerbuttonByUnitID(sourceUnit, "Enemies")
@@ -2361,7 +2421,7 @@ function BattleGroundEnemies:ScanTargets()
         self.Enemies.ArenaTargets[sourceUnit] = nil
       end
 
-    -- Track arena enemies targeting allies (for ally target indicators)
+      -- Track arena enemies targeting allies (for ally target indicators)
     elseif UnitExists(targetUnitID) and UnitIsFriend("player", targetUnitID) then
       -- Get the enemy button for the arena unit doing the targeting
       local enemyBtn = self.ArenaIDToPlayerButton[sourceUnit]
@@ -2641,9 +2701,9 @@ function BattleGroundEnemies:HandleTargetChanged(newTarget)
     newTarget.MyTarget:Show()
     BattleGroundEnemies.currentTarget = newTarget
 
-  -- if BattleGroundEnemies.states.real.isRatedBG and self.db.profile.RBG.TargetCalling_SetMark and IamTargetcaller() then -- i am the target caller
-  -- 	SetRaidTarget("target", 8)
-  -- end
+    -- if BattleGroundEnemies.states.real.isRatedBG and self.db.profile.RBG.TargetCalling_SetMark and IamTargetcaller() then -- i am the target caller
+    -- 	SetRaidTarget("target", 8)
+    -- end
   else
     BattleGroundEnemies.currentTarget = false
   end
@@ -3180,15 +3240,26 @@ function BattleGroundEnemies:PLAYER_REGEN_ENABLED()
   -- whatever path leaks extra buttons, we self-correct here.
   for _, mf in ipairs({ self.Enemies, self.Allies }) do
     if mf and mf.PlayerList and mf.NumPlayers and #mf.PlayerList > mf.NumPlayers and mf.NumPlayers > 0 then
-      print(
-        "BGE Watchdog: PlayerList(",
-        #mf.PlayerList,
-        ") > NumPlayers(",
-        mf.NumPlayers,
-        ") for",
-        mf.PlayerType,
-        "— forcing rebuild"
-      )
+      -- DIAGNOSTIC (commented out — re-enable if duplicate-button bug
+      -- returns. Prints + dumps event log when PlayerList exceeds
+      -- NumPlayers post-combat):
+      -- local dictCount = 0
+      -- for _ in pairs(mf.Players or {}) do
+      --   dictCount = dictCount + 1
+      -- end
+      -- print(
+      --   string.format(
+      --     "BGE Watchdog: %s PlayerList=%d > NumPlayers=%d (Dict=%d, Inactive=%d) — forcing rebuild",
+      --     mf.PlayerType,
+      --     #mf.PlayerList,
+      --     mf.NumPlayers,
+      --     dictCount,
+      --     #(mf.InactivePlayerButtons or {})
+      --   )
+      -- )
+      -- if BattleGroundEnemies.DumpButtonEventLog then
+      --   BattleGroundEnemies:DumpButtonEventLog("watchdog:" .. mf.PlayerType)
+      -- end
       -- Force the next UBS / GROUP_ROSTER_UPDATE to fully process by
       -- clearing the signature gate and re-running AfterPlayerSourceUpdate.
       -- AfterPlayerSourceUpdate's CreateOrRemovePlayerButtons will now
@@ -3560,6 +3631,60 @@ local function parseBattlefieldScore(index)
   return result
 end
 
+-- Lobby-only diagnostic watchdog: every few seconds while the match state
+-- is Inactive (gates closed, pre-game), check whether our enemy PlayerList
+-- count matches what GetBattlefieldTeamInfo reports for the enemy team.
+-- If they differ, PRINT a warning and dump the recent button-event log.
+-- DOES NOT auto-fix anything — purely diagnostic until we have a confirmed
+-- root cause for the "enemies disappear in lobby after alt-tab" report.
+-- Stops automatically when state leaves Inactive (gates open) or when the
+-- user leaves the BG/arena.
+
+-- local function startLobbyEnemyWatchdog(self)
+--   if self._lobbyEnemyWatchdog then
+--     return -- already running
+--   end
+--   self._lobbyEnemyWatchdog = C_Timer.NewTicker(5, function()
+--     -- Re-check state inside the callback to handle timing overlaps.
+--     local s = C_PvP and C_PvP.GetActiveMatchState and C_PvP.GetActiveMatchState()
+--     if s ~= Enum.PvPMatchState.Inactive then
+--       return
+--     end
+--     local mf = self.Enemies
+--     if not mf or not mf.PlayerList or not self.EnemyFaction then
+--       return
+--     end
+--     local _, _, _, _, expected = GetBattlefieldTeamInfo(self.EnemyFaction)
+--     if not expected or expected <= 0 then
+--       return
+--     end
+--     if #mf.PlayerList < expected then
+--       -- DIAGNOSTIC (commented out — re-enable if "enemies disappear in
+--       -- lobby" returns. Prints + dumps event log when lobby-phase
+--       -- PlayerList undercount detected):
+--       -- print(
+--       --   string.format(
+--       --     "BGE Lobby Watch: PlayerList=%d but scoreboard expects %d enemies (lobby phase) — diagnostic only, NOT auto-fixing",
+--       --     #mf.PlayerList,
+--       --     expected
+--       --   )
+--       -- )
+--       -- if self.DumpButtonEventLog then
+--       --   self:DumpButtonEventLog("lobby-watch")
+--       -- end
+--     end
+--   end)
+-- end
+
+-- local function stopLobbyEnemyWatchdog(self)
+--   if self._lobbyEnemyWatchdog then
+--     self._lobbyEnemyWatchdog:Cancel()
+--     self._lobbyEnemyWatchdog = nil
+--   end
+-- end
+
+-- BattleGroundEnemies._stopLobbyEnemyWatchdog = stopLobbyEnemyWatchdog
+
 function BattleGroundEnemies:PVP_MATCH_STATE_CHANGED()
   local state = C_PvP.GetActiveMatchState()
 
@@ -3567,6 +3692,16 @@ function BattleGroundEnemies:PVP_MATCH_STATE_CHANGED()
     -- Clear cached trinket spells so stale data doesn't bleed into the next match.
     self._ccSpellCache = nil
   end
+
+  -- Lobby diagnostic watchdog lifecycle:
+  -- start when state becomes Inactive (in lobby/gates), stop on any other
+  -- state transition. Match-end (Complete) and PostRound also stop it.
+
+  -- if state == Enum.PvPMatchState.Inactive then
+  --   startLobbyEnemyWatchdog(self)
+  -- else
+  --   stopLobbyEnemyWatchdog(self)
+  -- end
 
   if state == Enum.PvPMatchState.Engaged then
     self.betweenRounds = false
@@ -3590,22 +3725,6 @@ function BattleGroundEnemies:PVP_MATCH_STATE_CHANGED()
   end
 end
 
--- UnitFactionGroup-based fallback used when GetBattlefieldArenaFaction returns
--- nil (timing window on zone-in / mid-match reload) and the scoreboard can't
--- give us the info either (secret name). Without this we'd default to 0
--- (Horde) regardless of the actual player faction — which silently swaps
--- ally/enemy buckets for Alliance players until /reload.
-local function playerFactionAsInt()
-  local f = UnitFactionGroup("player")
-  if f == "Alliance" then
-    return 1
-  end
-  if f == "Horde" then
-    return 0
-  end
-  return nil
-end
-
 function BattleGroundEnemies:SetAllyFaction(allyFaction)
   local changed = self.AllyFaction ~= allyFaction
   self.EnemyFaction = allyFaction == 0 and 1 or 0
@@ -3616,8 +3735,8 @@ function BattleGroundEnemies:SetAllyFaction(allyFaction)
   -- labels stuck in the wrong Horde/Alliance state until a count changes.
   -- Cross-faction note: this is still just a legacy label; mixed-faction
   -- teams will always be imprecise here. Team-assignment correctness (which
-  -- is what scoreboard/roster buckets depend on) comes from
-  -- GetBattlefieldArenaFaction / scoreboard merc-detection, not from this.
+  -- is what scoreboard/roster buckets depend on) comes from the user's own
+  -- C_PvP.GetScoreInfoByPlayerGuid lookup in UBS / PEW, not from this.
   if changed then
     if self.Enemies and self.Enemies.UpdatePlayerCountText then
       self.Enemies:UpdatePlayerCountText()
@@ -3677,28 +3796,27 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
   -- raidN/partyN tokens from GROUP_ROSTER_UPDATE — scoreboard is never
   -- read for allies.
   --
-  -- Cache-miss re-derive: PLAYER_ENTERING_WORLD clears the cache and tries
-  -- to set from the live API (GetBattlefieldArenaFaction = the user's
-  -- assigned team number for this match, merc-safe). If the API wasn't
-  -- ready at zone-in, AllyFaction is still nil here and we retry. Once
-  -- set, we trust the cached value — no per-tick re-derivation overhead.
-  -- Merc-detection further below handles the rare case where the API
-  -- stays nil but the user happens to be mercing (only fires when the
-  -- user's name on the scoreboard is non-secret enough to compare).
+  -- AUTHORITATIVE source: the user's own scoreboard row via
+  -- C_PvP.GetScoreInfoByPlayerGuid(UnitGUID("player")). UnitGUID("player")
+  -- is non-secret (own character) and the API accepts it even when other
+  -- GUIDs / names are secret-locked. info.faction = team number for THIS
+  -- match (correct for mercenary mode and cross-faction Blitz where the
+  -- character's home faction differs from the assigned team).
+  -- SetAllyFaction(N) atomically sets BOTH AllyFaction=N and
+  -- EnemyFaction=(opposite of N), so one call configures both buckets.
+  --
+  -- PEW does the same lookup at zone-in. UBS only retries on cache-miss,
+  -- so we don't spam the API every tick — once AllyFaction is set, we
+  -- trust it for the rest of the match (cleared again on zone exit).
   if self.AllyFaction == nil then
-    local team = GetBattlefieldArenaFaction and GetBattlefieldArenaFaction()
-    if team then
-      self:SetAllyFaction(team)
-    elseif playerFactionAsInt() then
-      -- Last-resort fallback: character's home faction. Wrong for mercs
-      -- but better than blocking the whole pipeline. Merc-detection or
-      -- the next zone-in will correct.
-      self:SetAllyFaction(playerFactionAsInt())
+    local ok, info = pcall(C_PvP.GetScoreInfoByPlayerGuid, UnitGUID("player"))
+    if ok and info and info.faction ~= nil then
+      self:SetAllyFaction(info.faction)
     end
   end
 
-  -- If we still couldn't determine faction, bail — processing scoreboard
-  -- rows without a valid EnemyFaction would mis-bucket everyone.
+  -- If still unknown (scoreboard hasn't populated our row yet), bail.
+  -- Better an empty enemy panel for one tick than mis-bucketed teammates.
   if self.AllyFaction == nil then
     return
   end
@@ -3732,20 +3850,11 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
     end
   end
 
-  --see if our faciton in BG changed
-  for i = 1, #battlefieldScores do
-    local score = battlefieldScores[i]
-    local name = score.name
-    local faction = score.faction
-
-    -- 12.0.5: name can be a secret string; comparison would taint. Skip merc
-    -- detection when secret. Only runs when name is a real comparable string.
-    if name and not (issecretvalue and issecretvalue(name)) then
-      if name == self.UserDetails.PlayerName and faction == self.EnemyFaction then
-        self:SetAllyFaction(self.EnemyFaction)
-      end
-    end
-  end
+  -- Merc-detection loop removed: AllyFaction is now derived authoritatively
+  -- from the user's own scoreboard row via C_PvP.GetScoreInfoByPlayerGuid
+  -- earlier in this function. info.faction already returns the user's
+  -- TEAM number for this match (merc-safe). Name-based merc-detection was
+  -- both redundant and unreliable (silently skipped for secret names).
 
   -- Count new enemies before committing, to avoid losing enemies we already have
   local newEnemyCount = 0
@@ -3756,10 +3865,16 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
     end
   end
 
-  local currentEnemyButtons = 0
-  for _ in pairs(self.Enemies.Players or {}) do
-    currentEnemyButtons = currentEnemyButtons + 1
-  end
+  -- Count ACTUAL buttons via PlayerList, not the Players name-keyed dict.
+  -- The dict only holds non-secret-named buttons; in 12.0.5 PvP all enemy
+  -- names are secret mid-match, so the dict is always empty and the old
+  -- guard was effectively `newEnemyCount >= 0` (always true). That meant
+  -- a transient scoreboard blip (e.g., gate-open returns 0 valid rows
+  -- briefly) would call BeforePlayerSourceUpdate, wipe the source list,
+  -- and the empty AfterPlayerSourceUpdate would tear down every button —
+  -- exactly the "enemies disappear when battle begins" symptom.
+  -- Counting PlayerList preserves the original "never shrink" intent.
+  local currentEnemyButtons = #self.Enemies.PlayerList
 
   -- Only update enemies if we gained or maintained count (never lose enemies)
   local updateEnemies = newEnemyCount >= currentEnemyButtons
@@ -3767,6 +3882,17 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
   if updateEnemies then
     BattleGroundEnemies.Enemies:BeforePlayerSourceUpdate(self.consts.PlayerSources.Scoreboard)
   end
+
+  -- DIAGNOSTIC (root-cause hunt): track how many AddPlayerToSource calls
+  -- actually succeeded (the loose outer filter `faction and name and
+  -- classToken` may pass rows that AddPlayerToSource then silently rejects
+  -- on its inner empty-string check). If we wiped the source list but
+  -- added fewer rows than newEnemyCount predicted, that's where buttons
+  -- could vanish.
+
+  -- local addAttempts, addSucceeded = 0, 0
+  -- local scoreboardSrc = self.Enemies.PlayerSources[self.consts.PlayerSources.Scoreboard]
+  -- local startSize = scoreboardSrc and #scoreboardSrc or 0
 
   for i = 1, #battlefieldScores do
     local score = battlefieldScores[i]
@@ -3779,10 +3905,32 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
     -- tokens). Scoreboard is enemy-only here.
     if faction and name and classToken and faction == self.EnemyFaction then
       if updateEnemies then
+        -- addAttempts = addAttempts + 1
+        -- local before = scoreboardSrc and #scoreboardSrc or 0
         BattleGroundEnemies.Enemies:AddPlayerToSource(self.consts.PlayerSources.Scoreboard, score)
+        -- local after = scoreboardSrc and #scoreboardSrc or 0
+        -- if after > before then
+        --   addSucceeded = addSucceeded + 1
+        -- end
       end
     end
   end
+
+  -- DIAGNOSTIC (commented out — re-enable if the disappearance bug
+  -- returns. Reports when AddPlayerToSource calls silently failed):
+  -- if updateEnemies and addAttempts > 0 and addSucceeded < addAttempts then
+  --   print(
+  --     string.format(
+  --       "BGE Diag: UBS attempted %d AddPlayerToSource calls but only %d succeeded. newEnemyCount=%d, currentEnemyButtons=%d, sourceSize: %d → %d",
+  --       addAttempts,
+  --       addSucceeded,
+  --       newEnemyCount,
+  --       currentEnemyButtons,
+  --       startSize,
+  --       scoreboardSrc and #scoreboardSrc or -1
+  --     )
+  --   )
+  -- end
 
   if updateEnemies then
     BattleGroundEnemies.Enemies:AfterPlayerSourceUpdate()
@@ -3915,8 +4063,19 @@ end
 BattleGroundEnemies.PARTY_LEADER_CHANGED = BattleGroundEnemies.GROUP_ROSTER_UPDATE
 
 --Fires when the player logs in, /reloads the UI or zones between map instances. Basically whenever the loading screen appears.
+-- function BattleGroundEnemies:PVP_MATCH_STATE_CHANGED()
+--   if C_PvP and C_PvP.GetActiveMatchState and C_PvP.GetActiveMatchState() == (Enum and Enum.PvPMatchState and Enum.PvPMatchState.StartUp or 2) then
+--     print("[BGEF debug] PVP_MATCH_STATE_CHANGED (StartUp) GetBattlefieldArenaFaction()=",
+--       GetBattlefieldArenaFaction and GetBattlefieldArenaFaction())
+--   end
+-- end
+
 function BattleGroundEnemies:PLAYER_ENTERING_WORLD()
+  -- print("[BGEF debug] PLAYER_ENTERING_WORLD GetBattlefieldArenaFaction()=",
+  --   GetBattlefieldArenaFaction and GetBattlefieldArenaFaction())
+
   self:StartTargetScanTicker()
+
   if self.states.testmodeActive then
     self:DisableTestMode()
   end
@@ -3939,27 +4098,31 @@ function BattleGroundEnemies:PLAYER_ENTERING_WORLD()
   local enteringPvP = (zone == "pvp" or zone == "arena") and prevInstanceType ~= zone
   local leavingPvP = (prevInstanceType == "pvp" or prevInstanceType == "arena") and zone ~= prevInstanceType
   if enteringPvP or leavingPvP then
-    -- Clear stale faction cache from the previous match. UBS will re-derive
-    -- on first tick. Without this, a wrong value from a prior zone-in (when
-    -- GetBattlefieldArenaFaction wasn't ready yet) would persist into the
-    -- new match — exactly the "team showing as Horde when we're Alliance"
-    -- bug.
+    -- Clear stale faction cache from the previous match. PEW (just below)
+    -- will try the GUID lookup; if scoreboard isn't populated yet, UBS's
+    -- first tick retries. Without this, a wrong/stale value from a prior
+    -- zone-in would persist into the new match.
     self.AllyFaction = nil
     self.EnemyFaction = nil
+
+    -- Stop the lobby diagnostic watchdog if it was running. It will get
+    -- restarted by PVP_MATCH_STATE_CHANGED if we enter a new BG/arena lobby.
+    -- if self._stopLobbyEnemyWatchdog then
+    --   self:_stopLobbyEnemyWatchdog()
+    -- end
   end
 
   if zone == "pvp" or zone == "arena" then
-    -- Try to set faction immediately if the API is ready. If it isn't
-    -- (common at zone-in), leave AllyFaction nil and UBS's first tick will
-    -- retry. This is the merc-safe path because GetBattlefieldArenaFaction
-    -- returns the user's TEAM number, not their character's home faction.
-    local team = GetBattlefieldArenaFaction and GetBattlefieldArenaFaction()
-    if team then
-      self:SetAllyFaction(team)
+    -- Try to set faction authoritatively right now via the user's own
+    -- scoreboard row. UnitGUID("player") is non-secret and the API
+    -- accepts it; info.faction = the user's TEAM number for THIS match
+    -- (correct for mercs and cross-faction Blitz). If the scoreboard
+    -- isn't populated yet, leave AllyFaction nil — UBS's first tick
+    -- will retry the same lookup.
+    local ok, info = pcall(C_PvP.GetScoreInfoByPlayerGuid, UnitGUID("player"))
+    if ok and info and info.faction ~= nil then
+      self:SetAllyFaction(info.faction)
     end
-    -- Note: deliberately NOT falling back to playerFactionAsInt() here —
-    -- that returns the character's home faction, which is wrong for mercs.
-    -- UBS retries with the live API a moment later when it's ready.
 
     if zone == "arena" then
       BattleGroundEnemies.states.real.isInArena = true

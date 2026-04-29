@@ -68,9 +68,9 @@ end
 -- Orb spell IDs for Temple of Kotmogu based on Enum.PvPUnitClassification
 -- (IDs verified from BattlegroundWinConditions)
 local orbSpells = {
-  [7] = 1119885, -- Blue orb
-  [8] = 1119886, -- Green orb
-  [9] = 1119887, -- Orange orb
+  [7] = 1119885,  -- Blue orb
+  [8] = 1119886,  -- Green orb
+  [9] = 1119887,  -- Orange orb
   [10] = 1119888, -- Purple orb
 }
 
@@ -80,7 +80,7 @@ local orbSpells = {
 local function GetOrbCarrierButton(unitID)
   BattleGroundEnemies:ClearScanCycleCache()
   local matchedButton = BattleGroundEnemies:GetPlayerbuttonByUnitID(unitID, "Enemies", true)
-    or BattleGroundEnemies.Allies:GetAllyButtonByUnitID(unitID)
+      or BattleGroundEnemies.Allies:GetAllyButtonByUnitID(unitID)
 
   if not matchedButton then
     return nil
@@ -157,7 +157,7 @@ end
 local function GetFlagCarrierButton(unitID)
   BattleGroundEnemies:ClearScanCycleCache()
   local matchedButton = BattleGroundEnemies:GetPlayerbuttonByUnitID(unitID, "Enemies", true)
-    or BattleGroundEnemies.Allies:GetAllyButtonByUnitID(unitID)
+      or BattleGroundEnemies.Allies:GetAllyButtonByUnitID(unitID)
 
   if not matchedButton then
     return nil
@@ -390,18 +390,18 @@ function objectiveAndRespawn:AttachToPlayerButton(playerButton)
     -- Force show death visual for all battlegrounds
     self:Show()
     self:SetFrameLevel(playerButton:GetFrameLevel() + 10) -- Ensure on top
-    self.Icon:SetTexture(GetSpellTexture(8326)) -- Ghost/death icon
+    self.Icon:SetTexture(GetSpellTexture(8326))           -- Ghost/death icon
     self:HideText()
     self.ActiveRespawnTimer = true
 
     -- Set respawn timer based on BG type (from original BGE)
     local respawnTime = 26 -- Default RBG respawn time
     if IsCataClassic then
-      respawnTime = 45 -- Cata Classic has longer respawn
+      respawnTime = 45     -- Cata Classic has longer respawn
     else
       if states.isSoloRBG then
         if states.currentMapId ~= 2656 then -- Not Deephaul Ravine
-          respawnTime = 16 -- Blitz has faster respawn
+          respawnTime = 16                  -- Blitz has faster respawn
         end
       end
     end
@@ -427,11 +427,11 @@ function objectiveAndRespawn:AttachToPlayerButton(playerButton)
     if states.currentMapId == 417 then
       CheckAllOrbs()
     elseif
-      states.currentMapId == 206
-      or states.currentMapId == 1339
-      or states.currentMapId == 112
-      or states.currentMapId == 397
-      or states.currentMapId == 2345
+        states.currentMapId == 206
+        or states.currentMapId == 1339
+        or states.currentMapId == 112
+        or states.currentMapId == 397
+        or states.currentMapId == 2345
     then
       -- WSG (2106), Twin Peaks (726), Deephaul Ravine (2656), Eye of the Storm (566 normal, 968 rated) - check flags
       CheckAllFlags()
@@ -459,11 +459,11 @@ function objectiveAndRespawn:AttachToPlayerButton(playerButton)
     local states = BattleGroundEnemies:GetActiveStates()
     -- 2106=WSG, 726=Twin Peaks, 2656=Deephaul Ravine, 566=EOTS, 968=EOTS Rated
     if
-      states.currentMapId == 206
-      or states.currentMapId == 1339
-      or states.currentMapId == 112
-      or states.currentMapId == 397
-      or states.currentMapId == 2345
+        states.currentMapId == 206
+        or states.currentMapId == 1339
+        or states.currentMapId == 112
+        or states.currentMapId == 397
+        or states.currentMapId == 2345
     then
       CheckAllFlags()
 

@@ -248,5 +248,6 @@ function power:AttachToPlayerButton(playerButton)
       self:SetValue(0)
     end
   end
+
   return playerButton.Power
 end

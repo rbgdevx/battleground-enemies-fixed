@@ -64,5 +64,6 @@ function raidTargetIcon:AttachToPlayerButton(playerButton)
     end
     self:UpdateRaidTargetIcon()
   end
+
   return playerButton.RaidTargetIcon
 end
