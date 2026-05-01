@@ -3848,13 +3848,22 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
     end
 
     local ok, myInfo = pcall(C_PvP.GetScoreInfoByPlayerGuid, UnitGUID("player"))
-    if ok and myInfo and myInfo.faction ~= nil and type(myInfo.name) == "string" then
+    -- myInfo.name is documented as NeverSecret but in practice has been
+    -- observed flagged as secret while the addon's execution is tainted.
+    -- Comparing a secret string to anything taints the entire call stack —
+    -- pre-check and bail out of validation entirely if our own name reads
+    -- back as secret. AllyFaction stays nil, enemy panel stays empty, the
+    -- "never wrong" trade-off holds.
+    if ok and myInfo and myInfo.faction ~= nil and type(myInfo.name) == "string"
+        and not (issecretvalue and issecretvalue(myInfo.name)) then
       local raidNames = nil
       if IsInRaid() then
         raidNames = {}
         for i = 1, GetNumGroupMembers() or 0 do
           local memberName = GetRaidRosterInfo(i)
-          if type(memberName) == "string" and memberName ~= myInfo.name then
+          if type(memberName) == "string"
+              and not (issecretvalue and issecretvalue(memberName))
+              and memberName ~= myInfo.name then
             raidNames[memberName] = true
           end
         end

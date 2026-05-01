@@ -331,11 +331,27 @@ local function CreateMainFrame(playerType)
       -- local raceName = scoreInfo.raceName
 
       if scoreInfo.classToken and arenaPlayerInfo.classToken then
+        -- talentSpec has no NeverSecret flag in PVPScoreInfo, so it can be
+        -- a secret string in active matches. Direct == compare on a secret
+        -- string taints the call stack — fold the secrecy check into a
+        -- pre-computed specMatches bool. Legacy expansions return
+        -- talentSpec=nil, which still needs to match arenaPlayerInfo.specName=nil.
+        local scoreSpec = scoreInfo.talentSpec
+        local specMatches
+        if scoreSpec == nil then
+          specMatches = (arenaPlayerInfo.specName == nil)
+        elseif issecretvalue and issecretvalue(scoreSpec) then
+          -- Secret spec can't be safely disambiguated. Skip this candidate.
+          specMatches = false
+        else
+          specMatches = (scoreSpec == arenaPlayerInfo.specName)
+        end
+
         if
           scoreInfo.faction == BattleGroundEnemies.EnemyFaction
           and scoreInfo.classToken == arenaPlayerInfo.classToken
-          and scoreInfo.talentSpec == arenaPlayerInfo.specName
-        then --specname/talentSpec can be nil for old expansions
+          and specMatches
+        then
           if foundPlayer then
             return false -- we already had a match but found a second player that matches, unlucky
           end
