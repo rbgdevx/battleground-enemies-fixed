@@ -1986,13 +1986,14 @@ do
           local ok, same = pcall(UnitIsUnit, unitID, arenaToken)
           -- Same secret-boolean hazard as the cross-identity loop above.
           -- Pre-filter via issecretvalue before any boolean test on `same`.
-          if ok and same then
+          local sameIsSecret = issecretvalue and issecretvalue(same)
+          if ok and not sameIsSecret and same then
             -- Positive match — this unit IS the arena peer.
             scanCycleCache[unitID] = peer
             captureLiveAttrs(peer)
             return peer
           end
-          if ok and same == false then
+          if ok and not sameIsSecret and same == false then
             -- Clean negative: UnitIsUnit fired and returned non-secret false.
             -- The unit is definitively not this arena peer. Safe to eliminate.
             disambiguated = true

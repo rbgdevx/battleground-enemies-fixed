@@ -1770,7 +1770,7 @@ function BattleGroundEnemies.Allies:AddGroupMember(name, isLeader, isAssistant, 
   local raceName, raceFile, raceID = UnitRace(unitID)
   local GUID = UnitGUID(unitID)
 
-  if not GUID or type(GUID) ~= "string" then
+  if not GUID or type(GUID) ~= "string" or (issecretvalue and issecretvalue(GUID)) then
     return
   end
 
