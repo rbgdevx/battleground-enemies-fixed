@@ -1,7 +1,5 @@
 ---@class BattleGroundEnemies
 local BattleGroundEnemies = BattleGroundEnemies
----@type string
-local AddonName = ...
 ---@class Data
 local Data = select(2, ...)
 
@@ -86,8 +84,9 @@ function name:AttachToPlayerButton(playerButton)
       return
     end
 
-    -- 12.0.0: Arena opponent names are secret values. Can't manipulate them
-    -- but CAN pass directly to :SetText() (InsecureSecretArguments).
+    -- Arena-prep buttons may carry a SecretDisplayName from UnitName("arenaN")
+    -- when the unit identity is still secret. Pass it directly to :SetText()
+    -- (InsecureSecretArguments) and bail — no realm strip / Cyrillic conversion.
     local secretName = playerButton.PlayerDetails.SecretDisplayName
     if type(secretName) ~= "nil" then
       self.fs:SetText(secretName)
@@ -100,37 +99,21 @@ function name:AttachToPlayerButton(playerButton)
       return
     end
 
-    -- 12.0.5: Ambiguate is Blizzard's official realm-stripping helper,
-    -- added specifically for the new PvP-secrecy regime. Works on both
-    -- normal strings and secret strings without tainting (that's its
-    -- whole purpose — previously strsplit/utf8/gsub would taint on
-    -- secret names, forcing a passthrough-as-Name-Realm fallback).
+    -- Ambiguate is Blizzard's official realm-stripping helper.
     --   "short" → "Name"          (realm stripped)
     --   "none"  → "Name-Realm"    (realm preserved when present)
-    -- pcall-guarded just in case, with legacy strsplit fallback for
-    -- older clients that don't expose Ambiguate.
+    -- pcall-guarded with a legacy strsplit fallback for older clients.
     local context = self.config.ShowRealmnames and "none" or "short"
     local ok, resolvedName
     if Ambiguate then
       ok, resolvedName = pcall(Ambiguate, playerName, context)
     end
     if not ok or type(resolvedName) ~= "string" then
-      -- Ambiguate unavailable or returned unexpected type — fall back to
-      -- the pre-12.0.5 path. Secret names passthrough without string ops.
-      if issecretvalue and issecretvalue(playerName) then
-        self.fs:SetText(playerName)
-        self.fs.DisplayedName = nil
-        return
-      end
       local bareName, realm = strsplit("-", playerName, 2)
       resolvedName = (realm and self.config.ShowRealmnames) and (bareName .. "-" .. realm) or bareName
     end
 
-    -- Cyrillic → Roman transliteration requires string iteration which
-    -- would taint on a secret-tagged result. Skip the conversion in that
-    -- case; the displayed name is still correct (just not transliterated).
-    local resolvedIsSecret = issecretvalue and issecretvalue(resolvedName)
-    if BattleGroundEnemies.db.profile.ConvertCyrillic and not resolvedIsSecret then
+    if BattleGroundEnemies.db.profile.ConvertCyrillic then
       local converted = ""
       for i = 1, resolvedName:utf8len() do
         local c = resolvedName:utf8sub(i, i)
@@ -147,9 +130,7 @@ function name:AttachToPlayerButton(playerButton)
     end
 
     self.fs:SetText(resolvedName)
-    -- DisplayedName is read elsewhere for comparisons; storing a secret
-    -- value would taint those callers. Stash nil when secret.
-    self.fs.DisplayedName = resolvedIsSecret and nil or resolvedName
+    self.fs.DisplayedName = resolvedName
   end
 
   container.ApplyAllSettings = function(self)

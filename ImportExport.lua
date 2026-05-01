@@ -10,9 +10,6 @@ local AceGUI = LibStub("AceGUI-3.0")
 local LibDeflate = LibStub("LibDeflate")
 local LibSerialize = LibStub("LibSerialize")
 
-local ButtonFrameTemplate_HidePortrait = ButtonFrameTemplate_HidePortrait
-local CreateFrame = CreateFrame
-
 local CopyTable = CopyTable
     or function(settings, shallow)
       local copy = {}

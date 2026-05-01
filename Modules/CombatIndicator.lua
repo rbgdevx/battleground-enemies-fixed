@@ -1,7 +1,5 @@
 ---@class BattleGroundEnemies
 local BattleGroundEnemies = BattleGroundEnemies
----@type string
-local AddonName = ...
 ---@class Data
 local Data = select(2, ...)
 local LibSpellIconSelector = LibStub("LibSpellIconSelector")
@@ -18,7 +16,7 @@ local generalDefaults = {
     Enabled = true,
     Icon = 132310,
   },
-  UpdatePeriod = 0.1,
+  UpdatePeriod = 5,
 }
 
 local defaultSettings = {
@@ -91,10 +89,23 @@ local generalOptions = function(location)
     type = "range",
     name = L.UpdatePeriod,
     desc = L.UpdatePeriod_Desc,
-    min = 0.01,
-    max = 2,
+    min = 0.5,
+    max = 30,
     step = 0.05,
     order = 3,
+    -- Visually clamp old DB values < 0.5 up to the new minimum, without
+    -- migrating the saved value. If the user moves the slider, the new
+    -- (>= 0.5) value is written back via the standard set path.
+    get = function(option)
+      local v = Data.GetOption(location, option)
+      if type(v) ~= "number" or v < 0.5 then
+        return 0.5
+      end
+      return v
+    end,
+    set = function(option, value)
+      return Data.SetOption(location, option, value)
+    end,
   }
   return t
 end
@@ -143,6 +154,10 @@ end
 
 -- Shared ticker: single timer updates all active buttons instead of one ticker per button.
 local sharedTicker = nil
+-- Last seen UpdatePeriod from a button's config. Cached so StartCombatIndicatorTicker()
+-- (called from BattleGroundEnemies:Enable()) can resume the ticker even when no
+-- per-button ApplyAllSettings has fired yet.
+local lastKnownPeriod = 5
 
 local function UpdateAllCombatIndicators()
   if not BattleGroundEnemies.enabled then
@@ -166,8 +181,28 @@ local function StartSharedTicker(updatePeriod)
   if sharedTicker then
     sharedTicker:Cancel()
   end
-  if updatePeriod and updatePeriod > 0 then
-    sharedTicker = CTimerNewTicker(updatePeriod, UpdateAllCombatIndicators)
+  -- Defensive floor: even if a saved profile has a stale value below 0.5
+  -- (the old min was 0.01), enforce 0.5 as the actual ticker rate so the
+  -- new performance floor holds for everyone.
+  if type(updatePeriod) ~= "number" or updatePeriod < 0.5 then
+    updatePeriod = 0.5
+  end
+  lastKnownPeriod = updatePeriod
+  sharedTicker = CTimerNewTicker(updatePeriod, UpdateAllCombatIndicators)
+end
+
+-- Explicit start/stop for BattleGroundEnemies:Enable()/Disable(). Disable() must
+-- be able to fully stop the ticker so it doesn't keep firing while the user is
+-- outside PvP. Enable() must be able to resume it without waiting for the
+-- per-button ApplyAllSettings chain to eventually trigger StartSharedTicker.
+function BattleGroundEnemies:StartCombatIndicatorTicker()
+  StartSharedTicker(lastKnownPeriod)
+end
+
+function BattleGroundEnemies:StopCombatIndicatorTicker()
+  if sharedTicker then
+    sharedTicker:Cancel()
+    sharedTicker = nil
   end
 end
 

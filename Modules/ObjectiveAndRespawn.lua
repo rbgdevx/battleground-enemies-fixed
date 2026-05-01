@@ -1,8 +1,6 @@
 ---@class BattleGroundEnemies
 local BattleGroundEnemies = BattleGroundEnemies
 
----@type string
-local AddonName = ...
 ---@class Data
 local Data = select(2, ...)
 local GetTime = GetTime
@@ -64,15 +62,6 @@ local options = function(location)
     },
   }
 end
-
--- Orb spell IDs for Temple of Kotmogu based on Enum.PvPUnitClassification
--- (IDs verified from BattlegroundWinConditions)
-local orbSpells = {
-  [7] = 1119885,  -- Blue orb
-  [8] = 1119886,  -- Green orb
-  [9] = 1119887,  -- Orange orb
-  [10] = 1119888, -- Purple orb
-}
 
 -- Helper: Find the correct button for an arena orb carrier
 -- Enemy side uses PID matching (needed — arena tokens to unknown-identity

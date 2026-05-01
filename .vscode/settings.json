@@ -110,7 +110,8 @@
     "ScrollBoxConstants",
     "SelectionFrameCancelButton_OnClick",
     "SelectionFrameOkayButton_OnClick",
-    "NineSliceLayouts"
+    "NineSliceLayouts",
+    "ReloadUI"
   ],
   "Lua.runtime.builtin": {
     "basic": "disable",
@@ -141,7 +142,8 @@
     "redundant-parameter",
     "unbalanced-assignments",
     "undefined-field",
-    "undefined-global"
+    "undefined-global",
+    "assign-type-mismatch"
   ],
   "wowAPI.luals.frameXML": false
 }

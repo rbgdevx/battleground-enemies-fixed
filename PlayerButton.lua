@@ -1,11 +1,8 @@
----@type string
-local AddonName = ...
 ---@class Data
 local Data = select(2, ...)
 
 ---@class BattleGroundEnemies
 local BattleGroundEnemies = BattleGroundEnemies
-local L = Data.L
 
 local FAKE_TRINKET = true
 local FAKE_TRINKET_DURATION = 120       -- DPS / Tank
@@ -37,15 +34,10 @@ local C_Item = C_Item
 local C_Spell = C_Spell
 
 --lua
-local _G = _G
 local math_floor = math.floor
 local math_random = math.random
-local math_min = math.min
 local pairs = pairs
-local print = print
 local table_insert = table.insert
-local table_remove = table.remove
-local time = time
 local type = type
 local unpack = unpack
 
@@ -180,6 +172,26 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
   playerButton:RegisterForClicks("AnyUp")
   playerButton:SetPropagateMouseMotion(true) --to send the mouse wheel event to the other frame behind it (the mainframe)
   playerButton:Hide()
+
+  -- Stash the just-clicked enemy button so PLAYER_TARGET_CHANGED /
+  -- PLAYER_FOCUS_CHANGED can resolve "target" / "focus" deterministically.
+  -- UnitName is SecretWhenUnitIdentityRestricted in PvP for hostile units,
+  -- so two same-class+race enemies can't be distinguished via fingerprint.
+  -- The click itself is the source of truth — record the exact button here
+  -- and the event handler consumes it within a short time window.
+  playerButton:SetScript("PostClick", function(self, mouseButton)
+    if not self.PlayerIsEnemy or not self.config then
+      return
+    end
+    local bindingType = self.config[(mouseButton or "") .. "Type"]
+    if bindingType == "Target" then
+      BattleGroundEnemies._lastClickedEnemyTarget = self
+      BattleGroundEnemies._lastClickedEnemyTargetTime = GetTime()
+    elseif bindingType == "Focus" then
+      BattleGroundEnemies._lastClickedEnemyFocus = self
+      BattleGroundEnemies._lastClickedEnemyFocusTime = GetTime()
+    end
+  end)
   -- setmetatable(playerButton, self)
   -- self.__index = self
 
@@ -882,31 +894,27 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
         -- "/targetexact <name>" would taint on a secret). Skip the whole
         -- macrotext build when the name is secret — clicks become no-ops
         -- until a cleanse/cache path exists or the player gets an arena token.
-        local pname = self.PlayerDetails and self.PlayerDetails.PlayerName
-        local nameIsSecret = issecretvalue and pname and issecretvalue(pname)
-        if not nameIsSecret then
-          newAttributes.type1 = "macro" -- type1 = LEFT-Click
-          newAttributes.type2 = "macro" -- type2 = Right-Click
-          newAttributes.type3 = "macro" -- type3 = Middle-Click
+        newAttributes.type1 = "macro" -- type1 = LEFT-Click
+        newAttributes.type2 = "macro" -- type2 = Right-Click
+        newAttributes.type3 = "macro" -- type3 = Middle-Click
 
-          for i = 1, 3 do
-            local bindingType = self.config[mouseButtons[i] .. "Type"]
+        for i = 1, 3 do
+          local bindingType = self.config[mouseButtons[i] .. "Type"]
 
-            if bindingType == "Target" then
-              newAttributes["macrotext" .. i] = "/cleartarget\n" .. "/targetexact " .. self.PlayerDetails.PlayerName
-            elseif bindingType == "Focus" then
-              newAttributes["macrotext" .. i] = "/targetexact "
-                  .. self.PlayerDetails.PlayerName
-                  .. "\n"
-                  .. "/focus\n"
-                  .. "/targetlasttarget"
-            else -- Custom
-              local macrotext = (BattleGroundEnemies.db.profile[self.PlayerType][mouseButtons[i] .. "Value"]):gsub(
-                "%%n",
-                self.PlayerDetails.PlayerName
-              )
-              newAttributes["macrotext" .. i] = macrotext
-            end
+          if bindingType == "Target" then
+            newAttributes["macrotext" .. i] = "/cleartarget\n" .. "/targetexact " .. self.PlayerDetails.PlayerName
+          elseif bindingType == "Focus" then
+            newAttributes["macrotext" .. i] = "/targetexact "
+                .. self.PlayerDetails.PlayerName
+                .. "\n"
+                .. "/focus\n"
+                .. "/targetlasttarget"
+          else -- Custom
+            local macrotext = (BattleGroundEnemies.db.profile[self.PlayerType][mouseButtons[i] .. "Value"]):gsub(
+              "%%n",
+              self.PlayerDetails.PlayerName
+            )
+            newAttributes["macrotext" .. i] = macrotext
           end
         end
       end

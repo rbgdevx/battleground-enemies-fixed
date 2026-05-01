@@ -1,5 +1,3 @@
----@type string
-local AddonName = ...
 ---@class Data
 local Data = select(2, ...)
 if not Data.L then
@@ -23,8 +21,6 @@ local math_random = math.random
 local math_min = math.min
 local pairs = pairs
 local print = print
-local table_insert = table.insert
-local table_remove = table.remove
 local time = time
 local type = type
 local unpack = unpack
@@ -33,29 +29,18 @@ local C_PvP = C_PvP
 local C_Spell = C_Spell
 local CreateFrame = CreateFrame
 local CTimerNewTicker = C_Timer.NewTicker
-local GetArenaOpponentSpec = GetArenaOpponentSpec
-local GetBattlefieldArenaFaction = GetBattlefieldArenaFaction
-local GetBattlefieldScore = GetBattlefieldScore
 local GetBattlefieldTeamInfo = GetBattlefieldTeamInfo
 local GetBestMapForUnit = C_Map.GetBestMapForUnit
 local GetNumBattlefieldScores = GetNumBattlefieldScores
 local GetNumGroupMembers = GetNumGroupMembers
-local GetNumSpellTabs = C_SpellBook and C_SpellBook.GetNumSpellBookSkillLines or GetNumSpellTabs
 local GetRaidRosterInfo = GetRaidRosterInfo
-local GetSpecializationInfoByID = GetSpecializationInfoByID
-local GetSpellBookItemName = C_SpellBook and C_SpellBook.GetSpellBookItemName or GetSpellBookItemName
 local GetSpellName = C_Spell and C_Spell.GetSpellName or GetSpellName
-local GetSpellTabInfo = GetSpellTabInfo
-local GetSpellTexture = C_Spell and C_Spell.GetSpellTexture or GetSpellTexture
-local C_SpellBook = C_SpellBook
 local GetTime = GetTime
 local GetUnitName = GetUnitName
 local InCombatLockdown = InCombatLockdown
-local IsInBrawl = C_PvP.IsInBrawl
 local IsInInstance = IsInInstance
 local IsInRaid = IsInRaid
 local RequestBattlefieldScoreData = RequestBattlefieldScoreData
-local RequestCrowdControlSpell = C_PvP.RequestCrowdControlSpell
 local SetBattlefieldScoreFaction = SetBattlefieldScoreFaction
 local UnitExists = UnitExists
 local UnitFactionGroup = UnitFactionGroup
@@ -68,7 +53,6 @@ local UnitRealmRelationship = UnitRealmRelationship
 
 local IsRetail = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
 local IsClassic = WOW_PROJECT_ID == WOW_PROJECT_CLASSIC
-local IsTBCC = WOW_PROJECT_ID == WOW_PROJECT_BURNING_CRUSADE_CLASSIC
 local IsWrath = WOW_PROJECT_ID == WOW_PROJECT_WRATH_CLASSIC
 
 local HasSpeccs = not not GetSpecialization -- Mists of Pandaria
@@ -113,15 +97,13 @@ BattleGroundEnemies.Counter = {}
 BattleGroundEnemies.PlayerGUIDs = {}
 BattleGroundEnemies.DuplicateLog = {}
 
--- Track scoreboard sort / faction so we can re-assert after the user (or
--- Blizzard's own PVPMatch UI) changes them. Role sort isn't a thing in
--- SortBattlefieldScoreData; "class" is the closest stable server-side grouping.
--- factionEnum -1 = both, 0 = Horde, 1 = Alliance. BGEF needs -1.
-BattleGroundEnemies._scoreboardSort = nil
+-- Track scoreboard faction filter so we can re-assert after the user (or
+-- Blizzard's own PVPMatch UI) clicks a faction tab. factionEnum -1 = both
+-- teams, 0 = Horde, 1 = Alliance. BGEF needs -1 to see both teams' rows.
+-- Server-side sort is no longer tracked: enemies are sorted by class+name
+-- on our end via PlayerSortingByClassName, so the row order from
+-- SortBattlefieldScoreData is irrelevant to the addon.
 BattleGroundEnemies._scoreboardFaction = nil
-hooksecurefunc("SortBattlefieldScoreData", function(sortType)
-  BattleGroundEnemies._scoreboardSort = sortType
-end)
 hooksecurefunc("SetBattlefieldScoreFaction", function(factionEnum)
   BattleGroundEnemies._scoreboardFaction = factionEnum
 end)
@@ -1030,7 +1012,7 @@ end
 -- Shared button update ticker: single timer updates all active buttons
 -- instead of each button having its own OnUpdate handler.
 local buttonUpdateTicker = nil
-local BUTTON_UPDATE_PERIOD = 0.1
+local BUTTON_UPDATE_PERIOD = 0.2
 
 local function UpdateAllPlayerButtons()
   if not BattleGroundEnemies.enabled or not BattleGroundEnemies.states.userIsAlive then
@@ -1077,6 +1059,11 @@ function BattleGroundEnemies:Disable()
   RequestFrame:Hide()
   stopFakePlayersTicker()
   StopButtonUpdateTicker()
+  -- Cancel persistent tickers explicitly so they don't keep firing no-op
+  -- wakeups while the user is outside PvP. Re-armed by the corresponding
+  -- Start* calls in Enable() below.
+  self:StopTargetScanTicker()
+  self:StopCombatIndicatorTicker()
   self.Allies:Disable()
   self.Enemies:Disable()
 end
@@ -1086,6 +1073,11 @@ function BattleGroundEnemies:Enable()
 
   self:RegisterEvents()
   StartButtonUpdateTicker()
+  -- Re-arm persistent tickers cancelled by Disable(). Explicit start here
+  -- guarantees they resume without depending on PEW (TargetScanTicker) or
+  -- the ApplyButtonSettings chain (CombatIndicator) firing first.
+  self:StartTargetScanTicker()
+  self:StartCombatIndicatorTicker()
   if BattleGroundEnemies:IsTestmodeActive() then
     setupFakePlayersTestmodeTicker()
     RequestFrame:Hide()
@@ -1265,7 +1257,6 @@ function BattleGroundEnemies:OnetimeDebug(...)
     return
   end
   sentDebugMessages[message] = true
-  self:Debug(...)
 end
 
 function BattleGroundEnemies:Debug(...)
@@ -1436,10 +1427,11 @@ do
         RaceTokenToID[raceInfo.clientFileString] = raceInfo.raceID
       end
     end
-    -- LibRaces:GetRaceToken returns names that may differ from C_CreatureInfo clientFileString.
-    -- Add aliases so lookup works with either format.
-    RaceTokenToID["Undead"] = RaceTokenToID["Scourge"] or 5 -- LibRaces says "Undead", client says "Scourge"
-    RaceTokenToID["Earthen"] = RaceTokenToID["EarthenDwarf"] or 85 -- LibRaces says "Earthen", client may say "EarthenDwarf"
+    -- Some code paths feed in localized race names (e.g. "Undead", "Earthen")
+    -- rather than the C_CreatureInfo clientFileString ("Scourge", "EarthenDwarf").
+    -- Add aliases so the lookup succeeds for both formats.
+    RaceTokenToID["Undead"] = RaceTokenToID["Scourge"] or 5
+    RaceTokenToID["Earthen"] = RaceTokenToID["EarthenDwarf"] or 85
   end
 
   -- Collapse faction-variant race IDs to a single canonical ID
@@ -1505,8 +1497,8 @@ do
   end
 
   local function EN_ScoreboardPID(p)
-    -- Race: use PlayerRace from scoreboard (LibRaces token, always available)
-    -- This matches C_CreatureInfo.GetRaceInfo().clientFileString format (e.g. "BloodElf")
+    -- Race: use PlayerRace from scoreboard. Format matches
+    -- C_CreatureInfo.GetRaceInfo().clientFileString (e.g. "BloodElf").
     local raceID = RaceTokenToID[p.PlayerRace or ""] or 0
     local classID = ClassTokenToID[p.PlayerClass or ""] or 0
     if raceID == 0 and p.PlayerRace and p.PlayerRace ~= "Unknown" then
@@ -1584,7 +1576,7 @@ do
     -- (GUID/name lookups, class checks) still refuse to match when identity
     -- data is unknown.
     local okPlayer, isPlayer = pcall(UnitIsPlayer, unitID)
-    if okPlayer and not (issecretvalue and issecretvalue(isPlayer)) and isPlayer == false then
+    if okPlayer and isPlayer == false then
       return nil
     end
 
@@ -1599,10 +1591,8 @@ do
     -- (stale sticky, fingerprint fallback, etc.), the captured short-name
     -- permanently polluted the wrong frame — e.g. the flag-carrier rogue's
     -- name "Luxnocis" would stamp onto an unrelated warlock's frame and
-    -- survive scoreboard refreshes. ShowRealmnames=false is now only
-    -- honoured when the scoreboard-supplied PlayerName is non-secret
-    -- (splittable via strsplit); secret names display as-is (Blizzard
-    -- blocks string manipulation of secrets post-12.0.5).
+    -- survive scoreboard refreshes. ShowRealmnames=false is honoured by
+    -- splitting the scoreboard-supplied PlayerName via strsplit.
     local function captureLiveAttrs(btn)
       if not btn or not btn.PlayerDetails then
         return
@@ -1706,10 +1696,8 @@ do
 
     local okName, unitName = pcall(GetUnitName, unitID, true)
     if okName and unitName and not (issecretvalue and issecretvalue(unitName)) then
-      local okLookup, nameButton = pcall(function()
-        return self[playerType].Players[unitName]
-      end)
-      if okLookup and nameButton then
+      local nameButton = self[playerType].Players[unitName]
+      if nameButton then
         if not ignoreExistingArena then
           scanCycleCache[unitID] = nameButton
         end
@@ -1998,14 +1986,13 @@ do
           local ok, same = pcall(UnitIsUnit, unitID, arenaToken)
           -- Same secret-boolean hazard as the cross-identity loop above.
           -- Pre-filter via issecretvalue before any boolean test on `same`.
-          local sameIsSecret = issecretvalue and issecretvalue(same)
-          if ok and not sameIsSecret and same then
+          if ok and same then
             -- Positive match — this unit IS the arena peer.
             scanCycleCache[unitID] = peer
             captureLiveAttrs(peer)
             return peer
           end
-          if ok and not sameIsSecret and same == false then
+          if ok and same == false then
             -- Clean negative: UnitIsUnit fired and returned non-secret false.
             -- The unit is definitively not this arena peer. Safe to eliminate.
             disambiguated = true
@@ -2252,10 +2239,6 @@ function BattleGroundEnemies:ScanTargets()
       local targetName = nil
       if ok and name then
         local ok2 = pcall(function()
-          name = tostring(name)
-          if server then
-            server = tostring(server)
-          end
           if issecretvalue and (issecretvalue(name) or (server and issecretvalue(server))) then
             return
           end
@@ -2277,7 +2260,6 @@ function BattleGroundEnemies:ScanTargets()
         ok, name, server = pcall(GetUnitName, targetUnitID, false)
         if ok and name then
           local ok2 = pcall(function()
-            name = tostring(name)
             -- Check if value is still secret after tostring
             if issecretvalue and issecretvalue(name) then
               return
@@ -2436,10 +2418,6 @@ function BattleGroundEnemies:ScanTargets()
       local targetName = nil
       if ok and name then
         local ok2 = pcall(function()
-          name = tostring(name)
-          if server then
-            server = tostring(server)
-          end
           if issecretvalue and (issecretvalue(name) or (server and issecretvalue(server))) then
             return
           end
@@ -2461,7 +2439,6 @@ function BattleGroundEnemies:ScanTargets()
         ok, name, server = pcall(GetUnitName, targetUnitID, false)
         if ok and name then
           local ok2 = pcall(function()
-            name = tostring(name)
             -- Check if value is still secret after tostring
             if issecretvalue and issecretvalue(name) then
               return
@@ -2602,12 +2579,19 @@ function BattleGroundEnemies:StartTargetScanTicker()
   if self.TargetScanTicker then
     self.TargetScanTicker:Cancel()
   end
-  self.TargetScanTicker = C_Timer.NewTicker(0.25, function()
+  self.TargetScanTicker = C_Timer.NewTicker(0.3, function()
     if not self.enabled then
       return
     end
     self:ScanTargets()
   end)
+end
+
+function BattleGroundEnemies:StopTargetScanTicker()
+  if self.TargetScanTicker then
+    self.TargetScanTicker:Cancel()
+    self.TargetScanTicker = nil
+  end
 end
 
 function BattleGroundEnemies:PLAYER_SOFT_ENEMY_CHANGED()
@@ -2623,7 +2607,7 @@ function BattleGroundEnemies:PLAYER_SOFT_ENEMY_CHANGED()
 end
 
 function BattleGroundEnemies:GetPlayerbuttonByName(name)
-  if not name or (issecretvalue and issecretvalue(name)) then
+  if not name then
     return
   end
   return self.Enemies.Players[name] or self.Allies.Players[name]
@@ -2710,8 +2694,22 @@ function BattleGroundEnemies:HandleTargetChanged(newTarget)
 end
 
 function BattleGroundEnemies:PLAYER_TARGET_CHANGED()
-  -- Defer off the secure execution path to avoid tainting Blizzard UnitFrame
-  C_Timer.After(0, function()
+  -- Defer off the secure execution path to avoid tainting Blizzard UnitFrame.
+  --
+  -- Debounce: a single click on a player button runs "/cleartarget\n
+  -- /targetexact NAME", which fires PLAYER_TARGET_CHANGED TWICE in the
+  -- same frame (once for cleartarget, once for targetexact). Without
+  -- debouncing, two deferred resolutions run back-to-back: the first
+  -- correctly consumes the PostClick stash, but the second sees an
+  -- empty stash and falls through to the PID fingerprint resolver,
+  -- which can overwrite the highlight with the wrong same-class
+  -- button. Cancel any pending resolution so only the LAST event in
+  -- the burst lands.
+  if self._targetChangeTimer then
+    self._targetChangeTimer:Cancel()
+  end
+  self._targetChangeTimer = C_Timer.NewTimer(0, function()
+    self._targetChangeTimer = nil
     self:PLAYER_TARGET_CHANGED_Deferred()
   end)
 end
@@ -2770,18 +2768,35 @@ function BattleGroundEnemies:PLAYER_TARGET_CHANGED_Deferred()
       end
     end
   else
-    -- Enemy target — check arena token mapping first, then PID matching
-    local matchedArena = nil
-    for i = 1, 5 do
-      local arenaID = "arena" .. i
-      if UnitIsUnit("target", arenaID) then
-        matchedArena = arenaID
-        btn = self.ArenaIDToPlayerButton[arenaID]
-        break
+    -- Enemy target. The macrotext for Target bindings is
+    -- "/cleartarget\n/targetexact NAME", which fires PLAYER_TARGET_CHANGED
+    -- TWICE — first with no target (from /cleartarget), then with the
+    -- real target (from /targetexact). Only consume the click stash on
+    -- the second event (UnitExists("target")). If we consumed on the
+    -- first, the second would lose the stash and fall through to PID
+    -- fingerprinting — exactly the bug we're trying to avoid.
+    if UnitExists("target") then
+      local lastClicked = self._lastClickedEnemyTarget
+      local lastClickedTime = self._lastClickedEnemyTargetTime or 0
+      if lastClicked and lastClicked.PlayerDetails and (GetTime() - lastClickedTime) < 0.5 then
+        btn = lastClicked
       end
-    end
-    if not btn then
-      btn = self:GetPlayerbuttonByUnitID("target", "Enemies")
+      self._lastClickedEnemyTarget = nil
+      self._lastClickedEnemyTargetTime = nil
+
+      -- Arena token mapping next, then PID matching as the last resort.
+      if not btn then
+        for i = 1, 5 do
+          local arenaID = "arena" .. i
+          if UnitIsUnit("target", arenaID) then
+            btn = self.ArenaIDToPlayerButton[arenaID]
+            break
+          end
+        end
+      end
+      if not btn then
+        btn = self:GetPlayerbuttonByUnitID("target", "Enemies")
+      end
     end
   end
 
@@ -2800,7 +2815,6 @@ function BattleGroundEnemies:PLAYER_TARGET_CHANGED_Deferred()
 end
 
 function BattleGroundEnemies:HandleFocusChanged(newFocus)
-  --self:Debug("playerButton focus", playerButton, GetUnitName("focus", true))
   if BattleGroundEnemies.currentFocus then
     BattleGroundEnemies.currentFocus:UpdateEnemyUnitID("Focus", false)
 
@@ -2861,16 +2875,31 @@ function BattleGroundEnemies:PLAYER_FOCUS_CHANGED()
       end
     end
   else
-    -- Enemy focus — check arena token mapping first, then PID matching
-    for i = 1, 5 do
-      local arenaID = "arena" .. i
-      if UnitIsUnit("focus", arenaID) then
-        btn = self.ArenaIDToPlayerButton[arenaID]
-        break
+    -- Enemy focus — same logic as the target-change handler. Only consume
+    -- the click stash when there's an actual focus to map (a /clearfocus
+    -- variant would otherwise burn the stash on the no-focus event).
+    if UnitExists("focus") then
+      local lastClicked = self._lastClickedEnemyFocus
+      local lastClickedTime = self._lastClickedEnemyFocusTime or 0
+      if lastClicked and lastClicked.PlayerDetails and (GetTime() - lastClickedTime) < 0.5 then
+        btn = lastClicked
       end
-    end
-    if not btn then
-      btn = self:GetPlayerbuttonByUnitID("focus", "Enemies")
+      self._lastClickedEnemyFocus = nil
+      self._lastClickedEnemyFocusTime = nil
+
+      -- Arena token mapping next, then PID matching as the last resort.
+      if not btn then
+        for i = 1, 5 do
+          local arenaID = "arena" .. i
+          if UnitIsUnit("focus", arenaID) then
+            btn = self.ArenaIDToPlayerButton[arenaID]
+            break
+          end
+        end
+      end
+      if not btn then
+        btn = self:GetPlayerbuttonByUnitID("focus", "Enemies")
+      end
     end
   end
 
@@ -3383,10 +3412,6 @@ function BattleGroundEnemies:UNIT_TARGET(unitID)
       local targetName = nil
       if ok and name then
         local ok2 = pcall(function()
-          name = tostring(name)
-          if server then
-            server = tostring(server)
-          end
           if issecretvalue and (issecretvalue(name) or (server and issecretvalue(server))) then
             return
           end
@@ -3509,7 +3534,6 @@ function BattleGroundEnemies:UpdateArenaPlayers()
   if #BattleGroundEnemies.Enemies.CurrentPlayerOrder > 0 or #BattleGroundEnemies.Allies.CurrentPlayerOrder > 0 then --this ensures that we checked for enemies and the flag carrier will be shown (if its an enemy)
     for i = 1, GetNumArenaOpponents() do
       local unitID = "arena" .. i
-      self:Debug(unitID, UnitName(unitID))
       -- Try PID matching first (works when GUID/name aren't secret)
       local playerButton = BattleGroundEnemies:GetPlayerbuttonByUnitID(unitID, "Enemies")
 
@@ -3540,7 +3564,6 @@ local UpdateArenaPlayersTicker
 
 --too avoid calling UpdateArenaPlayers too many times within a second
 function BattleGroundEnemies:DebounceUpdateArenaPlayers()
-  self:Debug("DebounceUpdateArenaPlayers")
   if UpdateArenaPlayersTicker then
     UpdateArenaPlayersTicker:Cancel()
   end -- use a timer to apply changes after half second, this prevents from too many updates after each player is found
@@ -3555,10 +3578,7 @@ function BattleGroundEnemies:DebounceUpdateArenaPlayers()
 end
 
 function BattleGroundEnemies:CheckForArenaEnemies()
-  self:Debug("CheckForArenaEnemies")
-
   -- returns valid data on PLAYER_ENTERING_WORLD
-  self:Debug(GetNumArenaOpponents())
   if GetNumArenaOpponents() == 0 then
     C_Timer.After(2, function()
       self:DebounceUpdateArenaPlayers()
@@ -3748,31 +3768,22 @@ function BattleGroundEnemies:SetAllyFaction(allyFaction)
 end
 
 function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
-  -- Re-assert our required sort+faction if something (user, Blizzard UI) changed
-  -- them. Server-side "class" sort gives stable class-grouped ordering feed into
-  -- our button creation; factionEnum -1 ensures both teams are returned.
-  -- The resulting calls will fire another UPDATE_BATTLEFIELD_SCORE — bail out
-  -- of this one so we parse with the correct state on the next cycle.
-  -- Skip the re-assert while the user is actively looking at the scoreboard /
-  -- match results; otherwise we'd yank their sort/faction view out from under
-  -- them. When they close it, the next UBS tick re-asserts.
+  -- Re-assert factionEnum -1 if the user (or Blizzard's PVPMatch UI) clicked
+  -- a faction tab and filtered the scoreboard to one team — without -1 our
+  -- GetNumBattlefieldScores / GetScoreInfo iteration would only see that
+  -- team's rows. Skip while the user is actively looking at the scoreboard
+  -- so we don't yank their tab view out from under them; the next UBS tick
+  -- after they close it will re-assert.
   local scoreboardShown = (PVPMatchScoreboard and PVPMatchScoreboard:IsShown())
     or (PVPMatchResults and PVPMatchResults:IsShown())
-  -- Hard re-entry guard: SortBattlefieldScoreData / SetBattlefieldScoreFaction
-  -- fire UPDATE_BATTLEFIELD_SCORE synchronously (plus Blizzard's scoreboard UI
-  -- updates may also fire UBS mid-call). Without this, we recurse infinitely:
-  -- handler → Sort → UBS → handler → Sort → ... stack overflow.
+  -- Hard re-entry guard: SetBattlefieldScoreFaction fires UPDATE_BATTLEFIELD_SCORE
+  -- synchronously (plus Blizzard's scoreboard UI updates may also fire UBS
+  -- mid-call). Without this, we recurse infinitely:
+  -- handler → SetFaction → UBS → handler → SetFaction → ... stack overflow.
   if self._reassertingScoreboard then
     return
   end
   if not scoreboardShown then
-    if self._scoreboardSort ~= "class" then
-      self._reassertingScoreboard = true
-      self._scoreboardSort = "class"
-      SortBattlefieldScoreData("class")
-      self._reassertingScoreboard = false
-      return
-    end
     if self._scoreboardFaction ~= -1 then
       self._reassertingScoreboard = true
       self._scoreboardFaction = -1
@@ -3842,7 +3853,6 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
 
   local battlefieldScores = {}
   local numScores = GetNumBattlefieldScores()
-  self:Debug("numScores", numScores)
   for i = 1, numScores do
     local score = parseBattlefieldScore(i)
     if score then
@@ -3866,14 +3876,11 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
   end
 
   -- Count ACTUAL buttons via PlayerList, not the Players name-keyed dict.
-  -- The dict only holds non-secret-named buttons; in 12.0.5 PvP all enemy
-  -- names are secret mid-match, so the dict is always empty and the old
-  -- guard was effectively `newEnemyCount >= 0` (always true). That meant
-  -- a transient scoreboard blip (e.g., gate-open returns 0 valid rows
-  -- briefly) would call BeforePlayerSourceUpdate, wipe the source list,
-  -- and the empty AfterPlayerSourceUpdate would tear down every button —
-  -- exactly the "enemies disappear when battle begins" symptom.
-  -- Counting PlayerList preserves the original "never shrink" intent.
+  -- A transient scoreboard blip (e.g., gate-open returns 0 valid rows
+  -- briefly) must NOT cause us to wipe the source list and tear down
+  -- every button — that was the "enemies disappear when battle begins"
+  -- symptom. PlayerList counts buttons unconditionally, so the
+  -- never-shrink guard holds even if the dict is mid-rebuild.
   local currentEnemyButtons = #self.Enemies.PlayerList
 
   -- Only update enemies if we gained or maintained count (never lose enemies)
@@ -3951,8 +3958,6 @@ function BattleGroundEnemies:GROUP_ROSTER_UPDATE()
   self.Allies.assistants = {}
 
   --IsInGroup returns true when user is in a Raid and In a 5 man group
-
-  self:RequestEverythingFromGroupmembers()
 
   -- GetRaidRosterInfo also works when in a party (not raid) but i am not 100% sure how the party unitID maps to the index in GetRaidRosterInfo()
 
@@ -4074,7 +4079,10 @@ function BattleGroundEnemies:PLAYER_ENTERING_WORLD()
   -- print("[BGEF debug] PLAYER_ENTERING_WORLD GetBattlefieldArenaFaction()=",
   --   GetBattlefieldArenaFaction and GetBattlefieldArenaFaction())
 
-  self:StartTargetScanTicker()
+  -- TargetScanTicker is now started/stopped by Enable()/Disable(), invoked
+  -- via CheckEnableState below. Don't start it here unconditionally —
+  -- otherwise it would be created on every world load (including non-PvP
+  -- zones) and stay alive until the next BG.
 
   if self.states.testmodeActive then
     self:DisableTestMode()
