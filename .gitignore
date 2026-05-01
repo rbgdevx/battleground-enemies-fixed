@@ -1,6 +1,9 @@
 .libraries
 .claude
 
+# Maintainer-only notes (not shipped, not committed)
+DEFERRED.md
+
 # macOS metadata / junk
 .DS_Store
 ._*
