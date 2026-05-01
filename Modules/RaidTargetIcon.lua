@@ -1,7 +1,5 @@
 ---@class BattleGroundEnemies
 local BattleGroundEnemies = BattleGroundEnemies
----@type string
-local AddonName = ...
 ---@class Data
 local Data = select(2, ...)
 

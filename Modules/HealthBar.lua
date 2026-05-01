@@ -1,13 +1,9 @@
----@type string
-local AddonName = ...
 ---@class Data
 local Data = select(2, ...)
 ---@class BattleGroundEnemies
 local BattleGroundEnemies = BattleGroundEnemies
 local LSM = LibStub("LibSharedMedia-3.0")
 local L = Data.L
-
-local CompactUnitFrame_UpdateHealPrediction = CompactUnitFrame_UpdateHealPrediction
 
 local HealthTextTypes = {
   health = COMPACT_UNIT_FRAME_PROFILE_HEALTHTEXT_HEALTH,

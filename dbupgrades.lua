@@ -1,19 +1,7 @@
----@type string
-local AddonName = ...
----@class Data
-local Data = select(2, ...)
-
 ---@class BattleGroundEnemies
 local BattleGroundEnemies = BattleGroundEnemies
 
 local currentDBVersion = 2
-
-local MergeTable = MergeTable
-    or function(destination, source)
-      for k, v in pairs(source) do
-        destination[k] = v
-      end
-    end
 
 --destination is the new db table which already has the new defaults in them
 --just copy over the exsting settings without altering the structure of the destination table

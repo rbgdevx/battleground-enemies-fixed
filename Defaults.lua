@@ -1,5 +1,3 @@
----@type string
-local AddonName = ...
 ---@class Data
 local Data = select(2, ...)
 
@@ -437,8 +435,6 @@ Data.defaultSettings = {
     DebugToSV_ResetOnPlayerLogin = false,
     DebugToChat = false,
     DebugToChat_AddTimestamp = false,
-
-    shareActiveProfile = false,
 
     DisableArenaFramesInArena = false,
     DisableArenaFramesInBattleground = false,

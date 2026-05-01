@@ -1,8 +1,6 @@
 ---@class Data
 ---@class BattleGroundEnemies
 
----@type string
-local AddonName = ...
 ---@class Data
 local Data = select(2, ...)
 
@@ -23,23 +21,13 @@ local UnitGUID = UnitGUID
 local UnitRace = UnitRace
 
 --lua
-local math_floor = math.floor
 local math_huge = math.huge
 local math_max = math.max
-local math_min = math.min
 local math_random = math.random
 local table_insert = table.insert
 local table_remove = table.remove
 
 local HasSpeccs = not not GetSpecialization
-
---Libs
-local LibRaces = LibStub("LibRaces-1.0")
-
-local IsRetail = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
-local IsClassic = WOW_PROJECT_ID == WOW_PROJECT_CLASSIC
-local IsTBCC = WOW_PROJECT_ID == WOW_PROJECT_BURNING_CRUSADE_CLASSIC
-local IsWrath = WOW_PROJECT_ID == WOW_PROJECT_WRATH_CLASSIC
 
 --[[  from wowpedia
 1	IconSmall RaidStar.png 		Yellow 4-point Star
@@ -295,9 +283,7 @@ local function CreateMainFrame(playerType)
   function mainframe:AddPlayerToSource(source, playerT)
     self:Debug("AddPlayerToSource", source, playerT)
     if playerT.name then
-      -- 12.0.5: name may be a secret string; comparing == "" taints.
-      -- Secret values are real names (never empty), so skip the empty check.
-      if not (issecretvalue and issecretvalue(playerT.name)) and playerT.name == "" then
+      if playerT.name == "" then
         return
       end
     else
@@ -310,10 +296,7 @@ local function CreateMainFrame(playerType)
       end
     end
 
-    if not playerT.classToken then
-      return
-    end
-    if not (issecretvalue and issecretvalue(playerT.classToken)) and playerT.classToken == "" then
+    if not playerT.classToken or playerT.classToken == "" then
       return
     end
 
@@ -323,18 +306,12 @@ local function CreateMainFrame(playerType)
   function mainframe:FindPlayerInSource(source, playerT)
     local playerSource = self.PlayerSources[source]
     local targetName = playerT.name
-    local targetIsSecret = targetName and issecretvalue and issecretvalue(targetName)
+    if not targetName then
+      return
+    end
     for i = 1, #playerSource do
       local playerData = playerSource[i]
-      local dataName = playerData.name
-      -- 12.0.5: comparing secret strings taints; skip when either side is secret.
-      if
-        dataName
-        and targetName
-        and not targetIsSecret
-        and not (issecretvalue and issecretvalue(dataName))
-        and dataName == targetName
-      then
+      if playerData.name == targetName then
         return playerData
       end
     end
@@ -866,7 +843,7 @@ local function CreateMainFrame(playerType)
     self.Target = nil
 
     local TimeSinceLastOnUpdate = 0
-    local UpdatePeroid = 0.1 --update every 0.1 seconds
+    local UpdatePeriod = 0.1 --update every 0.1 seconds
 
     -- Initial range state: enemies start out-of-range, allies start in-range.
     -- Note: UpdateRange may no-op if self.config is nil (not yet set by ApplyButtonSettings).
@@ -879,7 +856,7 @@ local function CreateMainFrame(playerType)
       else
         playerButton:SetScript("OnUpdate", function(self, elapsed)
           TimeSinceLastOnUpdate = TimeSinceLastOnUpdate + elapsed
-          if TimeSinceLastOnUpdate > UpdatePeroid then
+          if TimeSinceLastOnUpdate > UpdatePeriod then
             if BattleGroundEnemies.states.userIsAlive and not BattleGroundEnemies.betweenRounds then
               playerButton:UpdateAll()
             end
@@ -894,7 +871,7 @@ local function CreateMainFrame(playerType)
       else
         playerButton:SetScript("OnUpdate", function(self, elapsed)
           TimeSinceLastOnUpdate = TimeSinceLastOnUpdate + elapsed
-          if TimeSinceLastOnUpdate > UpdatePeroid then
+          if TimeSinceLastOnUpdate > UpdatePeriod then
             if BattleGroundEnemies.states.userIsAlive and not BattleGroundEnemies.betweenRounds then
               -- Call UpdateAll() for allies to ensure UNIT_HEALTH gets called
               -- (UpdateAll handles health, power, range, guild, target updates)
@@ -909,8 +886,7 @@ local function CreateMainFrame(playerType)
     playerButton:Show()
 
     local pname = playerButton.PlayerDetails and playerButton.PlayerDetails.PlayerName
-    -- Name dict only holds non-secret names; secret-named buttons live in PlayerList.
-    if pname and not (issecretvalue and issecretvalue(pname)) then
+    if pname then
       self.Players[pname] = playerButton
     end
     table_insert(self.PlayerList, playerButton)
@@ -955,7 +931,7 @@ local function CreateMainFrame(playerType)
 
     table_insert(self.InactivePlayerButtons, playerButton)
     local pname = playerButton.PlayerDetails and playerButton.PlayerDetails.PlayerName
-    if pname and not (issecretvalue and issecretvalue(pname)) then
+    if pname then
       self.Players[pname] = nil
     end
     for i = #self.PlayerList, 1, -1 do
@@ -1014,15 +990,8 @@ local function CreateMainFrame(playerType)
     local maxPlayers = #self.CurrentPlayerOrder
     self:SetAttribute("maxUnits", maxPlayers)
     for j = 1, #self.CurrentPlayerOrder do
-      -- 12.0.5: writing a secret value into a secure attribute taints the
-      -- frame. Skip entries with secret names — mouse-wheel targeting of
-      -- that player wouldn't work via macrotext anyway.
       local pname = self.CurrentPlayerOrder[j].PlayerDetails.PlayerName
-      if pname and not (issecretvalue and issecretvalue(pname)) then
-        self:SetAttribute("playerName" .. j, pname)
-      else
-        self:SetAttribute("playerName" .. j, nil)
-      end
+      self:SetAttribute("playerName" .. j, pname or nil)
     end
 
     self:SetAttribute("playerIndex", 1)
@@ -1211,7 +1180,7 @@ local function CreateMainFrame(playerType)
     local playerButton
     local strongMatch = false
     local matchStage = "new" -- diagnostic: tracks which stage produced the match
-    if name and not (issecretvalue and issecretvalue(name)) then
+    if name then
       local btn = self.Players[name]
       -- Must check status so the SAME button doesn't get claimed twice in
       -- one tick (once via name, once via class fallback). Without this,
@@ -1321,24 +1290,14 @@ local function CreateMainFrame(playerType)
       -- Re-key self.Players when this button's name changes. Without this,
       -- the dict accumulates stale keys (pointing to buttons that no longer
       -- have that name) and fresh rows for other players can't find their
-      -- real button via Stage 1 name lookup. Only non-secret names live in
-      -- this dict by design (see SetupButtonForNewPlayer).
-      -- Pre-12.0.5 this was a simple `oldName ~= newName` compare, but
-      -- either side may be a secret string now — direct compare taints.
-      -- Short-circuit: only touch the dict when AT LEAST one side is a
-      -- safe-to-compare non-secret. If both are secret, neither is a
-      -- valid dict key anyway, so nothing to do.
+      -- real button via Stage 1 name lookup.
       local oldName = currentDetails and currentDetails.PlayerName
       local newName = playerDetails.PlayerName
-      local oldSafe = oldName and not (issecretvalue and issecretvalue(oldName))
-      local newSafe = newName and not (issecretvalue and issecretvalue(newName))
-      if oldSafe or newSafe then
-        if oldSafe and self.Players[oldName] == playerButton and (not newSafe or oldName ~= newName) then
-          self.Players[oldName] = nil
-        end
-        if newSafe then
-          self.Players[newName] = playerButton
-        end
+      if oldName and self.Players[oldName] == playerButton and oldName ~= newName then
+        self.Players[oldName] = nil
+      end
+      if newName then
+        self.Players[newName] = playerButton
       end
 
       playerButton.PlayerDetails = playerDetails
@@ -1449,17 +1408,16 @@ local function CreateMainFrame(playerType)
 
     -- Blizzard's chain for picking a player's effective role (CRFSort_Role):
     --   1) Raid-assigned role (GetRaidRosterInfo 10th return: "MAINTANK" or
-    --      "MAINASSIST") — wins if present.
+    --      "MAINASSIST") — wins if present. Ally-only, non-secret.
     --   2) UnitGroupRolesAssigned result stored in PlayerRole (TANK / HEALER /
-    --      DAMAGER / NONE), derived upstream from specData or groupRole.
+    --      DAMAGER / NONE), derived upstream from specData or groupRole. For
+    --      enemies this can fall back to PVPScoreInfo.roleAssigned, which is
+    --      still secret in active match — keep the issecretvalue guard.
     --   3) Otherwise NONE.
-    -- Secret values at any stage are treated as "not present" and skipped.
     local function effectiveRole(details)
       local raid = details.raidRole
-      if raid and raid ~= "" and not (issecretvalue and issecretvalue(raid)) then
-        if raid == "MAINTANK" or raid == "MAINASSIST" then
-          return raid
-        end
+      if raid == "MAINTANK" or raid == "MAINASSIST" then
+        return raid
       end
       local role = details.PlayerRole
       if role and not (issecretvalue and issecretvalue(role)) then
@@ -1481,19 +1439,55 @@ local function CreateMainFrame(playerType)
         return tierA < tierB
       end
 
+      -- Class tier (Blizzard's standard CLASS_SORT_ORDER). PlayerClass is the
+      -- uppercased classToken — non-secret on the ally side (raid roster /
+      -- party UnitClass), safe to compare directly.
+      local classA = BlizzardsSortOrder[detailsA.PlayerClass] or math_huge
+      local classB = BlizzardsSortOrder[detailsB.PlayerClass] or math_huge
+      if classA ~= classB then
+        return classA < classB
+      end
+
       -- Alphabetical tiebreak (matches Blizzard's CRFSort_Alphabetical).
-      -- Ally names are non-secret in practice, but guard anyway to avoid
-      -- tainting if a row ever comes through with a secret name.
       local nameA = detailsA.PlayerName
       local nameB = detailsB.PlayerName
-      local nameAOk = nameA and not (issecretvalue and issecretvalue(nameA))
-      local nameBOk = nameB and not (issecretvalue and issecretvalue(nameB))
-      if nameAOk and nameBOk then
-        if nameA ~= nameB then
-          return nameA < nameB
-        end
-      elseif nameAOk ~= nameBOk then
-        return nameAOk and true or false -- non-secret names before secret ones
+      if nameA and nameB and nameA ~= nameB then
+        return nameA < nameB
+      elseif nameA and not nameB then
+        return true
+      elseif nameB and not nameA then
+        return false
+      end
+
+      -- Full tie. Stable fallback by button identity keeps strict weak ordering.
+      return tostring(playerA) < tostring(playerB)
+    end
+
+    local function PlayerSortingByClassName(playerA, playerB)
+      local detailsA = playerA.PlayerDetails
+      local detailsB = playerB.PlayerDetails
+
+      -- Class tier in Blizzard's standard order. PlayerClass is already
+      -- string.upper(classToken). PVPScoreInfo.classToken is NeverSecret,
+      -- and UnitClass / GetSpecializationInfoByID returns are non-secret,
+      -- so direct compare is safe across every source path.
+      local classA = BlizzardsSortOrder[detailsA.PlayerClass] or math_huge
+      local classB = BlizzardsSortOrder[detailsB.PlayerClass] or math_huge
+      if classA ~= classB then
+        return classA < classB
+      end
+
+      -- Alphabetical name tiebreak. PVPScoreInfo.name is NeverSecret in
+      -- every match state (lobby, active, post-match), so the compare
+      -- can't taint.
+      local nameA = detailsA.PlayerName
+      local nameB = detailsB.PlayerName
+      if nameA and nameB and nameA ~= nameB then
+        return nameA < nameB
+      elseif nameA and not nameB then
+        return true
+      elseif nameB and not nameA then
+        return false
       end
 
       -- Full tie. Stable fallback by button identity keeps strict weak ordering.
@@ -1548,14 +1542,12 @@ local function CreateMainFrame(playerType)
 
  ]]
 
-      -- 12.0.5: enemy sorting in BGs is still disabled because scoreboard-
-      -- sourced role/class/name are often secret — comparators can't do
-      -- reliable compares, resulting in unstable Lua sort.
-      -- ALLY sorting IS safe though: ally role comes from
-      -- UnitGroupRolesAssigned (non-secret), class from GetRaidRosterInfo /
-      -- UnitClass on a raid/party token (non-secret), and ally names are
-      -- never secret. So PlayerSortingByRoleClassName works cleanly for
-      -- allies in both arena and BG.
+      -- Allies sort by role tier → name (UnitGroupRolesAssigned, raid/party
+      -- UnitClass, and ally names are all non-secret). BG enemies sort by
+      -- class tier → name — both PVPScoreInfo.classToken and .name are
+      -- NeverSecret per Blizzard's API docs. Enemy role is NOT used in the
+      -- comparator: talentSpec / roleAssigned remain secret in active match,
+      -- which would taint role-based compares.
       if BattleGroundEnemies.states.real.isInArena then
         if self.PlayerType == BattleGroundEnemies.consts.PlayerTypes.Enemies then
           local usePlayerSortingByArenaUnitID = true
@@ -1596,11 +1588,11 @@ local function CreateMainFrame(playerType)
           end
         end
       else
-        -- BG. Sort allies by role (using RoleSortingOrder setting from the
-        -- options panel). Enemies stay in insertion order until scoreboard
-        -- secrecy is resolved.
+        -- BG. Allies by role (RoleSortingOrder setting). Enemies by class+name.
         if self.PlayerType == BattleGroundEnemies.consts.PlayerTypes.Allies then
           table.sort(newPlayerOrder, PlayerSortingByRoleClassName)
+        else
+          table.sort(newPlayerOrder, PlayerSortingByClassName)
         end
       end
 
@@ -1611,11 +1603,6 @@ local function CreateMainFrame(playerType)
           break
         end
       end
-
-      --[[ 			self:Debug("after sorting")
-			for i = 1, #newPlayerOrder do
-				self:Debug(i, newPlayerOrder[i].PlayerDetails.PlayerName)
-			end ]]
 
       if orderChanged or forceRepositioning then
         local inCombat = InCombatLockdown()
@@ -1683,7 +1670,7 @@ function BattleGroundEnemies.Allies:GetAllyButtonByUnitID(unitID)
   -- false; nil/secret falls through so we don't accidentally drop a
   -- confirmed ally.
   local okPlayer, isPlayer = pcall(UnitIsPlayer, unitID)
-  if okPlayer and not (issecretvalue and issecretvalue(isPlayer)) and isPlayer == false then
+  if okPlayer and isPlayer == false then
     return nil
   end
   local direct = self.tokenToButton[unitID]
@@ -1783,7 +1770,7 @@ function BattleGroundEnemies.Allies:AddGroupMember(name, isLeader, isAssistant, 
   local raceName, raceFile, raceID = UnitRace(unitID)
   local GUID = UnitGUID(unitID)
 
-  if not GUID or type(GUID) ~= "string" or (issecretvalue and issecretvalue(GUID)) then
+  if not GUID or type(GUID) ~= "string" then
     return
   end
 
@@ -1929,9 +1916,8 @@ function BattleGroundEnemies.Allies:UpdateAllUnitIDs()
 end
 
 function BattleGroundEnemies.Enemies:ChangeName(oldName, newName) --only used in arena when players switch from "arenaX" to a real name
-  if issecretvalue and (issecretvalue(oldName) or issecretvalue(newName)) then
-    return
-  end
+  -- oldName is always a unitID literal ("arenaN"); newName is filtered to
+  -- non-secret upstream in CreateArenaEnemies before reaching here.
   local playerButton = self.Players[oldName]
 
   if playerButton then
@@ -1979,7 +1965,7 @@ function BattleGroundEnemies.Enemies:CreateArenaEnemies()
       if not ok then
         -- Both calls failed — name is an error string, not a player name
         name = nil
-      elseif type(name) ~= "nil" and issecretvalue and issecretvalue(name) then
+      elseif type(name) ~= "nil" then
         -- Store secret name for display only — can't use as table key
         secretDisplayName = name
         name = nil

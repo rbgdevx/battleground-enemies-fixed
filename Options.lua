@@ -1,4 +1,3 @@
----@class Data
 ---@type string
 local AddonName = ...
 ---@class Data
@@ -8,7 +7,6 @@ local GetAddOnMetadata = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetad
 local L = Data.L
 local AceConfigDialog = LibStub("AceConfigDialog-3.0")
 local AceConfigRegistry = LibStub("AceConfigRegistry-3.0")
-local LSM = LibStub("LibSharedMedia-3.0")
 local LRC = LibStub:GetLibrary("LibRangeCheck-3.0")
 
 local function GetAllModuleAnchors(moduleName)
@@ -522,7 +520,6 @@ local CopyTable = CopyTable
 function Data.GetOption(location, option)
   local value = location[option[#option]]
   if type(value) == "table" then
-    --BattleGroundEnemies:Debug("is table")
     return unpack(value)
   else
     return value
@@ -2133,11 +2130,6 @@ function BattleGroundEnemies:SetupOptions()
             end,
             order = 2,
           },
-          -- shareActiveProfile = {
-          -- 	type = "toggle",
-          -- 	name = L.EnableProfileSharing,
-          -- 	desc = L.EnableProfileSharing_Desc
-          -- }
         },
       },
       DebugOptions = {

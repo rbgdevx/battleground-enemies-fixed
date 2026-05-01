@@ -1,10 +1,5 @@
----@type string
-local AddonName = ...
----@class Data
-local Data = select(2, ...)
 ---@class BattleGroundEnemies
 local BattleGroundEnemies = BattleGroundEnemies
-local L = Data.L
 local GetTexCoordsForRoleSmallCircle = GetTexCoordsForRoleSmallCircle
     or function(role)
       if role == "TANK" then

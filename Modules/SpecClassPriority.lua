@@ -1,5 +1,3 @@
----@type string
-local AddonName = ...
 ---@class Data
 local Data = select(2, ...)
 ---@class BattleGroundEnemies
@@ -9,22 +7,6 @@ local CreateFrame = CreateFrame
 local GameTooltip = GameTooltip
 local GetSpellTexture = C_Spell and C_Spell.GetSpellTexture or GetSpellTexture
 local GetClassAtlas = GetClassAtlas
-
-local locTypePriority = {
-  STUN = 8,
-  STUN_MECHANIC = 8,
-  FEAR = 7,
-  FEAR_MECHANIC = 7,
-  DISORIENT = 7,
-  CONFUSE = 7,
-  INCAPACITATE = 6,
-  SILENCE = 5,
-  PACIFYSILENCE = 5,
-  ROOT = 3,
-  PACIFY = 2,
-  DISARM = 2,
-  POSSESS = 9,
-}
 
 -- Early-out filter for UNIT_AURA: checks whether the aura update contains
 -- any crowd-control-related changes worth rebuilding for. Skips irrelevant

@@ -1,5 +1,3 @@
----@type string
-local AddonName = ...
 ---@class Data
 local Data = select(2, ...)
 local defaultLocale = {}
@@ -9,7 +7,7 @@ if gameLocale == "enGB" then
   gameLocale = "enUS"
 end
 
-local errorReported, missingReported = false, false
+local missingReported = false
 
 Data.L = setmetatable({}, { --key set by all non english clients, Table gets accessed to read translations
   __index = function(t, k) -- t is the normal table (no metatable)

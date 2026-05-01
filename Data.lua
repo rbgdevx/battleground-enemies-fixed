@@ -1,5 +1,3 @@
----@type string
-local AddonName = ...
 ---@class Data
 local Data = select(2, ...)
 
@@ -13,25 +11,20 @@ if not Data.L then
 end
 local L = Data.L
 
-local table_insert = table.insert
-
 local GetClassInfo = GetClassInfo
 local GetNumSpecializationsForClassID = C_SpecializationInfo and C_SpecializationInfo.GetNumSpecializationsForClassID
     or GetNumSpecializationsForClassID
 local GetSpecializationInfoForClassID = GetSpecializationInfoForClassID
-local GetSpellInfo = GetSpellInfo
 local GetSpellName = C_Spell and C_Spell.GetSpellName or GetSpellName
 local C_Spell = C_Spell
 local GetSpellTexture = C_Spell and C_Spell.GetSpellTexture or GetSpellTexture
 
 local IsRetail = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
 local IsClassic = WOW_PROJECT_ID == WOW_PROJECT_CLASSIC
-local IsTBCC = WOW_PROJECT_ID == WOW_PROJECT_BURNING_CRUSADE_CLASSIC
-local IsWrath = WOW_PROJECT_ID == WOW_PROJECT_WRATH_CLASSIC
 
 Data.PlayerRoles = { "TANK", "HEALER", "DAMAGER" }
 
--- Localized race name → clientFileString (replaces LibRaces for locale-independent race tokens)
+-- Localized race name → clientFileString, for locale-independent race tokens.
 Data.RaceNameToToken = {}
 do
   local playableRaces = {
