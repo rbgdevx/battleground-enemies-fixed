@@ -3808,26 +3808,91 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
   -- read for allies.
   --
   -- AUTHORITATIVE source: the user's own scoreboard row via
-  -- C_PvP.GetScoreInfoByPlayerGuid(UnitGUID("player")). UnitGUID("player")
-  -- is non-secret (own character) and the API accepts it even when other
-  -- GUIDs / names are secret-locked. info.faction = team number for THIS
-  -- match (correct for mercenary mode and cross-faction Blitz where the
-  -- character's home faction differs from the assigned team).
-  -- SetAllyFaction(N) atomically sets BOTH AllyFaction=N and
-  -- EnemyFaction=(opposite of N), so one call configures both buckets.
+  -- C_PvP.GetScoreInfoByPlayerGuid(UnitGUID("player")). info.faction =
+  -- team number for THIS match (correct for mercenary mode and
+  -- cross-faction Blitz where the character's home faction differs
+  -- from the assigned team).
   --
-  -- PEW does the same lookup at zone-in. UBS only retries on cache-miss,
-  -- so we don't spam the API every tick — once AllyFaction is set, we
-  -- trust it for the rest of the match (cleared again on zone exit).
+  -- Cross-validation. A single C_PvP.GetScoreInfoByPlayerGuid call can
+  -- return a wrong team number while the scoreboard is still populating
+  -- (observed in the wild: every real teammate ended up bucketed as
+  -- enemy because the early lookup said the player was on the opposite
+  -- team). To prevent that, we only commit AllyFaction once a known
+  -- raid peer's scoreboard row reports the same team.
+  --
+  -- Validation is name-based, NOT GUID-based. UnitGUID("raidN") is
+  -- documented as SecretWhenUnitIdentityRestricted, which by spec
+  -- shouldn't fire for party/raid members — but the addon's own
+  -- AddGroupMember already has an issecretvalue(GUID) guard for raid
+  -- units, suggesting it has been observed empirically. PVPScoreInfo.name
+  -- is NeverSecret per Blizzard's API docs, and GetRaidRosterInfo names
+  -- are what the addon already trusts as the ally roster source — both
+  -- are reliable here.
+  --
+  -- If we can't confirm yet (own row not populated, no raid peer found
+  -- in the scoreboard yet, or the player is somehow not in a group),
+  -- AllyFaction stays nil — every consumer is gated on AllyFaction being
+  -- set, so an empty enemy panel for a tick or two is the explicit
+  -- trade-off against ever showing real teammates as enemies.
   if self.AllyFaction == nil then
-    local ok, info = pcall(C_PvP.GetScoreInfoByPlayerGuid, UnitGUID("player"))
-    if ok and info and info.faction ~= nil then
-      self:SetAllyFaction(info.faction)
+    -- Grace period: skip validation entirely until the 3s post-zone-in
+    -- timer has fired. The scoreboard takes time to populate and
+    -- querying it sooner is wasted work. While we're in this window we
+    -- bail out of UBS entirely (consumers below all gate on AllyFaction
+    -- != nil anyway, and an empty enemy panel is correct behavior
+    -- during the grace period). The flag is set true by the C_Timer
+    -- scheduled in PLAYER_ENTERING_WORLD when entering PvP.
+    if not self._pvpGracePeriodElapsed then
+      return
+    end
+
+    local ok, myInfo = pcall(C_PvP.GetScoreInfoByPlayerGuid, UnitGUID("player"))
+    if ok and myInfo and myInfo.faction ~= nil and type(myInfo.name) == "string" then
+      local raidNames = nil
+      if IsInRaid() then
+        raidNames = {}
+        for i = 1, GetNumGroupMembers() or 0 do
+          local memberName = GetRaidRosterInfo(i)
+          if type(memberName) == "string" and memberName ~= myInfo.name then
+            raidNames[memberName] = true
+          end
+        end
+      end
+
+      if raidNames and next(raidNames) then
+        -- Require >= 2 raid peers' scoreboard rows to agree with our team
+        -- number before committing. With one peer it's still possible for
+        -- both rows to be transiently wrong with the same default value;
+        -- requiring two distinct peers makes that essentially impossible.
+        -- ANY disagreement (even one peer reporting a different team)
+        -- means the scoreboard is mid-populate and inconsistent — bail
+        -- and retry on the next UBS tick.
+        local REQUIRED_PEERS = 2
+        local agreed = 0
+        for i = 1, GetNumBattlefieldScores() do
+          local row = C_PvP.GetScoreInfo(i)
+          if row and type(row.name) == "string" and row.faction ~= nil and raidNames[row.name] then
+            if row.faction == myInfo.faction then
+              agreed = agreed + 1
+              if agreed >= REQUIRED_PEERS then
+                self:SetAllyFaction(myInfo.faction)
+                break
+              end
+            else
+              -- Disagreement: at least one peer says different team.
+              -- Don't commit; retry next tick.
+              agreed = 0
+              break
+            end
+          end
+        end
+      end
     end
   end
 
-  -- If still unknown (scoreboard hasn't populated our row yet), bail.
-  -- Better an empty enemy panel for one tick than mis-bucketed teammates.
+  -- If still unknown (scoreboard not populated, or no peer to validate
+  -- against yet), bail. Empty enemy panel for one or more ticks is the
+  -- explicit, deliberate behavior — never show real teammates as enemies.
   if self.AllyFaction == nil then
     return
   end
@@ -4106,12 +4171,27 @@ function BattleGroundEnemies:PLAYER_ENTERING_WORLD()
   local enteringPvP = (zone == "pvp" or zone == "arena") and prevInstanceType ~= zone
   local leavingPvP = (prevInstanceType == "pvp" or prevInstanceType == "arena") and zone ~= prevInstanceType
   if enteringPvP or leavingPvP then
-    -- Clear stale faction cache from the previous match. PEW (just below)
-    -- will try the GUID lookup; if scoreboard isn't populated yet, UBS's
-    -- first tick retries. Without this, a wrong/stale value from a prior
-    -- zone-in would persist into the new match.
+    -- Clear stale faction cache from the previous match. UBS handles
+    -- faction derivation now; AllyFaction stays nil until peer-validated.
     self.AllyFaction = nil
     self.EnemyFaction = nil
+    -- Grace period before UBS attempts validation. The scoreboard isn't
+    -- usually populated enough in the first ~3 seconds for the
+    -- peer-cross-check to succeed, so polling earlier is just wasted
+    -- work. A C_Timer.After sets the "elapsed" flag once; UBS gates its
+    -- validation block on that flag. On leave-PvP we cancel any pending
+    -- timer and clear the flag so a subsequent re-entry starts fresh.
+    if self._pvpGraceTimer then
+      self._pvpGraceTimer:Cancel()
+      self._pvpGraceTimer = nil
+    end
+    self._pvpGracePeriodElapsed = false
+    if enteringPvP then
+      self._pvpGraceTimer = C_Timer.NewTimer(3, function()
+        self._pvpGracePeriodElapsed = true
+        self._pvpGraceTimer = nil
+      end)
+    end
 
     -- Stop the lobby diagnostic watchdog if it was running. It will get
     -- restarted by PVP_MATCH_STATE_CHANGED if we enter a new BG/arena lobby.
@@ -4121,16 +4201,13 @@ function BattleGroundEnemies:PLAYER_ENTERING_WORLD()
   end
 
   if zone == "pvp" or zone == "arena" then
-    -- Try to set faction authoritatively right now via the user's own
-    -- scoreboard row. UnitGUID("player") is non-secret and the API
-    -- accepts it; info.faction = the user's TEAM number for THIS match
-    -- (correct for mercs and cross-faction Blitz). If the scoreboard
-    -- isn't populated yet, leave AllyFaction nil — UBS's first tick
-    -- will retry the same lookup.
-    local ok, info = pcall(C_PvP.GetScoreInfoByPlayerGuid, UnitGUID("player"))
-    if ok and info and info.faction ~= nil then
-      self:SetAllyFaction(info.faction)
-    end
+    -- AllyFaction is derived (and cross-validated) in UPDATE_BATTLEFIELD_SCORE.
+    -- Don't pre-set it here — a single C_PvP.GetScoreInfoByPlayerGuid call
+    -- this early in zone-in can return the wrong team number when the
+    -- scoreboard isn't fully populated yet, and a wrong cached value would
+    -- mis-bucket every teammate as an enemy until match end. UBS waits for
+    -- a peer's scoreboard row to confirm; AllyFaction stays nil and the
+    -- enemy panel stays empty until validation succeeds.
 
     if zone == "arena" then
       BattleGroundEnemies.states.real.isInArena = true
