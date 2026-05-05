@@ -66,22 +66,22 @@ local addResetFunctionForgroup = function(dbLocation, defaults, ignoreChildGroup
   return func
 end
 
-local function convertPermutations(permutations)
-  local result = {}
+-- local function convertPermutations(permutations)
+--   local result = {}
 
-  for _, perm in ipairs(permutations) do
-    local key = table.concat(perm, "_")
-    local values = {}
+--   for _, perm in ipairs(permutations) do
+--     local key = table.concat(perm, "_")
+--     local values = {}
 
-    for _, role in ipairs(perm) do
-      table.insert(values, _G[role])
-    end
+--     for _, role in ipairs(perm) do
+--       table.insert(values, _G[role])
+--     end
 
-    result[key] = values
-  end
+--     result[key] = values
+--   end
 
-  return result
-end
+--   return result
+-- end
 
 ---comment
 ---@param playerCountConfigs any
@@ -739,7 +739,7 @@ function BattleGroundEnemies:AddModulesSettings(location, playerCountConfigDefau
 
     local moduleOptions = BattleGroundEnemies:GetModuleOptions(locationn, moduleFrame.options)
 
-    if condidtionFunc(moduleFrame) then
+    if condidtionFunc(moduleFrame) and not moduleFrame.flags.HiddenFromPerPlayerCountUI then
       -- DR Tracking and Trinket are only useful in arena (1-5 players)
       local disabledInBracket = (moduleName == "DRTracking" or moduleName == "Trinket")
         and location.minPlayerCount
@@ -771,7 +771,7 @@ function BattleGroundEnemies:AddModulesSettings(location, playerCountConfigDefau
             name = L.JumpToGeneralOptions,
             desc = L.JumpToGeneralOptions_Desc,
             func = function()
-              local optionsPath = { "BattleGroundEnemies", "GeneralSettings", "ButtonModules", moduleName }
+              local optionsPath = { "BattleGroundEnemiesFixed", "GeneralSettings", "ButtonModules", moduleName }
               AceConfigDialog:SelectGroup(unpack(optionsPath))
             end,
             hidden = not BattleGroundEnemies.ButtonModules[moduleName].generalOptions,
@@ -1698,7 +1698,7 @@ function BattleGroundEnemies:SetupOptions()
   local location = self.db.profile
   self.options = {
     type = "group",
-    name = "BattleGroundEnemies " .. GetAddOnMetadata(AddonName, "Version"),
+    name = "BattleGroundEnemiesFixed " .. GetAddOnMetadata(AddonName, "Version"),
     childGroups = "tab",
     get = function(option)
       return Data.GetOption(location, option)
@@ -2132,84 +2132,84 @@ function BattleGroundEnemies:SetupOptions()
           },
         },
       },
-      DebugOptions = {
-        type = "group",
-        name = "Debug",
-        childGroups = "tab",
-        order = 8,
-        hidden = not self.db.profile.Debug,
-        args = {
-          Debug = {
-            type = "toggle",
-            name = "Enable Debug",
-            order = 1,
-          },
-          DebugBlizzEvents = {
-            type = "toggle",
-            name = "Debug Blizz Events",
-            order = 2,
-          },
-          SvDebugging = {
-            type = "group",
-            name = "Saved Variables",
-            order = 4,
-            inline = true,
-            args = {
-              DebugToSV = {
-                type = "toggle",
-                name = "Debug to Saved Variables",
-                order = 1,
-              },
-              DebugToSV_ResetOnPlayerLogin = {
-                type = "toggle",
-                name = "Reset SV log on player login",
-                order = 2,
-              },
-              ResetSVLog = {
-                type = "execute",
-                name = "Reset Saved variables log",
-                func = function()
-                  self.db.profile.log = {}
-                end,
-                order = 3,
-              },
-            },
-          },
-          ChatDebugging = {
-            type = "group",
-            name = "Chat",
-            inline = true,
-            order = 5,
-            args = {
-              DebugToChat_AddTimestamp = {
-                type = "toggle",
-                name = "Add timestamp to chat",
-                order = 1,
-              },
-              DebugToChat = {
-                type = "toggle",
-                name = "Debug to Chat",
-                order = 2,
-              },
-              ShowDebugChatFrame = {
-                type = "execute",
-                name = "Show debug chat frame",
-                func = function()
-                  if not self.DebugFrame then
-                    self:GetDebugFrame()
-                  end
-                  self.DebugFrame:Show()
-                end,
-                order = 3,
-              },
-            },
-          },
-        },
-      },
+      -- DebugOptions = {
+      --   type = "group",
+      --   name = "Debug",
+      --   childGroups = "tab",
+      --   order = 8,
+      --   hidden = not self.db.profile.Debug,
+      --   args = {
+      --     Debug = {
+      --       type = "toggle",
+      --       name = "Enable Debug",
+      --       order = 1,
+      --     },
+      --     DebugBlizzEvents = {
+      --       type = "toggle",
+      --       name = "Debug Blizz Events",
+      --       order = 2,
+      --     },
+      --     SvDebugging = {
+      --       type = "group",
+      --       name = "Saved Variables",
+      --       order = 4,
+      --       inline = true,
+      --       args = {
+      --         DebugToSV = {
+      --           type = "toggle",
+      --           name = "Debug to Saved Variables",
+      --           order = 1,
+      --         },
+      --         DebugToSV_ResetOnPlayerLogin = {
+      --           type = "toggle",
+      --           name = "Reset SV log on player login",
+      --           order = 2,
+      --         },
+      --         ResetSVLog = {
+      --           type = "execute",
+      --           name = "Reset Saved variables log",
+      --           func = function()
+      --             self.db.profile.log = {}
+      --           end,
+      --           order = 3,
+      --         },
+      --       },
+      --     },
+      --     -- ChatDebugging = {
+      --     --   type = "group",
+      --     --   name = "Chat",
+      --     --   inline = true,
+      --     --   order = 5,
+      --     --   args = {
+      --     --     DebugToChat_AddTimestamp = {
+      --     --       type = "toggle",
+      --     --       name = "Add timestamp to chat",
+      --     --       order = 1,
+      --     --     },
+      --     --     DebugToChat = {
+      --     --       type = "toggle",
+      --     --       name = "Debug to Chat",
+      --     --       order = 2,
+      --     --     },
+      --     --     ShowDebugChatFrame = {
+      --     --       type = "execute",
+      --     --       name = "Show debug chat frame",
+      --     --       func = function()
+      --     --         if not self.DebugFrame then
+      --     --           self:GetDebugFrame()
+      --     --         end
+      --     --         self.DebugFrame:Show()
+      --     --       end,
+      --     --       order = 3,
+      --     --     },
+      --     --   },
+      --     -- },
+      --   },
+      -- },
     },
   }
 
-  AceConfigRegistry:RegisterOptionsTable("BattleGroundEnemies", self.options)
+  AceConfigRegistry:RegisterOptionsTable("BattleGroundEnemiesFixed", self.options)
 
   --add profile tab to the options
   self.options.args.profiles = LibStub("AceDBOptions-3.0"):GetOptionsTable(self.db)
@@ -2219,5 +2219,5 @@ end
 
 SLASH_BattleGroundEnemies1, SLASH_BattleGroundEnemies2 = "/BattleGroundEnemies", "/bge"
 SlashCmdList["BattleGroundEnemies"] = function(msg)
-  AceConfigDialog:Open("BattleGroundEnemies")
+  AceConfigDialog:Open("BattleGroundEnemiesFixed")
 end

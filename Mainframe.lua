@@ -237,9 +237,6 @@ local function CreateMainFrame(playerType)
     if not BattleGroundEnemies:IsInPvPInstance() then
       return
     end
-    if self.db and self.db.profile and self.db.profile.DebugBlizzEvents then
-      self:Debug("OnEvent", event, ...)
-    end
     self[event](self, ...)
   end)
 
@@ -267,10 +264,6 @@ local function CreateMainFrame(playerType)
     self:AfterPlayerSourceUpdate()
   end
 
-  function mainframe:Debug(...)
-    BattleGroundEnemies:Debug(self.PlayerType, ...)
-  end
-
   function mainframe:RemoveAllPlayersFromSource(source)
     self:BeforePlayerSourceUpdate(source)
     self:AfterPlayerSourceUpdate()
@@ -281,7 +274,6 @@ local function CreateMainFrame(playerType)
   end
 
   function mainframe:AddPlayerToSource(source, playerT)
-    self:Debug("AddPlayerToSource", source, playerT)
     if playerT.name then
       if playerT.name == "" then
         return
@@ -318,7 +310,6 @@ local function CreateMainFrame(playerType)
   end
 
   local function matchBattleFieldScoreToArenaEnemyPlayer(scoreTables, arenaPlayerInfo)
-    BattleGroundEnemies:Debug("matchBattleFieldScoreToArenaEnemyPlayer", scoreTables, arenaPlayerInfo)
     local foundPlayer = false
     local foundMatchIndex
     for i = 1, #scoreTables do
@@ -470,10 +461,8 @@ local function CreateMainFrame(playerType)
           local specName = groupMember.specName
           if not specName or specName == "" then
             local name = groupMember.name
-            --self:Debug("player", name, "doesnt have a spec from group member")
             local match = self:FindPlayerInSource(BattleGroundEnemies.consts.PlayerSources.Scoreboard, groupMember)
             if match then
-              --self:Debug("player", name, "we found a spec from the scoreboard")
               groupMember.specName = match.talentSpec
             end
           end
@@ -577,7 +566,6 @@ local function CreateMainFrame(playerType)
   end
 
   function mainframe:Enable()
-    self:Debug("Enable called")
     if InCombatLockdown() then
       return BattleGroundEnemies:QueueForUpdateAfterCombat(mainframe, "CheckEnableState")
     end
@@ -585,7 +573,6 @@ local function CreateMainFrame(playerType)
     if BattleGroundEnemies:IsTestmodeActive() then
     else
       if self.PlayerType == BattleGroundEnemies.consts.PlayerTypes.Enemies then
-        self:Debug("Registered enemy events")
         self:RegisterEvent("NAME_PLATE_UNIT_ADDED")
         self:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
         self:RegisterEvent("UNIT_NAME_UPDATE")
@@ -604,8 +591,6 @@ local function CreateMainFrame(playerType)
   end
 
   function mainframe:Disable()
-    self:Debug("Disable called")
-
     if InCombatLockdown() then
       return BattleGroundEnemies:QueueForUpdateAfterCombat(mainframe, "CheckEnableState")
     end
@@ -670,7 +655,6 @@ local function CreateMainFrame(playerType)
         maxNumPlayers = math_max(self.RealPlayerCount or 0, self.NumPlayers or 0)
       end
     end
-    self:Debug("SelectPlayerCountProfile", maxNumPlayers)
     if not maxNumPlayers then
       return
     end
@@ -731,7 +715,6 @@ local function CreateMainFrame(playerType)
   end
 
   function mainframe:CheckEnableState()
-    self:Debug("CheckEnableState")
     if not BattleGroundEnemies.enabled then
       return self:Disable()
     end
@@ -743,7 +726,6 @@ local function CreateMainFrame(playerType)
   end
 
   function mainframe:SetRealPlayerCount(realCount)
-    self:Debug("SetRealPlayerCount", realCount)
     local oldCount = self.RealPlayerCount
     self.RealPlayerCount = realCount
     if not oldCount or oldCount ~= realCount then
@@ -766,7 +748,6 @@ local function CreateMainFrame(playerType)
     local maxNumPlayers = math_max(self.RealPlayerCount or 0, self.NumPlayers or 0)
 
     local isEnemy = self.PlayerType == BattleGroundEnemies.consts.PlayerTypes.Enemies
-    self:Debug("UpdatePlayerCountText", maxNumPlayers, isEnemy)
 
     if not self.playerCountConfig or not self.playerCountConfig.PlayerCount.Enabled then
       self.PlayerCount:Hide()
@@ -1002,7 +983,6 @@ local function CreateMainFrame(playerType)
   end
 
   function mainframe:SetUpBindings()
-    --self:Debug("SetUpBindings", self.PlayerType)
     local maxPlayers = #self.CurrentPlayerOrder
     self:SetAttribute("maxUnits", maxPlayers)
     for j = 1, #self.CurrentPlayerOrder do
@@ -1040,7 +1020,6 @@ local function CreateMainFrame(playerType)
   end
 
   function mainframe:ButtonPositioning()
-    self:Debug("ButtonPositioning")
     local orderedPlayers = self.CurrentPlayerOrder
 
     local config = self.playerCountConfig
@@ -1159,7 +1138,12 @@ local function CreateMainFrame(playerType)
     end
 
     local playerDetails = {
-      PlayerName = name,
+      -- Canonicalize PlayerName to "Name-Realm" form. PVPScoreInfo.name and
+      -- GetRaidRosterInfo return short "Name" for same-realm players; chat
+      -- messages always emit "Name-Realm". Storing under canonical form
+      -- means Players[] lookups work uniformly. See BattleGroundEnemies:CanonicalName
+      -- in Main.lua for rationale.
+      PlayerName = BattleGroundEnemies:CanonicalName(name),
       PlayerClass = string.upper(classToken), --apparently it can happen that we get a lowercase "druid" from GetBattlefieldScore() in TBCC, IsTBCC
       PlayerClassColor = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classToken],
       PlayerRace = race or "Unknown", -- store localized race name directly (merc-mode safe)
@@ -1195,9 +1179,13 @@ local function CreateMainFrame(playerType)
     -- silently dead code.
     local playerButton
     local strongMatch = false
-    local matchStage = "new" -- diagnostic: tracks which stage produced the match
+    -- local matchStage = "new" -- diagnostic: tracks which stage produced the match
     if name then
-      local btn = self.Players[name]
+      -- Canonicalize lookup key: Players[] stores under "Name-Realm" form
+      -- (CanonicalName at storage above). PVPScoreInfo.name is short for
+      -- same-realm — must canonicalize before lookup or we silently miss
+      -- and fall through to class-fallback, mis-claiming buttons.
+      local btn = self.Players[BattleGroundEnemies:CanonicalName(name)]
       -- Must check status so the SAME button doesn't get claimed twice in
       -- one tick (once via name, once via class fallback). Without this,
       -- two rows that resolve to the same button mutate each other's data
@@ -1205,7 +1193,7 @@ local function CreateMainFrame(playerType)
       if btn and btn.status ~= 1 then
         playerButton = btn
         strongMatch = true
-        matchStage = "stage1-name"
+        -- matchStage = "stage1-name"
       end
     end
     if not playerButton and classToken and self.PlayerList then
@@ -1225,7 +1213,7 @@ local function CreateMainFrame(playerType)
           and (btn.PlayerDetails.PlayerRace or "") == raceKey
         then
           playerButton = btn
-          matchStage = "stage2-fingerprint"
+          -- matchStage = "stage2-fingerprint"
           -- Not a strong match — live-captured attrs (gender, honor,
           -- guild) should not be preserved across this swap since we're
           -- attaching a potentially different player's scoreboard row
@@ -1258,10 +1246,14 @@ local function CreateMainFrame(playerType)
     -- Preserve live-captured non-secret attrs across the details swap —
     -- ONLY on strong identity match. Weak (ambiguous fingerprint) matches
     -- might be carrying another player's data forward.
+    -- Source tags travel with the value so captureLiveAttrs in
+    -- GetPlayerbuttonByUnitID can still distinguish "harvest seed" vs
+    -- "live captured" after a CreateOrUpdatePlayerDetails swap.
     if strongMatch and playerButton and playerButton.PlayerDetails then
       local pd = playerButton.PlayerDetails
       if pd.gender and not (issecretvalue and issecretvalue(pd.gender)) and not playerDetails.gender then
         playerDetails.gender = pd.gender
+        playerDetails._genderSource = pd._genderSource
       end
       if
         pd.honorLevel
@@ -1269,11 +1261,89 @@ local function CreateMainFrame(playerType)
         and (not playerDetails.honorLevel or (issecretvalue and issecretvalue(playerDetails.honorLevel)))
       then
         playerDetails.honorLevel = pd.honorLevel
+        playerDetails._honorLevelSource = pd._honorLevelSource
       end
-      if pd.GuildName and not (issecretvalue and issecretvalue(pd.GuildName)) and not playerDetails.GuildName then
+      -- GuildName: `false` (confirmed guildless) is a real value, not
+      -- "no value". Use explicit `~= nil` instead of truthy check so we
+      -- correctly preserve a captured-guildless state across the swap.
+      if
+        pd.GuildName ~= nil
+        and not (issecretvalue and issecretvalue(pd.GuildName))
+        and playerDetails.GuildName == nil
+      then
         playerDetails.GuildName = pd.GuildName
+        playerDetails._GuildNameSource = pd._GuildNameSource
+      end
+      if pd.lastPowerType and not playerDetails.lastPowerType then
+        playerDetails.lastPowerType = pd.lastPowerType
+        playerDetails._lastPowerTypeSource = pd._lastPowerTypeSource
       end
     end
+
+    -- Harvest seed: fill any field still nil/false/secret from
+    -- db.global.PlayerHistory. Runs AFTER live-captured preservation so
+    -- live values take priority over harvest. Source-tag with
+    -- _<field>Source = "harvest" so captureLiveAttrs in GetPlayerbuttonByUnitID
+    -- can promote to "live" on the first non-fallback unit-token resolve.
+    -- For PlayerSpecName / PlayerRole this is the ONLY mid-match source —
+    -- talentSpec/roleAssigned are SecretInActivePvPMatch on the scoreboard.
+    do
+      local history = BattleGroundEnemies.db
+        and BattleGroundEnemies.db.global
+        and BattleGroundEnemies.db.global.PlayerHistory
+        and BattleGroundEnemies.db.global.PlayerHistory[playerDetails.PlayerName]
+      if history then
+        -- Normal seed: empty = nil OR false (placeholder) OR secret.
+        local function seed(field, value, sourceField)
+          if value == nil then
+            return
+          end
+          local cur = playerDetails[field]
+          if cur == nil or cur == false or (issecretvalue and issecretvalue(cur)) then
+            playerDetails[field] = value
+            playerDetails[sourceField] = "harvest"
+          end
+        end
+        -- GuildName seed: `false` means CONFIRMED GUILDLESS (real value),
+        -- NOT a placeholder. Empty = ONLY nil OR secret. Don't overwrite
+        -- a live-captured `false` with potentially-stale harvest data.
+        local function seedGuild(value)
+          if value == nil then
+            return
+          end
+          local cur = playerDetails.GuildName
+          if cur == nil or (issecretvalue and issecretvalue(cur)) then
+            playerDetails.GuildName = value
+            playerDetails._GuildNameSource = "harvest"
+          end
+        end
+        seed("gender", history.gender, "_genderSource")
+        seed("honorLevel", history.honorLevel, "_honorLevelSource")
+        seedGuild(history.GuildName)
+        seed("lastPowerType", history.lastPowerType, "_lastPowerTypeSource")
+
+        -- Spec seeding also recomputes PlayerRole via spec→roleID, since
+        -- the original PlayerRole calculation above ran with spec=secret.
+        local specStillEmpty = playerDetails.PlayerSpecName == nil
+          or playerDetails.PlayerSpecName == false
+          or (issecretvalue and issecretvalue(playerDetails.PlayerSpecName))
+        if history.lastSpec and specStillEmpty then
+          playerDetails.PlayerSpecName = history.lastSpec
+          playerDetails._PlayerSpecNameSource = "harvest"
+          if classToken then
+            local t = Data.Classes[classToken]
+            local sd = t and t[history.lastSpec]
+            local roleStillEmpty = playerDetails.PlayerRole == nil
+              or (issecretvalue and issecretvalue(playerDetails.PlayerRole))
+            if sd and sd.roleID and roleStillEmpty then
+              playerDetails.PlayerRole = sd.roleID
+              playerDetails._PlayerRoleSource = "harvest"
+            end
+          end
+        end
+      end
+    end
+
     if playerButton then --already existing
       local currentDetails = playerButton.PlayerDetails
       local detailsChanged = false
@@ -1545,18 +1615,10 @@ local function CreateMainFrame(playerType)
     end
 
     function mainframe:SortPlayers(forceRepositioning)
-      --self:Debug("SortPlayers", self.PlayerType)
       local newPlayerOrder = {}
       for i = 1, #self.PlayerList do
         table.insert(newPlayerOrder, self.PlayerList[i])
       end
-      --[[
-			self:Debug("before sorting")
-			for i = 1, #newPlayerOrder do
-				self:Debug(i, newPlayerOrder[i].PlayerDetails.PlayerName)
-			end
-
- ]]
 
       -- Allies sort by role tier → name (UnitGroupRolesAssigned, raid/party
       -- UnitClass, and ally names are all non-secret). BG enemies sort by
@@ -1704,9 +1766,14 @@ function BattleGroundEnemies.Allies:GetAllyButtonByUnitID(unitID)
     end
   end
   -- Name fallback — ally names may be non-secret (GetUnitName guarded).
+  -- Canonicalize: GetUnitName returns short "Name" for same-realm, but
+  -- Players[] is keyed by full "Name-Realm" since the canonicalization
+  -- refactor (Main.lua CanonicalName helper). Without this canonicalize,
+  -- same-realm allies would silently miss the name fallback and fall
+  -- through to the no-match return.
   local ok, name = pcall(GetUnitName, unitID, true)
   if ok and type(name) == "string" and not (issecretvalue and issecretvalue(name)) then
-    local btn = self.Players[name]
+    local btn = self.Players[BattleGroundEnemies:CanonicalName(name)]
     if btn then
       return btn
     end
@@ -1845,7 +1912,6 @@ function BattleGroundEnemies.Allies:UpdateAllUnitIDs()
 
           if allyButton.unit ~= unitID then
             --ally has a new unitID now
-            --self:Debug("player", groupMember.PlayerName, "has a new unit and targeted something")
 
             local targetButton = allyButton.Target
             if targetButton then
@@ -1889,7 +1955,6 @@ function BattleGroundEnemies.Allies:UpdateAllUnitIDs()
 
         if allyButton.unit ~= unitID then
           --ally has a new unitID now
-          --self:Debug("player", groupMember.PlayerName, "has a new unit and targeted something")
 
           local targetButton = allyButton.Target
           if targetButton then
@@ -1934,20 +1999,28 @@ end
 function BattleGroundEnemies.Enemies:ChangeName(oldName, newName) --only used in arena when players switch from "arenaX" to a real name
   -- oldName is always a unitID literal ("arenaN"); newName is filtered to
   -- non-secret upstream in CreateArenaEnemies before reaching here.
-  local playerButton = self.Players[oldName]
+  --
+  -- Canonicalize both ends — Players[] is keyed by CanonicalName output
+  -- (Main.lua:CanonicalName). The arena-prep flow stored under key
+  -- "arenaN-Realm" because CanonicalName appended the user's realm to the
+  -- token literal. Lookups must canonicalize the same way or they miss.
+  -- newName is normally already in "Name-Realm" form (chat / arena reveal),
+  -- but pass it through CanonicalName for idempotency in case a same-realm
+  -- short form ever reaches here.
+  local oldKey = BattleGroundEnemies:CanonicalName(oldName)
+  local newKey = BattleGroundEnemies:CanonicalName(newName)
+  local playerButton = self.Players[oldKey]
 
   if playerButton then
-    playerButton.PlayerDetails.PlayerName = newName
-    self:Debug("name changed", oldName, newName)
+    playerButton.PlayerDetails.PlayerName = newKey
     playerButton:PlayerDetailsChanged()
 
-    self.Players[newName] = playerButton
-    self.Players[oldName] = nil
+    self.Players[newKey] = playerButton
+    self.Players[oldKey] = nil
   end
 end
 
 function BattleGroundEnemies.Enemies:CreateArenaEnemies()
-  self:Debug("CreateArenaEnemies")
   if not BattleGroundEnemies.states.real.isInArena then
     return
   end
@@ -1966,8 +2039,6 @@ function BattleGroundEnemies.Enemies:CreateArenaEnemies()
     else
       classToken = select(2, UnitClass(unitID))
     end
-    self:Debug("classToken", classToken)
-    self:Debug("specName", specName)
 
     if classToken then
       local playerName
@@ -2016,7 +2087,6 @@ end
 BattleGroundEnemies.Enemies.ARENA_PREP_OPPONENT_SPECIALIZATIONS = BattleGroundEnemies.Enemies.CreateArenaEnemies -- for Prepframe, not available in TBC
 
 function BattleGroundEnemies.Enemies:UNIT_NAME_UPDATE(unitID)
-  self:Debug("UNIT_NAME_UPDATE", unitID)
   BattleGroundEnemies:CheckForArenaEnemies()
 end
 
@@ -2102,11 +2172,24 @@ local function UpdateUnitIDForToken(self, tokenKey, unitID)
 end
 
 function BattleGroundEnemies.Enemies:PLAYER_FOCUS_CHANGED()
-  UpdateUnitIDForToken(self, "Focus", "focus")
+  -- Focus token attachment removed — was duplicating the work of
+  -- BattleGroundEnemies:PLAYER_FOCUS_CHANGED in Main.lua, which uses the
+  -- click stash to map "focus" to the correct button. This handler used
+  -- the matcher (no stash), so on same-class twins it could attach the
+  -- Focus token to the wrong button before the stash-based handler
+  -- corrected it — same wrong-frame flash bug we just fixed for target.
+  -- FocusTarget (your focus's target — a different token) is unique to
+  -- this handler, so it stays.
   UpdateUnitIDForToken(self, "FocusTarget", "focustarget")
 end
 
 function BattleGroundEnemies.Enemies:UPDATE_MOUSEOVER_UNIT()
+  -- Persistently attach the Mouseover UnitID to the matched button (and
+  -- detach it from any prior button). Sibling handler at
+  -- BattleGroundEnemies:UPDATE_MOUSEOVER_UNIT in Main.lua does a one-shot
+  -- snapshot read of health/power via UpdateAll. Both run on the same
+  -- event; the matcher call here hits scanCycleCache (already populated
+  -- by the sibling). Don't consolidate — different abstractions.
   UpdateUnitIDForToken(self, "Mouseover", "mouseover")
 end
 

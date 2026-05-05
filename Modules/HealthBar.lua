@@ -142,7 +142,11 @@ local healthBar = BattleGroundEnemies:NewButtonModule({
   options = options,
   generalOptions = generalOptions,
   events = { "UpdateHealth" },
-  flags = {},
+  flags = {
+    -- Healthbar is auto-managed by SetModulePositions: full button width,
+    -- height = button height minus the power bar. Don't expose per-player-count UI for it.
+    HiddenFromPerPlayerCountUI = true,
+  },
   enabledInThisExpansion = true,
   attachSettingsToButton = false,
   order = 1,
@@ -316,6 +320,38 @@ function healthBar:AttachToPlayerButton(playerButton)
     end
   end
 
+  -- Reset is called from SetupButtonForNewPlayer when this button gets
+  -- recycled to represent a different player (new BG, new opponent in
+  -- this slot, etc.). Restore the bar to its initial 100% state and hide
+  -- all overlays so stale values from the previous player don't bleed
+  -- through. Distinct from the "token lost mid-match" path, which keeps
+  -- the last value (DeleteActiveUnitID no longer touches the bar).
+  function playerButton.healthBar:Reset()
+    self:SetMinMaxValues(0, 1)
+    self:SetValue(1)
+    if playerButton.myHealPrediction then
+      playerButton.myHealPrediction:Hide()
+    end
+    if playerButton.otherHealPrediction then
+      playerButton.otherHealPrediction:Hide()
+    end
+    if playerButton.totalAbsorb then
+      playerButton.totalAbsorb:Hide()
+    end
+    if playerButton.totalAbsorbOverlay then
+      playerButton.totalAbsorbOverlay:Hide()
+    end
+    if playerButton.overAbsorbGlow then
+      playerButton.overAbsorbGlow:Hide()
+    end
+    if playerButton.myHealAbsorb then
+      playerButton.myHealAbsorb:Hide()
+    end
+    if playerButton.overHealAbsorbGlow then
+      playerButton.overHealAbsorbGlow:Hide()
+    end
+  end
+
   function playerButton.healthBar:ApplyAllSettings()
     if not self.config then
       return
@@ -366,41 +402,84 @@ function healthBarText:AttachToPlayerButton(playerButton)
       return
     end
 
-    local ok, err = pcall(function()
-      -- Test mode: Use fake health values (old math-based approach works here)
-      if BattleGroundEnemies:IsTestmodeActive() then
-        if not health or not maxHealth then
-          health = 50000
-          healthPercent = 50
-          healthMissing = 50000
-          maxHealth = 100000
-        end
+    -- Test mode override: synthetic values when the test harness is active.
+    if BattleGroundEnemies:IsTestmodeActive() then
+      if not health or not maxHealth then
+        health = 50000
+        healthPercent = 50
+        healthMissing = 50000
+        maxHealth = 100000
       end
+    end
 
-      if health and maxHealth then
-        if config.HealthTextType == "health" then
-          health = AbbreviateNumbers(health)
-          self.fs:SetText(health)
-          self.fs:Show()
-        elseif config.HealthTextType == "losthealth" then
-          healthMissing = AbbreviateNumbers(healthMissing)
-          self.fs:SetText(healthMissing)
-          self.fs:Show()
-        elseif config.HealthTextType == "perc" then
-          self.fs:SetFormattedText("%d%%", healthPercent)
-          self.fs:Show()
-        else
-          self.fs:Hide()
-        end
+    -- Missing live values: don't clobber the text — return early and leave
+    -- the last shown value in place. This matches the healthBar:UpdateHealth
+    -- behavior up at line ~254 ("If pcall fell back to nil, don't clobber
+    -- the bar — keep prior values"). Without this guard we Hide() on every
+    -- nil-yielding update path (raidNtarget that resolved to a non-existent
+    -- unit, ScanTargets sweeps that pre-empt a real read, etc.) and Show()
+    -- on the next real update — that's the rapid flash.
+    -- Secret values are NOT excluded: AbbreviateNumbers / SetFormattedText
+    -- both have SecretArguments="AllowedWhenTainted" per Blizzard's API
+    -- docs, so they accept and display secret values without tainting.
+    if not health or not maxHealth then
+      -- Missing values: keep the last shown text. Diagnostic print kept
+      -- below as a commented block — re-enable to debug a future flash.
+      -- local diagBtn = playerButton.PlayerIsEnemy
+      --     and playerButton.PlayerDetails
+      --     and playerButton.PlayerDetails.PlayerName
+      --     or nil
+      -- if diagBtn then
+      --   local issecret = issecretvalue or function() return false end
+      --   local function tag(v)
+      --     if v == nil then return "nil" end
+      --     if issecret(v) then return "secret" end
+      --     return tostring(v)
+      --   end
+      --   print(string.format(
+      --     "|cffaa66ff[BGEF text]|r %s SKIP-keep-last u=%s h=%s hM=%s hp=%s mh=%s",
+      --     diagBtn, tostring(unitID), tag(health), tag(healthMissing),
+      --     tag(healthPercent), tag(maxHealth)
+      --   ))
+      -- end
+      return
+    end
+
+    -- Defense-in-depth pcall around the format/set calls. AbbreviateNumbers
+    -- and the SetText / SetFormattedText methods all accept secret args
+    -- per API docs, so this should rarely fire — but if any unexpected
+    -- error occurs, treat it the same as nil values: keep the last shown
+    -- text rather than hiding (which would cause flash).
+    local ok, err = pcall(function()
+      if config.HealthTextType == "health" then
+        self.fs:SetText(AbbreviateNumbers(health))
+        self.fs:Show()
+      elseif config.HealthTextType == "losthealth" then
+        self.fs:SetText(AbbreviateNumbers(healthMissing or 0))
+        self.fs:Show()
+      elseif config.HealthTextType == "perc" then
+        self.fs:SetFormattedText("%d%%", healthPercent)
+        self.fs:Show()
       else
         self.fs:Hide()
       end
     end)
 
-    if not ok then
-      -- Verification failed (likely secret value math), hide text
-      self.fs:Hide()
-    end
+    -- if not ok then
+    --   -- pcall failed (unexpected). Keep last shown value rather than
+    --   -- hiding (matches the nil-values branch above). Re-enable the
+    --   -- print block here to surface the error if a flash recurs.
+    --   local diagBtn = playerButton.PlayerIsEnemy
+    --       and playerButton.PlayerDetails
+    --       and playerButton.PlayerDetails.PlayerName
+    --       or nil
+    --   if diagBtn then
+    --     print(string.format(
+    --       "|cffaa66ff[BGEF text]|r %s SKIP-pcall-err u=%s err=%s",
+    --       diagBtn, tostring(unitID), tostring(err)
+    --     ))
+    --   end
+    -- end
   end
 
   function container:UpdateHealth(unitID, health, healthMissing, healthPercent, maxHealth)
@@ -477,6 +556,16 @@ function healthBarText:AttachToPlayerButton(playerButton)
     end
 
     self:UpdateHealthText(nil, nil, nil, nil, nil)
+  end
+
+  -- Reset is called when the button gets recycled for a new player AND
+  -- when the module is disabled via config. Hide the FontString — the
+  -- next UpdateHealthText will SetText+Show with fresh data.
+  -- Don't call SetText("") here: ApplyModuleSettings can call Reset on
+  -- the disable path before the font has been set on the FontString,
+  -- and SetText errors with "Font not set". Hide alone is sufficient.
+  function container:Reset()
+    self.fs:Hide()
   end
 
   playerButton.healthBarText = container

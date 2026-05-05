@@ -3,6 +3,7 @@
 
 # Maintainer-only notes (not shipped, not committed)
 DEFERRED.md
+NEW_CHANGES.md
 
 # macOS metadata / junk
 .DS_Store
@@ -31,3 +32,5 @@ desktop.ini
 *.swp
 *.swo
 *~
+
+.vscode/
