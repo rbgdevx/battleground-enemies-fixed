@@ -4137,6 +4137,17 @@ function BattleGroundEnemies:PlayerAlive()
     allyButton:UpdateTarget()
   end
   self.states.userIsAlive = true
+
+  -- Re-scan orb/flag carriers on resurrect. While dead, UnitExists(arenaN)
+  -- returns false so CheckAllOrbs/CheckAllFlags skip every slot and the
+  -- icon never gets attached visually — even if the chat handler correctly
+  -- bound the carrier to ArenaIDToPlayerButton during death. PEW doesn't
+  -- fire on resurrect, and UPDATE_BATTLEFIELD_SCORE's signature gate
+  -- skips when player count is unchanged. This is the only reliable hook
+  -- to re-display carrier icons after a graveyard rez.
+  if self.RefreshObjectiveCarriers then
+    self:RefreshObjectiveCarriers()
+  end
 end
 
 function BattleGroundEnemies:PLAYER_ALIVE()
