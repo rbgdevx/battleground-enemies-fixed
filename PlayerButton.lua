@@ -45,6 +45,77 @@ local InCombatLockdownRestriction = function(unit)
   return InCombatLockdown() and not UnitCanAttack("player", unit)
 end
 
+-- Manual drag controller for the player-frame parent.
+--
+-- Why we don't use Frame:StartMoving / :StopMovingOrSizing: the parent main
+-- frames (BGEEnemies, BGEAllies) are created with SecureActionButtonTemplate,
+-- and Blizzard blocks StopMovingOrSizing on protected frames during combat
+-- lockdown. If combat began mid-drag, OnDragStop would either throw a
+-- protected-call error and leave the frame stuck following the cursor, or
+-- (with deferred handling) keep the frame glued to the cursor for the rest
+-- of combat — both unacceptable.
+--
+-- Instead we track the cursor ourselves and reposition the parent via
+-- SetPoint each tick. SetPoint is also blocked on protected frames in combat,
+-- so when combat begins mid-drag the frame freezes in place rather than
+-- following the cursor. Releasing the mouse during combat is fine — it's
+-- just our own bookkeeping, no Blizzard API call. When combat ends, drag
+-- tracking resumes if the user is still holding the mouse.
+local dragController = CreateFrame("Frame")
+dragController.target = nil
+
+local function dragOnUpdate(self)
+  local target = self.target
+  if not target then
+    self:SetScript("OnUpdate", nil)
+    return
+  end
+  if InCombatLockdown() then
+    -- SetPoint on a protected frame is blocked in combat. Freeze in place
+    -- and let the next tick try again once combat ends.
+    return
+  end
+  local cx, cy = GetCursorPosition()
+  local scale = target:GetEffectiveScale()
+  local dx = (cx - self.startCursorX) / scale
+  local dy = (cy - self.startCursorY) / scale
+  target:ClearAllPoints()
+  target:SetPoint(
+    "TOPLEFT",
+    UIParent,
+    "BOTTOMLEFT",
+    self.startLeft + dx,
+    self.startTop + dy
+  )
+end
+
+local function beginDrag(target)
+  if not target then
+    return false
+  end
+  if InCombatLockdown() then
+    -- SetPoint is blocked anyway, so don't even start.
+    return false
+  end
+  local left, top = target:GetLeft(), target:GetTop()
+  if not left or not top then
+    return false
+  end
+  dragController.target = target
+  dragController.startCursorX, dragController.startCursorY = GetCursorPosition()
+  dragController.startLeft = left
+  dragController.startTop = top
+  dragController:SetScript("OnUpdate", dragOnUpdate)
+  return true
+end
+
+local function endDrag()
+  dragController:SetScript("OnUpdate", nil)
+  local target = dragController.target
+  dragController.target = nil
+  return target
+end
+
 --Libs
 local LSM = LibStub("LibSharedMedia-3.0")
 local LRC = LibStub("LibRangeCheck-3.0")
@@ -215,26 +286,22 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     end
   end
 
-  function playerButton:Debug(...)
-    return BattleGroundEnemies:Debug(self.PlayerDetails and self.PlayerDetails.PlayerName, ...)
-  end
-
   function playerButton:OnDragStart()
-    if InCombatLockdown() then
-      return BattleGroundEnemies:Debug("OnDragStart called in combat, ignoring")
+    if BattleGroundEnemies.db.profile.Locked then
+      return
     end
-    return BattleGroundEnemies.db.profile.Locked or self:GetParent():StartMoving()
+    beginDrag(self:GetParent())
   end
 
   function playerButton:OnDragStop()
-    local parent = self:GetParent()
+    -- endDrag() unwires our OnUpdate ticker and returns whatever frame the
+    -- drag was tracking. It performs no Blizzard API calls, so it is safe
+    -- to invoke during combat — that's the entire reason this manual drag
+    -- exists (see the dragController comment at the top of this file).
+    local parent = endDrag() or self:GetParent()
     if not parent then
       return
     end
-    if InCombatLockdown() then
-      return BattleGroundEnemies:Debug("OnDragStop called in combat, ignoring")
-    end
-    parent:StopMovingOrSizing()
 
     local scale = self:GetEffectiveScale()
 
@@ -254,14 +321,14 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     end
   end
 
-  function playerButton:UpdateAll(temporaryUnitID)
+  function playerButton:UpdateAll(temporaryUnitID, skipSnapshot)
     local updateStuffWithEvents = false --only update health, power, etc for players that dont get events for that or that dont have a unitID assigned
     local unitID
-    local updateAuras = false
+    -- local updateAuras = false
     if temporaryUnitID then
       updateStuffWithEvents = true
       unitID = temporaryUnitID
-      updateAuras = true
+      -- updateAuras = true
     else
       if self.unitID then
         unitID = self.unitID
@@ -271,22 +338,20 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
           updateStuffWithEvents = true
 
           --throttle the aura updates in case we only have a ally unitID
-          local lastAuraUpdate = self.lastAuraUpdate
-          if lastAuraUpdate then
-            if GetTime() - lastAuraUpdate > 0.5 then
-              updateAuras = true
-            end
-          else
-            updateAuras = true
-          end
+          -- local lastAuraUpdate = self.lastAuraUpdate
+          -- if lastAuraUpdate then
+          --   if GetTime() - lastAuraUpdate > 0.5 then
+          --     updateAuras = true
+          --   end
+          -- else
+          --   updateAuras = true
+          -- end
         end
       end
     end
-    --BattleGroundEnemies:Debug("UpdateAll", unitID, updateStuffWithEvents)
     if not unitID then
       return
     end
-    --BattleGroundEnemies:Debug("UpdateAll", 1)
 
     if not UnitExists(unitID) then
       return
@@ -294,27 +359,44 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
 
     --this further checks dont seem necessary since they dont seem to rule out any other unitiDs (all unit ids that exist also are a button and are also this frame)
 
-    -- BattleGroundEnemies:Debug("UpdateAll", 2)
-
     -- local playerButton = BattleGroundEnemies:GetPlayerbuttonByUnitID(unitID)
 
     -- if not playerButton then
     --   return
     -- end
-    -- BattleGroundEnemies:Debug("UpdateAll", 3)
+
     -- if playerButton ~= self then
     --   return
     -- end
-    -- BattleGroundEnemies:Debug("UpdateAll", 4)
 
     if updateStuffWithEvents then
-      self:UNIT_POWER_FREQUENT(unitID)
-      self:UNIT_HEALTH(unitID)
+      -- Periodic enemy refresh skips the direct UnitHealth/UnitPower read.
+      -- Coverage is unchanged: WoW push events (UNIT_HEALTH /
+      -- UNIT_POWER_FREQUENT) and ScanTargets' per-token sweep both already
+      -- update enemy health/power. The risk we avoid: a stale self.unitID
+      -- (token now points at a different player after a target/nameplate
+      -- flip) reading a wrong-player health value through this path. The
+      -- gate keeps the call live for ALLIES (stable raid/party tokens, no
+      -- secrecy) and for explicit refresh callers that pass temporaryUnitID
+      -- (mouseover etc. — caller has a known-live token).
+      if (temporaryUnitID or not self.PlayerIsEnemy) and not skipSnapshot then
+        self:UNIT_POWER_FREQUENT(unitID)
+        self:UNIT_HEALTH(unitID)
+      end
     end
 
     self:UpdateRaidTargetIcon()
     self:UpdateRangeViaLibRangeCheck(unitID)
-    self:UpdateGuild(unitID)
+    -- UpdateGuild call removed — it called GetGuildInfo(unitID) and blindly
+    -- stamped the result onto self.PlayerDetails.GuildName regardless of
+    -- whether the matcher's resolution was confident. When the matcher
+    -- returned the wrong same-class twin (tier 7-9 or fallback), this
+    -- poisoned the wrong button with the actual unit's guild — making
+    -- tier-9 disambiguation later "confirm" the wrong match.
+    -- Guild is still captured safely via captureLiveAttrs in the matcher's
+    -- tier-5/6/arena/name paths (high-confidence resolves only) and via
+    -- the harvest seeder at button creation. The function itself is kept
+    -- below in case a known-safe caller wants to invoke it explicitly.
     self:UpdateTarget()
     self:DispatchEvent("PeriodicUpdate", unitID)
   end
@@ -459,7 +541,7 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     end
   end
 
-  function playerButton:UpdateUnitID(unitID, targetUnitID)
+  function playerButton:UpdateUnitID(unitID, targetUnitID, skipSnapshot)
     -- For allies: always set unitID even if unit doesn't exist yet (party/raid units may be loading)
     -- For enemies: only proceed if unit exists (requires active target/nameplate/arena token)
     if self.PlayerIsEnemy and not UnitExists(unitID) then
@@ -470,9 +552,12 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     self.TargetUnitID = targetUnitID
     self:UpdateRaidTargetIcon()
 
-    -- Only call UpdateAll if unit actually exists (UpdateAll checks UnitExists anyway)
+    -- Only call UpdateAll if unit actually exists (UpdateAll checks UnitExists anyway).
+    -- skipSnapshot suppresses the UNIT_HEALTH/UNIT_POWER_FREQUENT snapshot
+    -- inside UpdateAll when the unitID is a residual chain pick (see the
+    -- caller in UpdateEnemyUnitID).
     if UnitExists(unitID) then
-      self:UpdateAll(unitID)
+      self:UpdateAll(unitID, skipSnapshot)
     end
 
     self:DispatchEvent("UnitIdUpdate", unitID)
@@ -554,19 +639,15 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     if not self.PlayerIsEnemy then
       return
     end
-    self:Debug("DeleteActiveUnitID")
     self.unitID = nil
-    if self.healthBar then
-      self.healthBar:SetMinMaxValues(0, 1)
-      if self.isDead then
-        self.healthBar:SetValue(0)
-      else
-        self.healthBar:SetValue(1)
-      end
-    end
-    if self.healthBarText then
-      self.healthBarText:UpdateHealthText(nil, nil, nil, nil)
-    end
+    -- Don't reset healthBar / healthBarText here. They each already do the
+    -- right thing on nil/missing values: healthBar:UpdateHealth returns
+    -- early without clobbering ([HealthBar.lua] "don't clobber the bar —
+    -- keep prior values"), and container:UpdateHealthText returns early
+    -- without hiding (per the v67 fix). Explicitly resetting to full/0
+    -- here was the source of the bar-jumps-to-full visual on token loss.
+    -- isDead transitions to 0 already happen via UNIT_HEALTH's dead path,
+    -- so the bar is already at 0 before DeleteActiveUnitID runs in that case.
     self.TargetUnitID = nil
     self:UpdateRange(false)
 
@@ -620,7 +701,24 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
         or unitIDs.ArenaTarget
     if unitID then
       unitIDs.HasAllyUnitID = false
-      self:UpdateUnitID(unitID, unitID .. "target")
+      -- Skip the health/power snapshot ONLY when the priority chain picked
+      -- a residual *dynamic shared token* (target/focus/mouseover/softenemy/
+      -- softfriend). Those can reassign to a different player at any time
+      -- (click, focus change, mouse move), so a stale entry on this button
+      -- snapshots the new owner's HP into our bar — the click-flip cross-
+      -- attach. Compound residuals (raidNtarget, nameplateN, etc.) are
+      -- tied to specific source units; snapshotting them is the only path
+      -- some buttons get HP updates when the matcher can't disambiguate
+      -- same-class twins (strict-rule path). Don't gate those.
+      -- self.unitID and modules listening to UnitIdUpdate still propagate
+      -- normally; only the immediate UNIT_HEALTH/UNIT_POWER_FREQUENT
+      -- snapshot inside UpdateAll is gated, and only for the risky tokens.
+      local DYNAMIC_TOKENS = BattleGroundEnemies.DYNAMIC_TOKENS
+      local skipSnapshot = false
+      if value ~= unitID and DYNAMIC_TOKENS and DYNAMIC_TOKENS[unitID] then
+        skipSnapshot = true
+      end
+      self:UpdateUnitID(unitID, unitID .. "target", skipSnapshot)
     elseif unitIDs.Ally then
       unitIDs.HasAllyUnitID = true
       -- Direct token map — no PID matching.
@@ -687,7 +785,6 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
                   else
                     -- the module we are depending on hasn't been set yet
                     allModulesSet = false
-                    --BattleGroundEnemies:Debug("moduleName", moduleName, "isnt set yet")
                   end
                 else
                   -- return print("error", relativeFrame, "for module", moduleName, "doesnt exist")
@@ -729,11 +826,16 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
         end
       end
       i = i + 1
-
-      if i > 10 then
-        self:Debug("something went wrong in ApplyModuleSettings")
-      end
     until allModulesSet or i > 10 --maxium of 10 tries
+
+    -- HealthBar is auto-managed: pinned to the top of the button, fills its width,
+    -- and takes whatever height the power bar leaves behind (full button height when power is off).
+    local powerHeight = self.Power.Enabled and self.Power:GetHeight() or 0
+    self.healthBar:ClearAllPoints()
+    self.healthBar:SetPoint("TOPLEFT", self, "TOPLEFT")
+    self.healthBar:SetPoint("TOPRIGHT", self, "TOPRIGHT")
+    self.healthBar:SetHeight(math.max(0.01, self:GetHeight() - powerHeight))
+
     -- Disabled Power frame is collapsed/repositioned, so anchor highlight to healthBar instead.
     local bottomAnchor = self.Power.Enabled and self.Power or self.healthBar
     self.MyTarget:SetParent(self)
@@ -788,7 +890,7 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     self.playerCountConfig = BattleGroundEnemies[self.PlayerType].playerCountConfig
     if self.playerCountConfig then
       self.basePath = {
-        "BattleGroundEnemies",
+        "BattleGroundEnemiesFixed",
         self.PlayerIsEnemy and "EnemySettings" or "AllySettings",
         BattleGroundEnemies:GetPlayerCountConfigName(self.playerCountConfig),
       }
@@ -849,7 +951,6 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     }
 
     function playerButton:SetBindings()
-      self:Debug("SetBindings")
       if not self.config then
         return
       end
@@ -883,7 +984,6 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
         end
       else
         if BattleGroundEnemies.db.profile[self.PlayerType].UseClique then
-          BattleGroundEnemies:Debug("Clique used")
           ClickCastFrames[self] = true
           setupUsualAttributes = false
         end
@@ -901,18 +1001,31 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
         for i = 1, 3 do
           local bindingType = self.config[mouseButtons[i] .. "Type"]
 
+          -- PlayerName is canonical "Name-Realm" post-refactor (Main.lua
+          -- CanonicalName). For /targetexact and macro substitution we
+          -- want the form WoW's targeting natively expects: "Name" for
+          -- same-realm, "Name-Realm" for cross-realm. Ambiguate context
+          -- "none" produces exactly that. Falls back to canonical form
+          -- if Ambiguate is unavailable (older clients).
+          local targetName = self.PlayerDetails.PlayerName
+          if Ambiguate then
+            local ok, ambig = pcall(Ambiguate, targetName, "none")
+            if ok and type(ambig) == "string" then
+              targetName = ambig
+            end
+          end
           if bindingType == "Target" then
-            newAttributes["macrotext" .. i] = "/cleartarget\n" .. "/targetexact " .. self.PlayerDetails.PlayerName
+            newAttributes["macrotext" .. i] = "/cleartarget\n" .. "/targetexact " .. targetName
           elseif bindingType == "Focus" then
             newAttributes["macrotext" .. i] = "/targetexact "
-                .. self.PlayerDetails.PlayerName
+                .. targetName
                 .. "\n"
                 .. "/focus\n"
                 .. "/targetlasttarget"
           else -- Custom
             local macrotext = (BattleGroundEnemies.db.profile[self.PlayerType][mouseButtons[i] .. "Value"]):gsub(
               "%%n",
-              self.PlayerDetails.PlayerName
+              targetName
             )
             newAttributes["macrotext" .. i] = macrotext
           end
@@ -1032,18 +1145,62 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       return
     end
 
+    -- DIAGNOSTIC (cross-attach hunt v57): only print SUSPECTED cross-attaches.
+    -- For unitID=="target": fire only when this button is NOT the most
+    -- recently clicked enemy (stash is set synchronously in PostClick, so it
+    -- reflects the user's intent immediately — currentTarget would lag a
+    -- frame via the deferred handler and give false negatives).
+    -- Same idea for "focus" via _lastClickedEnemyFocus.
+    -- Identity-free: button name is from scoreboard (NeverSecret); no
+    -- secret values touched.
+    -- if self.PlayerIsEnemy and unitID and BattleGroundEnemies.DYNAMIC_TOKENS
+    --     and BattleGroundEnemies.DYNAMIC_TOKENS[unitID] then
+    --   local suspected = false
+    --   local now = GetTime()
+    --   if unitID == "target" then
+    --     local stash = BattleGroundEnemies._lastClickedEnemyTarget
+    --     local stashTime = BattleGroundEnemies._lastClickedEnemyTargetTime or 0
+    --     if stash and stash ~= self and (now - stashTime) < 1.0 then
+    --       suspected = true
+    --     end
+    --   elseif unitID == "focus" then
+    --     local stash = BattleGroundEnemies._lastClickedEnemyFocus
+    --     local stashTime = BattleGroundEnemies._lastClickedEnemyFocusTime or 0
+    --     if stash and stash ~= self and (now - stashTime) < 1.0 then
+    --       suspected = true
+    --     end
+    --   end
+    --   if suspected then
+    --     -- Diagnostic: re-enable to debug a future cross-attach. Identity-
+    --     -- free (button name from scoreboard, no secret values).
+    --     -- local btnName = (self.PlayerDetails and self.PlayerDetails.PlayerName) or "<unnamed>"
+    --     -- local stack = debugstack(2, 4, 0) or ""
+    --     -- stack = stack:gsub("Interface/AddOns/BattleGroundEnemiesFixed/", "")
+    --     -- print(string.format(
+    --     --   "|cffffaa00[BGEF xattach]|r %s UNIT_HEALTH(%s)\n%s",
+    --     --   btnName, tostring(unitID), stack
+    --     -- ))
+    --   end
+    -- end
+
     local isAlly = not self.PlayerIsEnemy
     if not isAlly and not self.isShown then
       return
     end
 
-    -- Always query health from the button's primary unitID (self.unitID) rather
-    -- than whatever unitID triggered the event. Different tokens ("target",
-    -- "nameplate3", "arena2target") can return different display-health values
-    -- for the same player, causing jitter. Compound tokens like "arena2target"
-    -- are also rejected by UnitHealth in 12.0+.
+    -- Prefer the EVENT's unitID over self.unitID. The matcher (or the
+    -- direct caller) already verified the event unitID maps to THIS button,
+    -- so reading from it gives this player's health. Using self.unitID
+    -- as the override (the old behavior) was dangerous: when a higher-
+    -- priority token detached but the priority chain still produced a
+    -- now-stale value (e.g. self.unitID = "mouseover" but mouseover now
+    -- points at a different player after the user moved their cursor),
+    -- the bar would read the wrong unit's health.
+    -- Fall back to self.unitID ONLY when the event unitID isn't usable —
+    -- compound tokens like "arena2target" are rejected by UnitHealth in
+    -- 12.0+, and a non-existent unit would just return 0/nil.
     local queryID = unitID
-    if self.unitID then
+    if not queryID or not UnitExists(queryID) then
       queryID = self.unitID
     end
 
@@ -1107,25 +1264,25 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
   function playerButton:UpdateTargetIndicators()
     self:DispatchEvent("UpdateTargetIndicators")
 
-    local isAlly = false
-    local isPlayer = false
+    -- local isAlly = false
+    -- local isPlayer = false
 
-    if self == BattleGroundEnemies.UserButton then
-      isPlayer = true
-    elseif not self.PlayerIsEnemy then
-      isAlly = true
-    end
+    -- if self == BattleGroundEnemies.UserButton then
+    --   isPlayer = true
+    -- elseif not self.PlayerIsEnemy then
+    --   isAlly = true
+    -- end
 
-    local i = 0
-    for enemyButton in pairs(self.UnitIDs.TargetedByEnemy) do
-      i = i + 1
-    end
+    -- local i = 0
+    -- for enemyButton in pairs(self.UnitIDs.TargetedByEnemy) do
+    --   i = i + 1
+    -- end
 
     if not BattleGroundEnemies.db.profile.RBG then
       return
     end
 
-    local enemyTargets = i
+    -- local enemyTargets = i
 
     -- if BattleGroundEnemies:GetActiveStates().isRatedBG then
     --   if isAlly then
@@ -1304,9 +1461,16 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     if not self.isShown then
       return
     end
-    -- Use primary unitID for consistency (same reason as UNIT_HEALTH).
-    -- Avoids compound tokens like "arena2target" which are rejected in 12.0+.
-    local queryID = self.unitID or unitID
+    -- Prefer the EVENT's unitID over self.unitID — same reasoning as
+    -- UNIT_HEALTH above. self.unitID can go stale (token detached but
+    -- priority chain still has a value pointing at a different player),
+    -- and reading from a stale primary would put the wrong unit's power
+    -- on this button. Fall back to self.unitID only if event unitID is
+    -- missing or the unit doesn't exist (compound-token rejection etc.).
+    local queryID = unitID
+    if not queryID or not UnitExists(queryID) then
+      queryID = self.unitID
+    end
     self:DispatchEvent("UpdatePower", queryID, powerToken)
   end
 
@@ -1338,7 +1502,6 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
   end
 
   function playerButton:IsNowTargeting(playerButton)
-    --BattleGroundEnemies:Debug("IsNowTargeting", self.PlayerName, self.unitID, playerButton.PlayerName)
     self.Target = playerButton
 
     if not self:IsEnemyToMe(playerButton) then
@@ -1349,7 +1512,6 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
   end
 
   function playerButton:IsNoLongerTarging(playerButton)
-    --BattleGroundEnemies:Debug("IsNoLongerTarging", self.PlayerName, self.unitID, playerButton.PlayerName)
     self.Target = nil
 
     if not self:IsEnemyToMe(playerButton) then
@@ -1360,8 +1522,6 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
   end
 
   function playerButton:UpdateTarget()
-    --BattleGroundEnemies:Debug("UpdateTarget", self.PlayerName, self.unitID)
-
     local oldTargetPlayerButton = self.Target
     local newTargetPlayerButton
 
@@ -1375,7 +1535,6 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     end
 
     if oldTargetPlayerButton then
-      --BattleGroundEnemies:Debug("UpdateTarget", "oldTargetPlayerButton", self.PlayerName, self.unitID, oldTargetPlayerButton.PlayerName, oldTargetPlayerButton.unitID)
 
       if newTargetPlayerButton and oldTargetPlayerButton == newTargetPlayerButton then
         return
@@ -1386,7 +1545,6 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     --player didnt have a target before or the player targets a new player
 
     if newTargetPlayerButton then --player targets an existing player and not for example a pet or a NPC
-      --BattleGroundEnemies:Debug("UpdateTarget", "newTargetPlayerButton", self.PlayerName, self.unitID, newTargetPlayerButton.PlayerName, newTargetPlayerButton.unitID)
       self:IsNowTargeting(newTargetPlayerButton)
     end
   end
@@ -1432,9 +1590,6 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     --self.Counter[event] = (self.Counter[event] or 0) + 1
     if not BattleGroundEnemies:IsInPvPInstance() then
       return
-    end
-    if self.db and self.db.profile and self.db.profile.DebugBlizzEvents then
-      self:Debug("OnEvent", event, ...)
     end
     self[event](self, ...)
   end)
@@ -1530,10 +1685,6 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       playerButton[moduleName].GetConfig = function(self)
         self.config = playerButton.playerCountConfig.ButtonModules[moduleName]
         return self.config
-      end
-
-      playerButton[moduleName].Debug = function(self, ...)
-        BattleGroundEnemies:Debug(moduleName, playerButton.PlayerDetails and playerButton.PlayerDetails.PlayerName, ...)
       end
 
       playerButton[moduleName].GetOptionsPath = function(self)

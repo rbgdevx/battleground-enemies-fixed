@@ -10,9 +10,9 @@ local GameTooltip = GameTooltip
 local GetTime = GetTime
 
 -- DR-specific debug prints (always on for now)
-local function DRPrint(...)
-  print("|cff00ccff[BGE-DR]|r", ...)
-end
+-- local function DRPrint(...)
+--   print("|cff00ccff[BGE-DR]|r", ...)
+-- end
 
 -- C_SpellDiminish availability (added in Midnight)
 local hasSpellDiminishAPI = C_SpellDiminish and C_SpellDiminish.GetSpellDiminishCategoryInfo
@@ -20,7 +20,7 @@ local hasSpellDiminishEnums = Enum and Enum.SpellDiminishCategory
 
 -- Map Enum.SpellDiminishCategory values to stable string keys for saved variables / filtering
 local categoryEnumToKey = {}
-local categoryKeyToEnum = {}
+-- local categoryKeyToEnum = {}
 local categoryKeyToInfo = {} -- populated at load time
 
 -- Hardcoded fallback data in case API calls fail at load time
@@ -48,7 +48,7 @@ if hasSpellDiminishEnums then
   }
   for _, entry in ipairs(enumTable) do
     categoryEnumToKey[entry.enum] = entry.key
-    categoryKeyToEnum[entry.key] = entry.enum
+    -- categoryKeyToEnum[entry.key] = entry.enum
     -- Get localized name and icon from Blizzard API
     local info = hasSpellDiminishAPI and C_SpellDiminish.GetSpellDiminishCategoryInfo(entry.enum)
     if info then
@@ -65,7 +65,7 @@ end
 for _, fb in ipairs(fallbackCategoryData) do
   if not categoryKeyToInfo[fb.key] then
     categoryEnumToKey[fb.enum] = fb.key
-    categoryKeyToEnum[fb.key] = fb.enum
+    -- categoryKeyToEnum[fb.key] = fb.enum
     categoryKeyToInfo[fb.key] = {
       name = fb.name,
       icon = nil, -- no icon available without API
@@ -476,11 +476,11 @@ local function pollLoCForUnit(container, unitToken)
   end
 
   -- Mark categories that ended (were active last poll, not seen this poll)
-  for catKey, _ in pairs(container.locActiveCategories) do
-    if not seenThisPoll[catKey] then
-      -- DRPrint("CC ENDED:", unitToken, catKey)
-    end
-  end
+  -- for catKey, _ in pairs(container.locActiveCategories) do
+  --   if not seenThisPoll[catKey] then
+  --     -- DRPrint("CC ENDED:", unitToken, catKey)
+  --   end
+  -- end
 
   -- Update active categories for next poll
   container.locActiveCategories = seenThisPoll

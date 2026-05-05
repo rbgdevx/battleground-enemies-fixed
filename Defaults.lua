@@ -1400,4 +1400,13 @@ Data.defaultSettings = {
 
     ButtonModules = {},
   },
+  -- Account-shared. Cross-match identity cache harvested from the
+  -- post-match scoreboard (PostRound + Complete) when SecretInActivePvPMatch
+  -- no longer applies. Read mid-match in CreateOrUpdatePlayerDetails to
+  -- pre-seed gender/honorLevel/GuildName/PlayerSpecName/PlayerRole on
+  -- enemy buttons so the GetPlayerbuttonByUnitID disambiguation tiers
+  -- (gender/honor/guild) and spec/role icons can fire on first encounter.
+  global = {
+    PlayerHistory = {},
+  },
 }
