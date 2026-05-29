@@ -489,6 +489,22 @@ local function HandleObjectiveChatMessage(msg)
     return
   end
 
+  -- Deephaul Ravine crystal pickup: "NAME has taken the crystal!"
+  -- Single shared crystal (either team can carry, like Eye of the Storm), so
+  -- there's no flag-name → arena-slot mapping to consult — just bind to slot
+  -- 1. Both Data.BattlegroundspezificBuffs[2345][0] and [1] point at the same
+  -- spell (434339 Deephaul Crystal), so the slot choice is cosmetic.
+  -- Capture is handled by the existing "captured the" reset branch below;
+  -- Deephaul Ravine's deposit message is "NAME has captured the flag!" which
+  -- already matches that filter.
+  local crystalCarrier = msg:match("^(.-) has taken the crystal!")
+  if crystalCarrier then
+    if BindChatCarrierToArenaSlot(crystalCarrier, 1) then
+      chatFlagCarriers[crystalCarrier] = 1
+    end
+    return
+  end
+
   -- Flag drop with explicit carrier: "X Flag was dropped by NAME!"
   local droppedBy = msg:match("dropped by (.+)%!")
   if droppedBy then
@@ -523,12 +539,25 @@ local function HandleObjectiveChatMessage(msg)
   -- Global state-reset events. None of these reliably embed a single carrier
   -- name, and they all imply ALL chat-tracked carriers should be cleared.
   --   "captured the" / "returned to its base by" / "placed at their bases"
-  --     — flag-only resets in WSG/TP/DR.
+  --     — flag-only resets in Warsong Gulch / Twin Peaks / Deephaul Ravine.
   --   "wins" — game over (any BG); resets both flag and orb tracking.
   if msg:find("captured the")
       or msg:find("returned to its base by")
       or msg:find("placed at their bases") then
     ClearAllChatFlagCarriers()
+    return
+  end
+  -- "The flag has been reset" — confirmed in Deephaul Ravine (fires when a
+  -- dropped crystal returns to spawn without pickup). Gated to mapId 2345
+  -- because we haven't verified Warsong Gulch / Twin Peaks don't emit the
+  -- same string in some flow; if they do, a global match would wrongly clear
+  -- a real carrier. Widen later if we confirm safety on other maps.
+  if msg:find("The flag has been reset") then
+    local mapId = BattleGroundEnemies:GetActiveStates()
+        and BattleGroundEnemies:GetActiveStates().currentMapId
+    if mapId == 2345 then
+      ClearAllChatFlagCarriers()
+    end
     return
   end
   if msg:find("wins") then
@@ -801,7 +830,7 @@ function objectiveAndRespawn:AttachToPlayerButton(playerButton)
       respawnTime = 45     -- Cata Classic has longer respawn
     else
       if states.isSoloRBG then
-        if states.currentMapId ~= 2656 then -- Not Deephaul Ravine
+        if states.currentMapId ~= 2345 then -- Not Deephaul Ravine (map ID 2345; 2656 is the *instance* ID — currentMapId is the map ID, so the old `~= 2656` check was always true and Deephaul Ravine wrongly got the 16s Blitz respawn)
           respawnTime = 16                  -- Blitz has faster respawn
         end
       end

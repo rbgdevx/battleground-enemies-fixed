@@ -68,24 +68,36 @@ _G["BINDING_NAME_CLICK BGEAllies:Button5"] = L.TargetNextAlly
 _G["BINDING_NAME_CLICK BGEEnemies:Button4"] = L.TargetPreviousEnemy
 _G["BINDING_NAME_CLICK BGEEnemies:Button5"] = L.TargetNextEnemy
 
-if not GetUnitName then
-  GetUnitName = function(unit, showServerName)
-    local name, server = UnitName(unit)
-
-    if server and server ~= "" then
-      if showServerName then
-        return name .. "-" .. server
-      else
-        local relationship = UnitRealmRelationship(unit)
-        if relationship == LE_REALM_RELATION_VIRTUAL then
-          return name
-        else
-          return name .. FOREIGN_SERVER_LABEL
-        end
-      end
+-- Secret-safe GetUnitName replacement, used on ALL clients (not just Classic).
+-- In instanced PvP, UnitName returns SECRET name/realm strings for enemies, and
+-- Blizzard's stock GetUnitName does an unguarded `server ~= ""` (plus
+-- name.."-"..server) on them — which EMITS taint and is blocked. Wrapping the
+-- call in pcall does NOT prevent that taint (it only hides the error), so we
+-- must never reach a comparison/concat on a secret. We override it everywhere
+-- with an issecretvalue-guarded version: when name/realm is secret we return the
+-- bare (possibly secret) name, which callers only pass to SetText or to
+-- issecretvalue-guarded table lookups.
+GetUnitName = function(unit, showServerName)
+  local name, server = UnitName(unit)
+  if not name then
+    return nil
+  end
+  if issecretvalue and (issecretvalue(name) or issecretvalue(server)) then
+    return name
+  end
+  if server and server ~= "" then
+    if showServerName then
+      return name .. "-" .. server
     else
-      return name
+      local relationship = UnitRealmRelationship(unit)
+      if relationship == LE_REALM_RELATION_VIRTUAL then
+        return name
+      else
+        return name .. FOREIGN_SERVER_LABEL
+      end
     end
+  else
+    return name
   end
 end
 
@@ -1392,16 +1404,18 @@ function BattleGroundEnemies:SafeGetUnitName(unitID)
     return nil
   end
 
-  local fullName
-  local ok2 = pcall(function()
-    if server and server ~= "" then
-      fullName = name .. "-" .. server
-    else
-      fullName = name
-    end
-  end)
-
-  return ok2 and fullName or nil
+  -- name/server can be SECRET in instanced PvP. Comparing (server ~= "") or
+  -- concatenating (name.."-"..server) a secret EMITS taint and is blocked — and
+  -- the old pcall did NOT suppress that taint, it only hid the error. When either
+  -- is secret, return the bare name (callers pass it only to SetText or to
+  -- issecretvalue-guarded lookups).
+  if issecretvalue and (issecretvalue(name) or issecretvalue(server)) then
+    return name
+  end
+  if server and server ~= "" then
+    return name .. "-" .. server
+  end
+  return name
 end
 
 -- New helper to safely access player buttons with potential secret keys
@@ -3725,9 +3739,11 @@ function BattleGroundEnemies:RAID_TARGET_UPDATE()
 end
 
 -- Helper to check if current map is an objective BG (flags/orbs)
--- In these BGs, arena tokens are only assigned to objective carriers
+-- In these BGs, arena tokens are only assigned to objective carriers.
+-- IDs below are UI *map* IDs (C_Map.GetBestMapForUnit), NOT instance IDs.
+-- 417=Kotmogu, 1339=Warsong Gulch, 206=Twin Peaks, 112=Eye of the Storm,
+-- 397=Eye of the Storm Rated, 2345=Deephaul Ravine.
 local function IsObjectiveBG(mapId)
-  -- 417=Kotmogu, 2106=WSG, 726=Twin Peaks, 566=EOTS, 968=EOTS Rated, 2656=Deephaul Ravine
   return mapId == 417 or mapId == 206 or mapId == 1339 or mapId == 112 or mapId == 397 or mapId == 2345
 end
 
@@ -4323,10 +4339,14 @@ function BattleGroundEnemies:UpdateArenaPlayers()
   -- In BGs with objective carriers (flags/orbs), arena tokens are only for carriers.
   -- Skip the normal arena token assignment here - CheckAllOrbs/CheckAllFlags handles it properly
   -- with full PID matching and bidirectional cleanup.
-  -- Map IDs: 417=Kotmogu, 2106=WSG, 726=Twin Peaks, 566=EOTS, 968=EOTS Rated, 2656=Deephaul Ravine
+  -- Previously this site had an inlined list that mixed map IDs and instance
+  -- IDs (e.g. 2106/726/566/968/2656), so the skip only matched for Kotmogu
+  -- (whose map ID is 417) — every other objective BG silently ran the normal
+  -- arena-token assignment in parallel with the carrier path. Routing through
+  -- the IsObjectiveBG helper (correct map IDs) skips all six as intended.
   local states = self:GetActiveStates()
   local mapId = states and states.currentMapId
-  if mapId == 417 or mapId == 2106 or mapId == 726 or mapId == 566 or mapId == 968 or mapId == 2656 then
+  if IsObjectiveBG(mapId) then
     return
   end
 
@@ -4540,6 +4560,13 @@ function BattleGroundEnemies:PVP_MATCH_STATE_CHANGED()
     -- and Complete return full PVPScoreInfo (talentSpec, roleAssigned,
     -- honorLevel, guid, ...) non-secret. PostRound runs every solo-shuffle
     -- round so leavers get captured before they vanish on Complete.
+    --
+    -- On Complete, clear the per-match harvest gate first so every player
+    -- gets re-written with the freshest scoreboard data — and as a safety
+    -- net for anyone PostRound had to skip (e.g. still-secret guid).
+    if state == Enum.PvPMatchState.Complete then
+      self._harvestedThisMatch = nil
+    end
     self:HarvestPlayerHistory()
 
     if state == Enum.PvPMatchState.PostRound then
@@ -4554,7 +4581,7 @@ function BattleGroundEnemies:PVP_MATCH_STATE_CHANGED()
     self.betweenRounds = false
     -- New match coming. Clear the per-match harvest set so the next
     -- PostRound/Complete window can re-write entries (honorLevel, lastSpec,
-    -- lastRole, lastFaction all evolve over time — let them refresh).
+    -- lastRole all evolve over time — let them refresh).
     self._harvestedThisMatch = nil
   end
 end
@@ -4609,12 +4636,16 @@ function BattleGroundEnemies:HarvestPlayerHistory()
     -- 3-part pattern catches both — let bots pollute PlayerHistory and
     -- the disambiguation tiers would think bots are known players in
     -- real BGs (bot names are often reused across matches).
-    -- guid is non-secret in PostRound/Complete (past SecretInActivePvPMatch).
+    -- guid is *usually* non-secret in PostRound/Complete (past
+    -- SecretInActivePvPMatch), but solo shuffle has produced cases where
+    -- it remains secret — calling :match() on a secret string taints
+    -- execution, so gate explicitly.
     local nameOk = scoreInfo
       and type(scoreInfo.name) == "string"
       and not (issecretvalue and issecretvalue(scoreInfo.name))
       and scoreInfo.classToken
       and type(scoreInfo.guid) == "string"
+      and not (issecretvalue and issecretvalue(scoreInfo.guid))
       and scoreInfo.guid:match("^Player%-%d+%-[%dA-Fa-f]+$") ~= nil
     if nameOk then
       local key = self:CanonicalName(scoreInfo.name)
@@ -4684,13 +4715,160 @@ function BattleGroundEnemies:HarvestPlayerHistory()
           realmName = realm or existing.realmName,
           lastSpec = scoreInfo.talentSpec,
           lastRole = scoreInfo.roleAssigned,
-          lastFaction = scoreInfo.faction,
           honorLevel = scoreInfo.honorLevel,
           seenCount = (existing.seenCount or 0) + 1,
           lastSeenAt = now,
         }
         self._harvestedThisMatch[key] = true
       end
+    end
+  end
+end
+
+-- Companion to HarvestPlayerHistory: harvests your party/raid members during
+-- the BG. Complements end-of-match harvest by capturing data even when:
+--   - You DC or leave before PostRound/Complete fires
+--   - A teammate leaves the BG mid-match (may not be in final scoreboard)
+--   - You haven't reached end-of-match yet (data available immediately
+--     for any same-match cross-faction or merc encounter)
+--
+-- All reads are non-secret on raid/party tokens (UnitClassBase, UnitRace,
+-- UnitSexBase, UnitHonorLevel, GetGuildInfo, UnitPowerType, UnitFactionGroup,
+-- UnitGUID, GetPlayerInfoByGUID), so this is safe to run any time we're in
+-- a PvP instance.
+--
+-- IMPORTANT: every value stored here MUST match the type/format that
+-- HarvestPlayerHistory writes from PVPScoreInfo, because the matcher's tier
+-- comparators read PlayerHistory entries assuming scoreboard-shaped data.
+-- Conversions:
+--   GuildName: GetGuildInfo nil → store as `false` (matches scoreboard
+--              "confirmed guildless" three-state semantics).
+-- Skipped (raid source can't reliably match scoreboard format; preserved
+-- from existing entry instead so end-of-match scoreboard refresh fills them):
+--   lastSpec: requires async NotifyInspect.
+--   lastRole: scoreboard `roleAssigned` is a bitmask (1=Leader, 2=Tank,
+--             4=Healer, 8=Damage) including the leader bit; UnitGroupRoles-
+--             Assigned ("TANK"/"HEALER"/"DAMAGER"/"NONE") doesn't expose
+--             leader status, so a converted value would mismatch.
+-- Faction is intentionally NOT stored: it was vestigial in PlayerHistory
+-- (written by both harvests but read by no real code path). Removing the
+-- field saves storage and removes a maintenance liability. If a future
+-- feature needs it, both harvests are trivial to amend.
+-- seenCount is preserved (not incremented). seenCount means "matches I've
+-- completed where this player was on the final scoreboard" — only end-of-
+-- match harvest touches it. Raid harvest can fire many times per match
+-- (every GROUP_ROSTER_UPDATE) and double-counting would skew the value.
+function BattleGroundEnemies:HarvestRaidRoster()
+  local db = self.db and self.db.global
+  if not db then
+    return
+  end
+  if not self:IsInPvPInstance() then
+    return
+  end
+  db.PlayerHistory = db.PlayerHistory or {}
+
+  local now = time()
+
+  local function harvestUnit(unit)
+    if not UnitExists(unit) then
+      return
+    end
+    -- Real player characters only — skip pets, NPCs, vehicles.
+    local okPlayer, isPlayer = pcall(UnitIsPlayer, unit)
+    if not okPlayer or not isPlayer then
+      return
+    end
+    local guid = UnitGUID(unit)
+    -- Real-player GUIDs are exactly "Player-{realmID}-{characterHex}". Bot
+    -- GUIDs in comp stomp / Brawl have extra segments and would pollute
+    -- PlayerHistory if accepted.
+    if type(guid) ~= "string" or guid:match("^Player%-%d+%-[%dA-Fa-f]+$") == nil then
+      return
+    end
+
+    -- Canonical "Name-Realm" key. GetUnitName(unit, true) returns short
+    -- "Name" for same-realm members; CanonicalName appends the user's realm
+    -- so the storage key matches what HarvestPlayerHistory writes.
+    local rawName = GetUnitName(unit, true)
+    if type(rawName) ~= "string" then
+      return
+    end
+    local key = self:CanonicalName(rawName)
+    if not key then
+      return
+    end
+
+    local existing = db.PlayerHistory[key] or {}
+
+    -- UnitClassBase and UnitRace are both flagged MayReturnNothing in the
+    -- API docs — they return nothing (nil) for valid raid tokens whose
+    -- player data hasn't fully loaded yet (mid-zone-in window). If neither
+    -- basic identity field is readable, the unit isn't ready; skip and
+    -- let the existing GROUP_ROSTER_UPDATE retry loop fire again with
+    -- complete data. Without this guard, GetGuildInfo also returns nil
+    -- for an unloaded unit and we'd incorrectly write GuildName=false
+    -- ("confirmed guildless") into PlayerHistory.
+    local _, classToken = UnitClassBase(unit)
+    local raceName = UnitRace(unit) -- 1st return: localized; matches scoreboard.raceName
+    if not classToken and not raceName then
+      return
+    end
+
+    local _, gender = pcall(UnitSexBase, unit) -- modern enum (0=Male, 1=Female, 2=None); Nilable=true
+    local _, honor = pcall(UnitHonorLevel, unit)
+    local _, powerType = pcall(UnitPowerType, unit) -- numeric enum; MayReturnNothing
+
+    local guildName = GetGuildInfo(unit)
+    local guildToStore
+    if guildName then
+      guildToStore = guildName
+    else
+      -- Guildless: scoreboard semantics use `false` to mean "confirmed
+      -- guildless" (three-state nil/false/string). Safe to store false
+      -- here because the loaded-unit guard above already passed — i.e.
+      -- this unit's data IS available, so GetGuildInfo nil means actually
+      -- guildless rather than "unit not ready."
+      guildToStore = false
+    end
+
+    -- Realm via GetPlayerInfoByGUID (same source HarvestPlayerHistory uses).
+    -- Note: GetPlayerInfoByGUID returns LEGACY sex enum, but we already have
+    -- modern-enum gender from UnitSexBase, so we ignore its sex return.
+    local realm
+    local okGpi, _lc, _ec, _lr, _er, _gpiSex, _nm, rl = pcall(GetPlayerInfoByGUID, guid)
+    if okGpi and type(rl) == "string" and rl ~= "" then
+      realm = rl
+    end
+
+    db.PlayerHistory[key] = {
+      name = key,
+      guid = guid,
+      classToken = classToken or existing.classToken,
+      raceName = raceName or existing.raceName,
+      gender = gender or existing.gender,
+      GuildName = guildToStore,
+      lastPowerType = powerType or existing.lastPowerType,
+      realmName = realm or existing.realmName,
+      lastSpec = existing.lastSpec, -- raid source can't provide; preserve
+      lastRole = existing.lastRole, -- bitmask format mismatch; preserve
+      honorLevel = honor or existing.honorLevel,
+      seenCount = existing.seenCount or 0, -- only end-of-match increments
+      lastSeenAt = now,
+    }
+  end
+
+  harvestUnit("player")
+  if IsInRaid() then
+    local n = GetNumGroupMembers() or 0
+    for i = 1, n do
+      harvestUnit("raid" .. i)
+    end
+  elseif IsInGroup() then
+    -- party1..N (excludes self; "player" was already harvested above)
+    local n = (GetNumGroupMembers() or 0) - 1
+    for i = 1, n do
+      harvestUnit("party" .. i)
     end
   end
 end
@@ -4890,40 +5068,19 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
   -- TEAM number for this match (merc-safe). Name-based merc-detection was
   -- both redundant and unreliable (silently skipped for secret names).
 
-  -- Count new enemies before committing, to avoid losing enemies we already have
-  local newEnemyCount = 0
-  for i = 1, #battlefieldScores do
-    local score = battlefieldScores[i]
-    if score.faction and score.name and score.classToken and score.faction == self.EnemyFaction then
-      newEnemyCount = newEnemyCount + 1
-    end
-  end
-
-  -- Count ACTUAL buttons via PlayerList, not the Players name-keyed dict.
-  -- A transient scoreboard blip (e.g., gate-open returns 0 valid rows
-  -- briefly) must NOT cause us to wipe the source list and tear down
-  -- every button — that was the "enemies disappear when battle begins"
-  -- symptom. PlayerList counts buttons unconditionally, so the
-  -- never-shrink guard holds even if the dict is mid-rebuild.
-  local currentEnemyButtons = #self.Enemies.PlayerList
-
-  -- Only update enemies if we gained or maintained count (never lose enemies)
-  local updateEnemies = newEnemyCount >= currentEnemyButtons
-
-  if updateEnemies then
-    BattleGroundEnemies.Enemies:BeforePlayerSourceUpdate(self.consts.PlayerSources.Scoreboard)
-  end
-
-  -- DIAGNOSTIC (root-cause hunt): track how many AddPlayerToSource calls
-  -- actually succeeded (the loose outer filter `faction and name and
-  -- classToken` may pass rows that AddPlayerToSource then silently rejects
-  -- on its inner empty-string check). If we wiped the source list but
-  -- added fewer rows than newEnemyCount predicted, that's where buttons
-  -- could vanish.
-
-  -- local addAttempts, addSucceeded = 0, 0
-  -- local scoreboardSrc = self.Enemies.PlayerSources[self.consts.PlayerSources.Scoreboard]
-  -- local startSize = scoreboardSrc and #scoreboardSrc or 0
+  -- Wipe the scoreboard source and rebuild from current rows. The
+  -- mark-and-sweep in AfterPlayerSourceUpdate (status 1/2 cycle) handles
+  -- both additions and removals — buttons whose scoreboard row disappeared
+  -- this tick stay at status 2 and get cleaned up by CreateOrRemovePlayerButtons.
+  --
+  -- The old "never-shrink" guard (`newEnemyCount >= currentEnemyButtons`)
+  -- was added to prevent enemies vanishing on transient scoreboard blips
+  -- when names were SecretInActivePvPMatch. Post-12.0.5, PVPScoreInfo.name
+  -- is NeverSecret, so scoreboard rows reliably populate. The signature
+  -- gate above (GetBattlefieldTeamInfo count) already short-circuits
+  -- redundant ticks, making the shrink guard both unnecessary and harmful —
+  -- it permanently prevented removal of leavers.
+  BattleGroundEnemies.Enemies:BeforePlayerSourceUpdate(self.consts.PlayerSources.Scoreboard)
 
   for i = 1, #battlefieldScores do
     local score = battlefieldScores[i]
@@ -4935,37 +5092,11 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
     -- Allies are driven exclusively by GROUP_ROSTER_UPDATE (raidN/partyN
     -- tokens). Scoreboard is enemy-only here.
     if faction and name and classToken and faction == self.EnemyFaction then
-      if updateEnemies then
-        -- addAttempts = addAttempts + 1
-        -- local before = scoreboardSrc and #scoreboardSrc or 0
-        BattleGroundEnemies.Enemies:AddPlayerToSource(self.consts.PlayerSources.Scoreboard, score)
-        -- local after = scoreboardSrc and #scoreboardSrc or 0
-        -- if after > before then
-        --   addSucceeded = addSucceeded + 1
-        -- end
-      end
+      BattleGroundEnemies.Enemies:AddPlayerToSource(self.consts.PlayerSources.Scoreboard, score)
     end
   end
 
-  -- DIAGNOSTIC (commented out — re-enable if the disappearance bug
-  -- returns. Reports when AddPlayerToSource calls silently failed):
-  -- if updateEnemies and addAttempts > 0 and addSucceeded < addAttempts then
-  --   print(
-  --     string.format(
-  --       "BGE Diag: UBS attempted %d AddPlayerToSource calls but only %d succeeded. newEnemyCount=%d, currentEnemyButtons=%d, sourceSize: %d → %d",
-  --       addAttempts,
-  --       addSucceeded,
-  --       newEnemyCount,
-  --       currentEnemyButtons,
-  --       startSize,
-  --       scoreboardSrc and #scoreboardSrc or -1
-  --     )
-  --   )
-  -- end
-
-  if updateEnemies then
-    BattleGroundEnemies.Enemies:AfterPlayerSourceUpdate()
-  end
+  BattleGroundEnemies.Enemies:AfterPlayerSourceUpdate()
 
   -- Re-scan orb/flag carriers after buttons are refreshed. Covers mid-match
   -- joiners (whose per-button PLAYER_ENTERING_WORLD fired before buttons
@@ -5092,6 +5223,14 @@ function BattleGroundEnemies:GROUP_ROSTER_UPDATE()
       self.allyRosterRetryTimer:Cancel()
       self.allyRosterRetryTimer = nil
     end
+  end
+
+  -- Harvest non-secret identity attrs from the raid roster into PlayerHistory.
+  -- Self-gates on IsInPvPInstance; cheap no-op when called outside a BG.
+  -- Fires on every GROUP_ROSTER_UPDATE (initial join + every late-joiner /
+  -- leaver) so we capture data before anyone DCs or before end-of-match.
+  if self.HarvestRaidRoster then
+    self:HarvestRaidRoster()
   end
 end
 

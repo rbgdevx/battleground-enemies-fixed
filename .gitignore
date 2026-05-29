@@ -4,6 +4,7 @@
 # Maintainer-only notes (not shipped, not committed)
 DEFERRED.md
 NEW_CHANGES.md
+IMPROVEMENTS.md
 
 # macOS metadata / junk
 .DS_Store
