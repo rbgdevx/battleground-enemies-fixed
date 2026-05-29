@@ -15,7 +15,34 @@ local type = type
 local CreateFrame = CreateFrame
 local GetArenaOpponentSpec = GetArenaOpponentSpec
 local GetSpecializationInfoByID = GetSpecializationInfoByID
-local GetUnitName = GetUnitName
+-- Secret-safe GetUnitName (mirrors Main.lua). Enemy name/realm are SECRET in
+-- instanced PvP and Blizzard's stock GetUnitName does an unguarded `server ~= ""`
+-- on them, emitting taint that pcall cannot suppress. Guard with issecretvalue:
+-- when name/realm is secret, return the bare name (callers issecretvalue-check
+-- before using it as a key, and SetText accepts secrets).
+local GetUnitName = function(unit, showServerName)
+  local name, server = UnitName(unit)
+  if not name then
+    return nil
+  end
+  if issecretvalue and (issecretvalue(name) or issecretvalue(server)) then
+    return name
+  end
+  if server and server ~= "" then
+    if showServerName then
+      return name .. "-" .. server
+    else
+      local relationship = UnitRealmRelationship(unit)
+      if relationship == LE_REALM_RELATION_VIRTUAL then
+        return name
+      else
+        return name .. FOREIGN_SERVER_LABEL
+      end
+    end
+  else
+    return name
+  end
+end
 local InCombatLockdown = InCombatLockdown
 local UnitGUID = UnitGUID
 local UnitRace = UnitRace

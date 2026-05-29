@@ -548,9 +548,19 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       return
     end
 
+    local oldUnitID = self.unitID
     self.unitID = unitID
     self.TargetUnitID = targetUnitID
     self:UpdateRaidTargetIcon()
+
+    -- When an enemy's unitID changes, refresh bindings so the secure "unit"
+    -- attribute stays current. This enables @mouseover macros on enemy frames.
+    -- Skip if the token didn't actually change (avoids needless SetAttribute
+    -- churn during rapid scan cycles). Arena token changes already trigger
+    -- SetBindings via UpdateEnemyUnitID, so we only need this for non-arena paths.
+    if self.PlayerIsEnemy and oldUnitID ~= unitID and self.SetBindings then
+      self:SetBindings()
+    end
 
     -- Only call UpdateAll if unit actually exists (UpdateAll checks UnitExists anyway).
     -- skipSnapshot suppresses the UNIT_HEALTH/UNIT_POWER_FREQUENT snapshot
@@ -656,6 +666,13 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     end
 
     self.UnitIDs.HasAllyUnitID = false
+
+    -- Clear the secure "unit" attribute so @mouseover no longer resolves
+    -- to a stale token. SetBindings handles combat-lockdown deferral.
+    if self.SetBindings then
+      self:SetBindings()
+    end
+
     self:DispatchEvent("UnitIdUpdate")
   end
 
@@ -958,8 +975,23 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       --use a table to track changes and compare them to GetAttribute
       --set baseline
 
+      -- For enemies: resolve the best unit token for the secure "unit"
+      -- attribute. Arena tokens take priority (they're always stable), then
+      -- fall back to self.unitID if it's a stable (non-dynamic) token like
+      -- "nameplateN" or "raidNtarget". This lets @mouseover macros work on
+      -- enemy frames whenever a stable unit ID is available.
+      local enemyUnitAttr = false
+      if self.PlayerIsEnemy then
+        local DYNAMIC_TOKENS = BattleGroundEnemies.DYNAMIC_TOKENS
+        if self.PlayerDetails.PlayerArenaUnitID then
+          enemyUnitAttr = self.PlayerDetails.PlayerArenaUnitID
+        elseif self.unitID and not (DYNAMIC_TOKENS and DYNAMIC_TOKENS[self.unitID]) then
+          enemyUnitAttr = self.unitID
+        end
+      end
+
       local newAttributes = {
-        unit = not self.PlayerIsEnemy and self.unit or false,
+        unit = not self.PlayerIsEnemy and self.unit or enemyUnitAttr,
         type1 = false,
         type2 = false,
         type3 = false,
@@ -973,11 +1005,10 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       end
 
       if self.PlayerIsEnemy then
-        if self.PlayerDetails.PlayerArenaUnitID then --its a arena enemy / flag/orb carrier
-          -- Secure unit-action targeting via the arenaN token. Works in combat,
+        if enemyUnitAttr then
+          -- Secure unit-action targeting via the unit token. Works in combat,
           -- no macrotext / no PlayerName needed (and PlayerName is secret
           -- post-12.0.5 anyway). Left-click targets, right-click focuses.
-          newAttributes.unit = self.PlayerDetails.PlayerArenaUnitID
           newAttributes.type1 = "target"
           newAttributes.type2 = "focus"
           setupUsualAttributes = false

@@ -100,19 +100,14 @@ function power:AttachToPlayerButton(playerButton)
   playerButton.Power.Background:SetTexture("Interface/Buttons/WHITE8X8")
 
   function playerButton.Power:UpdateMinMaxValues(max)
-    local needsUpdate = true
-    -- Try to check if update is needed (optimization)
-    local ok = pcall(function()
-      if max == self.maxValue then
-        needsUpdate = false
-      end
-    end)
-
-    -- If comparison failed (secret value) OR values are different, update!
-    if needsUpdate or not ok then
-      self:SetMinMaxValues(0, max)
-      self.maxValue = max
-    end
+    -- `max` (UnitPowerMax of an enemy) can be a SECRET value in instanced PvP.
+    -- The old code compared it (max == self.maxValue) to skip redundant updates,
+    -- wrapped in pcall. But comparing a secret EMITS taint and is blocked, and
+    -- pcall does NOT suppress that taint — it only swallowed the error while the
+    -- taint (and its 50k+ taint.log spam) still happened. StatusBar:SetMinMaxValues
+    -- accepts secret values, so drop the comparison entirely and pass it through.
+    self:SetMinMaxValues(0, max)
+    self.maxValue = max
   end
 
   function playerButton.Power:CheckForNewPowerColor(powerToken)

@@ -12,7 +12,8 @@
 #   .git/, .gitignore, .DS_Store, ._* (AppleDouble), .claude/, .vscode/,
 #   .luarc.json, .libraries/, AGENTS.md, CLAUDE.md, DEFERRED.md,
 #   README.md, LICENSE, cspell.json, stylua.toml, deploy-to-wow.sh,
-#   package-addon.sh
+#   package-addon.sh, Modules/PerfHUD.lua (dev-only; its load line +
+#   SavedVariables are also stripped from the staged .toc below)
 #
 # Kept:
 #   .toc / .xml / .lua, Libs/, Modules/, fonts/, bge_logo.tga
@@ -53,13 +54,28 @@ rsync -a \
   --exclude='AGENTS.md' \
   --exclude='CLAUDE.md' \
   --exclude='DEFERRED.md' \
+  --exclude='NEW_CHANGES.md' \
   --exclude='README.md' \
   --exclude='LICENSE' \
   --exclude='cspell.json' \
   --exclude='stylua.toml' \
   --exclude='deploy-to-wow.sh' \
   --exclude='package-addon.sh' \
+  --exclude='Modules/PerfHUD.lua' \
   "$SRC/" "$STAGE/BattleGroundEnemiesFixed/"
+
+# --- Strip the dev-only PerfHUD module from the shipped .toc -------------
+# PerfHUD.lua is excluded above (it loads only on the dev's own client via
+# deploy-to-wow.sh). Remove its load line + SavedVariables from the STAGED
+# .toc so the packaged addon has no dangling file reference for end users.
+# Operates on the staged copy only — the working-tree .toc is untouched, so
+# local testing still loads PerfHUD.
+STAGE_TOC="$STAGE/BattleGroundEnemiesFixed/BattleGroundEnemiesFixed.toc"
+sed -i '' \
+  -e 's/,[[:space:]]*BattleGroundEnemiesPerfHUDLog//' \
+  -e '/^## SavedVariablesPerCharacter:[[:space:]]*BattleGroundEnemiesPerfHUD[[:space:]]*$/d' \
+  -e '/PerfHUD\.lua/d' \
+  "$STAGE_TOC"
 
 # --- Zip it -------------------------------------------------------------
 # COPYFILE_DISABLE=1 prevents macOS from injecting AppleDouble (._*) files
