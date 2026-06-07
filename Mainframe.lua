@@ -672,15 +672,49 @@ local function CreateMainFrame(playerType)
       -- Arena: same map can host different brackets (2v2, 3v3), so GetInstanceInfo()
       -- returns the map capacity, not the bracket size. Use actual player count instead.
       maxNumPlayers = math_max(self.RealPlayerCount or 0, self.NumPlayers or 0)
-    else
-      -- BG: use instance max players for profile selection so the frame stays visible
-      -- when enemies are still loading (e.g., Training Grounds).
-      local _, _, _, _, instanceMaxPlayers = GetInstanceInfo()
+    elseif BattleGroundEnemies.states.real.isInBattleground then
+      -- BG: use instance max players for profile selection so the frame stays
+      -- visible when enemies are still loading (e.g., Training Grounds).
+      -- GetCorrectedMaxPlayers fixes GetInstanceInfo's mis-reports (epics report
+      -- the TOTAL 80 instead of the 40-per-team bracket size, Solo Blitz, etc.)
+      -- so we don't trip the ">40 -> no profile" guard below. It returns 0 when
+      -- nothing is known yet (instanceID nil during load) -> fall back to the
+      -- live player counts.
+      local instanceMaxPlayers = BattleGroundEnemies:GetCorrectedMaxPlayers()
       if instanceMaxPlayers and instanceMaxPlayers > 0 then
-        maxNumPlayers = instanceMaxPlayers
+        if instanceMaxPlayers > 40 then
+          -- >40 = GetInstanceInfo reported the epic TOTAL (a single team is never
+          -- >40, user-confirmed), so this IS an epic regardless of the map -- and
+          -- every epic is 16-40 per team. Default to the top bracket: clamp to 40,
+          -- which matches the 16-40 profile (or whatever custom bracket covers 40).
+          -- This is never a wrong bracket (it really is an epic) and never blanks.
+          -- Curated epics never reach here (the corrections table pins them to 40);
+          -- this only covers an unlisted/future epic map.
+          maxNumPlayers = 40
+        else
+          maxNumPlayers = instanceMaxPlayers
+        end
       else
-        maxNumPlayers = math_max(self.RealPlayerCount or 0, self.NumPlayers or 0)
+        -- 0 = GetInstanceInfo hasn't settled yet (the brief load window). We have
+        -- NO trustworthy bracket, and we will NOT guess from the live count -- a
+        -- partially-loaded roster would pick a wrong SMALL bracket (e.g. 1-5/6-15
+        -- for a true 40v40) on entry. Per "never show the wrong profile; prefer no
+        -- enemies", show "no profile" until GetInstanceInfo resolves; self-heals
+        -- via UBS every combat tick + the +5s SelectPlayerCountProfile(true) /
+        -- GROUP_ROSTER_UPDATE (Main.lua ~5532). NOTE: the map's per-team cap (not
+        -- the live joined-count) drives the bracket once settled, so enemies show
+        -- as they JOIN under the correct bracket -- nothing waits for a full lobby.
+        return self:NoActivePlayercountProfile()
       end
+    else
+      -- Not in any PvP instance (open world / city). No player-count bracket
+      -- applies, so force "no profile" rather than reading GetInstanceInfo --
+      -- which out in the world returns a meaningless small maxPlayers (~5) that
+      -- otherwise shows up as a phantom "1-5" bracket. The container is Disabled
+      -- here regardless; this just keeps the bracket reading consistently as
+      -- "no profile" out of an instance (and lets the enemy bracket, which UBS
+      -- can't re-settle in the city, reset cleanly on leaving a match).
+      return self:NoActivePlayercountProfile()
     end
     if not maxNumPlayers then
       return
@@ -713,8 +747,35 @@ local function CreateMainFrame(playerType)
 
     if #foundProfilesForPlayerCount == 0 then
       self:NoActivePlayercountProfile()
+      -- Custom-profile gap hint. When this side has CUSTOM player-count profiles
+      -- enabled (the 1-5 / 6-15 / 16-40 defaults are off) and NONE of them cover
+      -- the current size, frames silently don't show -- which is confusing. Tell
+      -- the user why and how to fix it. Conditions:
+      --   * self.playerTypeConfig.Enabled -- only warn for a side the user
+      --     actually wants shown (a disabled Allies/Enemies side stays silent
+      --     even if it has custom profiles configured).
+      --   * CustomPlayerCountConfigsEnabled -- the defaults cover every size
+      --     1-40, so a gap is only possible in custom mode.
+      --   * not self._warnedNoCustomProfile -- throttle to once per game (the
+      --     flag is reset on entering a BG/arena in PLAYER_ENTERING_WORLD; a
+      --     /reload clears it too, so it re-fires).
+      if
+        self.playerTypeConfig.Enabled
+        and self.playerTypeConfig.CustomPlayerCountConfigsEnabled
+        and not self._warnedNoCustomProfile
+      then
+        self._warnedNoCustomProfile = true
+        BattleGroundEnemies:Information(
+          "Custom "
+            .. self.PlayerType
+            .. " profiles are on, but none cover the current size of "
+            .. maxNumPlayers
+            .. " players. Add or widen a custom "
+            .. self.PlayerType
+            .. " profile in the options to show frames at this size."
+        )
+      end
       return
-      --return BattleGroundEnemies:Information("Can't find a profile for the current player count of " .. self.NumPlayers .." players for "..self.PlayerType.." please check the settings")
     end
 
     if #foundProfilesForPlayerCount > 1 then
@@ -741,11 +802,30 @@ local function CreateMainFrame(playerType)
     end
   end
 
+  -- Config-derived "should this container be shown for the current bracket".
+  -- Timing-safe, unlike self.enabled: it reads only playerTypeConfig /
+  -- playerCountConfig (set synchronously by SelectPlayerCountProfile, which is
+  -- NOT combat-deferred) plus the main-addon enabled flag (set synchronously by
+  -- BattleGroundEnemies:Enable). self.enabled, by contrast, LAGS in combat --
+  -- mainframe:Enable and ApplyPlayerCountProfileSettings both early-return via
+  -- QueueForUpdateAfterCombat BEFORE updating self.enabled / calling
+  -- CheckEnableState while InCombatLockdown() is true. The ghost-frame BUILD
+  -- gates (GROUP_ROSTER_UPDATE / UBS / CreateArenaEnemies) use THIS, so an
+  -- in-combat instance entry or mid-match /reload still builds the right
+  -- rosters instead of reading a stale/nil enabled flag and building nothing.
+  function mainframe:ShouldBeEnabled()
+    return (
+      BattleGroundEnemies.enabled
+      and self.playerTypeConfig
+      and self.playerTypeConfig.Enabled
+      and self.playerCountConfig
+      and self.playerCountConfig.Enabled
+    ) and true
+      or false
+  end
+
   function mainframe:CheckEnableState()
-    if not BattleGroundEnemies.enabled then
-      return self:Disable()
-    end
-    if self.playerTypeConfig.Enabled and self.playerCountConfig and self.playerCountConfig.Enabled then
+    if self:ShouldBeEnabled() then
       self:Enable()
     else
       self:Disable()
@@ -867,7 +947,14 @@ local function CreateMainFrame(playerType)
     self.Target = nil
 
     local TimeSinceLastOnUpdate = 0
-    local UpdatePeriod = 0.1 --update every 0.1 seconds
+    -- 0.2s = 5 Hz per button (halved from 0.1s / 10 Hz). Shared by both the
+    -- enemy and ally OnUpdate handlers below. UpdateAll's health/power data
+    -- is already driven by UNIT_HEALTH / UNIT_POWER_FREQUENT push events;
+    -- this ticker is a safety-net poll (mainly for range-indicator state and
+    -- compound tokens). Halving it cuts the UpdateAll call volume ~50%
+    -- (the single biggest CPU line in epic BG combat, up to 124-378 ms/s)
+    -- at the cost of ~100ms extra range-indicator latency (imperceptible).
+    local UpdatePeriod = 0.2 --update every 0.2 seconds
 
     -- Initial range state: enemies start out-of-range, allies start in-range.
     -- Note: UpdateRange may no-op if self.config is nil (not yet set by ApplyButtonSettings).
@@ -929,8 +1016,23 @@ local function CreateMainFrame(playerType)
 
   function mainframe:RemovePlayer(playerButton)
     if playerButton == BattleGroundEnemies.UserButton then
-      return
-    end -- dont remove the Player itself
+      -- Keep the player's own button stable across roster churn WHILE the ally
+      -- container is enabled (the original "don't remove the player itself"
+      -- intent -- avoids flicker when a teammate join/leave rebuilds the list).
+      -- But RemovePlayer is the ONLY teardown path, so an unconditional skip
+      -- made the self-button impossible to remove: with allies DISABLED for the
+      -- bracket (or the addon disabled while leaving to the city), the #1/#5
+      -- teardown calls RemovePlayer on it and this guard bailed, so it persisted
+      -- as a lone ghost ally frame across BG -> city -> BG. Gate the skip on
+      -- ShouldBeEnabled (config-derived, combat-safe) so the self-button is kept
+      -- only while allies should be shown, and torn down otherwise. Clear the
+      -- now-stale UserButton ref so target/focus logic doesn't touch a recycled
+      -- button (re-tagged by UpdateAllUnitIDs on the next enabled build).
+      if self:ShouldBeEnabled() then
+        return
+      end
+      BattleGroundEnemies.UserButton = false
+    end -- dont remove the Player itself (only while allies are enabled)
 
     -- if BattleGroundEnemies.LogButtonEvent then
     --   BattleGroundEnemies:LogButtonEvent(
@@ -2050,6 +2152,37 @@ end
 function BattleGroundEnemies.Enemies:CreateArenaEnemies()
   if not BattleGroundEnemies.states.real.isInArena then
     return
+  end
+
+  -- #1 ghost-frame gate (arena enemy path). Arena enemies come from the
+  -- ArenaPlayers source -- the enemy build path that the UBS gate does NOT
+  -- cover -- so without this, disabling enemies in an arena bracket would still
+  -- build hidden enemy frames. We derive the decision from a reliable opponent
+  -- count: SetRealPlayerCount runs SelectPlayerCountProfile (sets
+  -- playerType/playerCountConfig synchronously), then ShouldBeEnabled reads
+  -- those config fields -- which is correct even mid-combat, unlike self.enabled
+  -- (which lags past InCombatLockdown). Live count first, falling back to the
+  -- prep-phase spec count so disabled enemies are suppressed during arena prep
+  -- too. When the count is 0 we don't yet have a fresh profile, so we fall
+  -- through to the normal build below -- which produces 0 buttons anyway (the
+  -- loop finds no opponents), so the enabled case is never broken.
+  local opponentCount = (GetNumArenaOpponents and GetNumArenaOpponents()) or 0
+  if opponentCount == 0 and GetNumArenaOpponentSpecs then
+    opponentCount = GetNumArenaOpponentSpecs() or 0
+  end
+  if opponentCount > 0 then
+    self:SetRealPlayerCount(opponentCount)
+    if not self:ShouldBeEnabled() then
+      -- Enemy frames off for this bracket: tear down ALL enemy buttons. Must use
+      -- RemoveAllPlayersFromAllSources, NOT just wipe the ArenaPlayers source:
+      -- the enemy AfterPlayerSourceUpdate falls back to the Scoreboard source
+      -- when ArenaPlayers is empty (Mainframe.lua ~429-438), and Scoreboard IS
+      -- populated in solo shuffle / arenas with a scoreboard -- so wiping only
+      -- ArenaPlayers would rebuild enemies from scoreboard and defeat the gate.
+      -- Wiping every source yields 0 buttons. Mirrors the UBS enemy gate.
+      self:RemoveAllPlayersFromAllSources()
+      return
+    end
   end
 
   self:BeforePlayerSourceUpdate(BattleGroundEnemies.consts.PlayerSources.ArenaPlayers)

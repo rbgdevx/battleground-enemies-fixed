@@ -11,7 +11,8 @@
 # Excludes (dev-only, not part of the addon distribution):
 #   .git/, .gitignore, .DS_Store, ._* (AppleDouble), .claude/, .vscode/,
 #   .luarc.json, .libraries/, AGENTS.md, CLAUDE.md, DEFERRED.md,
-#   README.md, LICENSE, cspell.json, stylua.toml, deploy-to-wow.sh,
+#   NEW_CHANGES.md, IMPROVEMENTS.md, README.md, LICENSE, cspell.json,
+#   stylua.toml, deploy-to-wow.sh,
 #   package-addon.sh, Modules/PerfHUD.lua (dev-only; its load line +
 #   SavedVariables are also stripped from the staged .toc below)
 #
@@ -55,6 +56,7 @@ rsync -a \
   --exclude='CLAUDE.md' \
   --exclude='DEFERRED.md' \
   --exclude='NEW_CHANGES.md' \
+  --exclude='IMPROVEMENTS.md' \
   --exclude='README.md' \
   --exclude='LICENSE' \
   --exclude='cspell.json' \

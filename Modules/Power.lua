@@ -18,6 +18,54 @@ local fullByDefault = {
   FOCUS = true,
 }
 
+-- Module-level Power update implementation. Lifted out of the per-call
+-- pcall(function() ... end) that used to live inside UpdatePower, so it is
+-- not allocated as a fresh closure on every UNIT_POWER_FREQUENT event
+-- (200-600/s in epic BG combat = that many closures/s of pure garbage).
+-- Called via pcall(powerUpdateImpl, self, unitID, powerToken) so secret-
+-- value crashes still can't propagate. Reassigning the powerToken param
+-- locally is harmless — the old closure did the same to its captured
+-- upvalue and never propagated it back either.
+local function powerUpdateImpl(self, unitID, powerToken)
+  if unitID then
+    local powerType
+    if not powerToken then
+      powerType, powerToken = UnitPowerType(unitID)
+    else
+      powerType = UnitPowerType(unitID)
+    end
+
+    if powerToken then
+      self:CheckForNewPowerColor(powerToken)
+    end
+
+    -- Secret Value Passthrough:
+    -- UnitPower / UnitPowerMax return secret values in Rated PvP.
+    -- We must NOT do math (cur / max * 100) or comparisons (if cur > 50).
+    -- We just pass them blindly to the status bar.
+    local cur = UnitPower(unitID, powerType) or 0
+    local max = UnitPowerMax(unitID, powerType) or 1
+
+    self:UpdateMinMaxValues(max)
+    self:SetValue(cur)
+  else
+    if BattleGroundEnemies.states.testmodeActive then
+      self:SetValue(math_random(0, 100) / 100)
+    else
+      -- No unitID: reset to presumptive value based on resource type
+      if self.powerToken and fullByDefault[self.powerToken] then
+        self:SetMinMaxValues(0, 1)
+        self.maxValue = 1
+        self:SetValue(1)
+      else
+        self:SetMinMaxValues(0, 1)
+        self.maxValue = 1
+        self:SetValue(0)
+      end
+    end
+  end
+end
+
 local generalDefaults = {
   Texture = "Solid",
   Background = { 0, 0, 0, 0.66 },
@@ -142,47 +190,10 @@ function power:AttachToPlayerButton(playerButton)
   end
 
   function playerButton.Power:UpdatePower(unitID, powerToken)
-    -- Wrap entire logic in pcall to allow "Passthrough" of secret values.
-    -- Secret values are "userdata" that crash on math but work on SetValue/SetMinMaxValues
-    local ok, err = pcall(function()
-      if unitID then
-        local powerType
-        if not powerToken then
-          powerType, powerToken = UnitPowerType(unitID)
-        else
-          powerType = UnitPowerType(unitID)
-        end
-
-        if powerToken then
-          self:CheckForNewPowerColor(powerToken)
-        end
-
-        -- Secret Value Passthrough:
-        -- UnitPower / UnitPowerMax return secret values in Rated PvP.
-        -- We must NOT do math (cur / max * 100) or comparisons (if cur > 50).
-        -- We just pass them blindly to the status bar.
-        local cur = UnitPower(unitID, powerType) or 0
-        local max = UnitPowerMax(unitID, powerType) or 1
-
-        self:UpdateMinMaxValues(max)
-        self:SetValue(cur)
-      else
-        if BattleGroundEnemies.states.testmodeActive then
-          self:SetValue(math_random(0, 100) / 100)
-        else
-          -- No unitID: reset to presumptive value based on resource type
-          if self.powerToken and fullByDefault[self.powerToken] then
-            self:SetMinMaxValues(0, 1)
-            self.maxValue = 1
-            self:SetValue(1)
-          else
-            self:SetMinMaxValues(0, 1)
-            self.maxValue = 1
-            self:SetValue(0)
-          end
-        end
-      end
-    end)
+    -- pcall the module-level impl so secret-value crashes don't propagate.
+    -- Secret values are "userdata" that crash on math but work on
+    -- SetValue/SetMinMaxValues — the impl only passes them through.
+    pcall(powerUpdateImpl, self, unitID, powerToken)
   end
 
   function playerButton.Power:ApplyAllSettings()

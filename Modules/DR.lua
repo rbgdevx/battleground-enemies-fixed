@@ -577,6 +577,13 @@ function dRTracking:AttachToPlayerButton(playerButton)
     if self.diminishEventReceived then
       return
     end
+    -- BG fallback path produces no usable data (C_LossOfControl returns
+    -- no spellID for enemy units in BGs, same restriction story as
+    -- C_SpellDiminish). Skip the ~300/s poll storm. DR still polls in
+    -- arena / world PvP.
+    if BattleGroundEnemies.states.real.isInBattleground then
+      return
+    end
 
     pollLoCForUnit(self, unitID)
   end
