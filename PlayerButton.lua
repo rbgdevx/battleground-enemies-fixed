@@ -1054,11 +1054,14 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
                 .. "/focus\n"
                 .. "/targetlasttarget"
           else -- Custom
-            local macrotext = (BattleGroundEnemies.db.profile[self.PlayerType][mouseButtons[i] .. "Value"]):gsub(
-              "%%n",
-              targetName
-            )
-            newAttributes["macrotext" .. i] = macrotext
+            -- A button with no configured type (bindingType == nil) or no
+            -- Custom macro text lands here. Guard the nil template so we don't
+            -- :gsub on nil ("attempt to index field '?' (a nil value)"). No
+            -- template → leave macrotext false (button is a no-op until set).
+            local template = BattleGroundEnemies.db.profile[self.PlayerType][mouseButtons[i] .. "Value"]
+            if type(template) == "string" then
+              newAttributes["macrotext" .. i] = template:gsub("%%n", targetName)
+            end
           end
         end
       end

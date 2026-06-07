@@ -89,17 +89,17 @@ local generalOptions = function(location)
     type = "range",
     name = L.UpdatePeriod,
     desc = L.UpdatePeriod_Desc,
-    min = 0.5,
+    min = 1.0,
     max = 30,
     step = 0.05,
     order = 3,
-    -- Visually clamp old DB values < 0.5 up to the new minimum, without
+    -- Visually clamp old DB values < 1.0 up to the new minimum, without
     -- migrating the saved value. If the user moves the slider, the new
-    -- (>= 0.5) value is written back via the standard set path.
+    -- (>= 1.0) value is written back via the standard set path.
     get = function(option)
       local v = Data.GetOption(location, option)
-      if type(v) ~= "number" or v < 0.5 then
-        return 0.5
+      if type(v) ~= "number" or v < 1.0 then
+        return 1.0
       end
       return v
     end,
@@ -181,11 +181,11 @@ local function StartSharedTicker(updatePeriod)
   if sharedTicker then
     sharedTicker:Cancel()
   end
-  -- Defensive floor: even if a saved profile has a stale value below 0.5
-  -- (the old min was 0.01), enforce 0.5 as the actual ticker rate so the
-  -- new performance floor holds for everyone.
-  if type(updatePeriod) ~= "number" or updatePeriod < 0.5 then
-    updatePeriod = 0.5
+  -- Defensive floor: even if a saved profile has a stale value below 1.0
+  -- (older mins were 0.5, then 0.01), enforce 1.0 as the actual ticker
+  -- rate so the new performance floor holds for everyone.
+  if type(updatePeriod) ~= "number" or updatePeriod < 1.0 then
+    updatePeriod = 1.0
   end
   lastKnownPeriod = updatePeriod
   sharedTicker = CTimerNewTicker(updatePeriod, UpdateAllCombatIndicators)

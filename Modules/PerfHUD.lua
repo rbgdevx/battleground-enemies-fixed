@@ -172,21 +172,55 @@ local function formatElapsed(ms)
   return string_format("%d:%02d", m, s)
 end
 
--- Count enemy nameplates currently visible on screen.
+-- Count nameplates currently visible on screen, split into enemy (attackable)
+-- and friendly (non-attackable, excluding the player's own personal nameplate).
 -- Cheap: ~40 UnitExists/UnitCanAttack calls per refresh tick (0.5s). Same
 -- pattern ScanTargets uses internally.
-local function countEnemyNameplates()
-  local n = 0
+local function countNameplates()
+  local enemy, friendly = 0, 0
   for i = 1, 40 do
     local token = "nameplate" .. i
     if UnitExists(token) then
       local ok, can = pcall(UnitCanAttack, "player", token)
       if ok and can then
-        n = n + 1
+        enemy = enemy + 1
+      elseif not UnitIsUnit(token, "player") then
+        friendly = friendly + 1
       end
     end
   end
-  return n
+  return enemy, friendly
+end
+
+-- Read the ON/OFF state, active player-button count, and the active
+-- player-count bracket of one of BGE's own containers ("Enemies" or "Allies").
+--
+-- `enabled` is the flag set in mainframe:Enable()/Disable(). It is ALREADY
+-- size-aware: CheckEnableState gates it on `playerCountConfig.Enabled`, the
+-- per-bracket toggle (1-5 / 6-15 / 16-40 / …), so turning a bracket off makes
+-- `enabled` false while that bracket is the active one. We surface the active
+-- bracket range too, so an OFF isn't ambiguous between "this size is toggled
+-- off" and "no profile matches this size" (playerCountConfig == false).
+--
+-- PlayerList is the index→button array of active buttons (parallel to Players,
+-- safe to # under secret names — pairs() on the secret-keyed Players map can
+-- taint, PlayerList can't). Returns (on, count, bracketLabel).
+local function getFrameState(side)
+  local mf = BattleGroundEnemies[side]
+  if not mf then
+    return false, 0, "—"
+  end
+  local on = mf.enabled and true or false
+  local count = (mf.PlayerList and #mf.PlayerList) or 0
+  local pcc = mf.playerCountConfig
+  local bracket
+  if type(pcc) == "table" then
+    bracket = string_format("%d-%d", pcc.minPlayerCount or 0, pcc.maxPlayerCount or 0)
+  else
+    -- playerCountConfig is false: no bracket matched this size (or >40).
+    bracket = "no profile"
+  end
+  return on, count, bracket
 end
 
 ------------------------------------------------------------------------------
@@ -371,6 +405,9 @@ local REFRESH_INTERVAL = 0.5
 local LABELS = {
   { key = "context", label = "Context" }, -- combined match state / death state / BG time
   { key = "nameplates", label = "Enemy nameplates" },
+  { key = "friendlyNameplates", label = "Friendly nameplates" },
+  { key = "enemyFrames", label = "Enemy frames" },
+  { key = "allyFrames", label = "Ally frames" },
   { key = "fps", label = "FPS" },
   { key = "frame", label = "Frame worst (5s)" },
   { key = "cpu", label = "Addon CPU" },
@@ -425,10 +462,28 @@ local function refresh()
     string_format("%s%s|r  %s%s|r  bg %s", stateColor, matchState, deathColor, deathState, formatElapsed(bgElapsed))
   )
 
-  -- Enemy nameplate count.
-  local nameplateCount = countEnemyNameplates()
+  -- Nameplate counts (enemy = attackable, friendly = non-attackable).
+  local nameplateCount, friendlyNameplateCount = countNameplates()
   local npColor = (nameplateCount >= 20 and "|cffff5555") or (nameplateCount >= 10 and "|cffffcc44") or "|cff66dd66"
   lines.nameplates:SetText(string_format("Enemy nameplates: %s%d|r visible", npColor, nameplateCount))
+  local fnpColor = (friendlyNameplateCount >= 20 and "|cffff5555")
+    or (friendlyNameplateCount >= 10 and "|cffffcc44")
+    or "|cff66dd66"
+  lines.friendlyNameplates:SetText(
+    string_format("Friendly nameplates: %s%d|r visible", fnpColor, friendlyNameplateCount)
+  )
+
+  -- BGE's own container state: ON/OFF (size-aware) + active player-button
+  -- count + the active player-count bracket.
+  local enemyOn, enemyCount, enemyBracket = getFrameState("Enemies")
+  local allyOn, allyCount, allyBracket = getFrameState("Allies")
+  local onStr, offStr = "|cff66dd66ON|r", "|cff888888OFF|r"
+  lines.enemyFrames:SetText(
+    string_format("Enemy frames: %s  %d buttons  |cff8888aa[%s]|r", enemyOn and onStr or offStr, enemyCount, enemyBracket)
+  )
+  lines.allyFrames:SetText(
+    string_format("Ally frames: %s  %d buttons  |cff8888aa[%s]|r", allyOn and onStr or offStr, allyCount, allyBracket)
+  )
 
   local fps = GetFramerate()
   local fpsColor = (fps < 30 and "|cffff5555") or (fps < 60 and "|cffffcc44") or "|cff66dd66"
@@ -528,6 +583,13 @@ local function refresh()
     deathState = deathState,
     bgElapsedMs = bgElapsed,
     nameplates = nameplateCount,
+    friendlyNameplates = friendlyNameplateCount,
+    enemyFramesOn = enemyOn,
+    enemyFrameCount = enemyCount,
+    enemyBracket = enemyBracket,
+    allyFramesOn = allyOn,
+    allyFrameCount = allyCount,
+    allyBracket = allyBracket,
     fps = fps,
     frameWorstMs = fw,
     luaMemKB = mem,
@@ -716,7 +778,7 @@ local function buildHUD()
   local sv = ensureSV()
 
   hud = CreateFrame("Frame", "BattleGroundEnemiesPerfHUDFrame", UIParent, "BackdropTemplate")
-  hud:SetSize(380, 400)
+  hud:SetSize(380, 460)
   hud:SetFrameStrata("HIGH")
   hud:ClearAllPoints()
   hud:SetPoint(sv.point, UIParent, sv.point, sv.x, sv.y)

@@ -51,14 +51,24 @@ local function IsInterestedInUpdate(unitID, updateInfo, existingPriorityAuras)
   end
 
   -- Removed auras: was any of them a CC we were tracking?
-  -- (Removed auras are already gone so the filter API can't be used — match by ID instead.)
+  -- We CANNOT match by ID here: auraInstanceID is SecretWhenUnitAuraRestricted,
+  -- so for enemies in instanced PvP both `entry.auraInstanceID` (stored from a
+  -- prior GetUnitAuras) and `id` (from the UNIT_AURA payload) can be secret
+  -- values. The old `entry.auraInstanceID == id` compared secret == secret with
+  -- no guard, which TAINTS execution — and because UNIT_AURA + CC churn fire
+  -- constantly, that taint re-emitted thousands of times per match, accumulated
+  -- across a no-reload session, and eventually detonated the score-parse path.
+  -- The filter API can't help either (removed auras are already gone).
+  --
+  -- We don't actually need the exact match: this branch only decides whether to
+  -- rebuild the CC display. So if we're tracking any CC and ANYTHING was removed,
+  -- conservatively rebuild. The rebuild re-scans live auras via GetUnitAuras and
+  -- is idempotent — identical display result, just an occasional extra rescan
+  -- (when a non-CC aura drops off a unit we're tracking CC on). No UX change, and
+  -- the secret comparison is gone entirely.
   if updateInfo.removedAuraInstanceIDs and next(updateInfo.removedAuraInstanceIDs) ~= nil then
-    for _, id in pairs(updateInfo.removedAuraInstanceIDs) do
-      for _, entry in ipairs(existingPriorityAuras) do
-        if entry.auraInstanceID == id then
-          return true
-        end
-      end
+    if #existingPriorityAuras > 0 then
+      return true
     end
   end
 
