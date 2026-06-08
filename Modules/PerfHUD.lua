@@ -115,6 +115,15 @@ end
 -- Match state — derived from C_PvP. Categorises the BG lifecycle phase so
 -- screenshots / logs don't need manual captioning.
 local function getMatchState()
+  -- Outside a PvP/arena instance, C_PvP.GetActiveMatchState() returns Inactive
+  -- — which would read as "lobby" even though we're just standing in the world
+  -- / city. Gate on IsInInstance() first so the HUD says "world" there instead.
+  -- (The logger is independently gated on IsInInstance() == pvp/arena, so this
+  -- "world" value never enters the SV log — it's display-only.)
+  local _, instType = IsInInstance()
+  if instType ~= "pvp" and instType ~= "arena" then
+    return "world"
+  end
   if not C_PvP or not C_PvP.GetActiveMatchState then
     return "?"
   end
@@ -122,14 +131,19 @@ local function getMatchState()
   if not s or not Enum or not Enum.PvPMatchState then
     return "?"
   end
+  -- Enum.PvPMatchState (per PvpInfoDocumentation): Inactive=0, Waiting=1,
+  -- StartUp=2, Engaged=3, PostRound=4, Complete=5.
   if s == Enum.PvPMatchState.Inactive then
-    return "lobby"
+    return "lobby" -- in-instance Inactive = the brief gates-closed entry moment
+  end
+  if s == Enum.PvPMatchState.Waiting then
+    return "waiting"
   end
   if s == Enum.PvPMatchState.StartUp then
     return "startup"
   end
   if s == Enum.PvPMatchState.Engaged then
-    return "active"
+    return "engaged"
   end
   if s == Enum.PvPMatchState.PostRound then
     return "post-round"
@@ -455,7 +469,7 @@ local function refresh()
   local deathState = getDeathState()
   local bgElapsed = getBGElapsedMs()
   local deathColor = (deathState == "ALIVE" and "|cff66dd66") or (deathState == "DEAD" and "|cffff5555") or "|cffffcc44"
-  local stateColor = (matchState == "active" and "|cff66dd66")
+  local stateColor = (matchState == "engaged" and "|cff66dd66")
     or (matchState == "lobby" and "|cffffcc44")
     or "|cff8888aa"
   lines.context:SetText(
@@ -763,7 +777,10 @@ local function ensureSV()
   end
   local sv = BattleGroundEnemiesPerfHUD
   if sv.enabled == nil then
-    sv.enabled = false
+    -- Dev-only module (stripped from the release by package-addon.sh), so the
+    -- maintainer's default is ON. The PLAYER_LOGIN handler also force-enables
+    -- regardless of the saved value, so this only matters for a brand-new SV.
+    sv.enabled = true
   end
   sv.point = sv.point or "CENTER"
   sv.x = sv.x or 0
@@ -957,19 +974,16 @@ loader:RegisterEvent("PLAYER_ENTERING_WORLD")
 loader:RegisterEvent("PLAYER_LOGOUT") -- fires on /reload too — final safety flush
 loader:SetScript("OnEvent", function(self, event, ...)
   if event == "PLAYER_LOGIN" then
-    local sv = ensureSV()
+    ensureSV()
     ensureLogSV()
-    if sv.enabled then
-      -- Defer one frame so all per-button hooks run on subsequent button
-      -- creation; existing buttons get wrapped via hooksecurefunc on the
-      -- next CreatePlayerButton call, so first BG entry is when wrapping
-      -- fully takes effect.
-      M:SetEnabled(true)
-    else
-      -- Even when disabled, install the hook plumbing so /bgehud works
-      -- without /reload.
-      installHooks()
-    end
+    -- PerfHUD is dev-only (package-addon.sh strips the file + its SVs from the
+    -- release), so for the maintainer it should ALWAYS be on — never silently
+    -- off. Force-enable on every login/reload regardless of the saved toggle.
+    -- /bgehud (or the window's X) still hides it for the current session, and
+    -- the next reload restores it. Existing buttons get wrapped via the
+    -- hooksecurefunc on the next CreatePlayerButton; first BG entry is when
+    -- per-button wrapping fully takes effect.
+    M:SetEnabled(true)
     return
   end
   if event == "PVP_MATCH_STATE_CHANGED" then

@@ -1559,7 +1559,15 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     local oldTargetPlayerButton = self.Target
     local newTargetPlayerButton
 
-    if self.TargetUnitID then
+    -- #1B: only run the resolver chain when the target unit actually exists.
+    -- Both lookups below (enemy PID matcher AND Allies:GetAllyButtonByUnitID)
+    -- already return nil for a non-existent unit — the matcher guards on
+    -- UnitExists at its top, and the ally path can only match via UnitIsUnit /
+    -- GetUnitName, which both fail for a unit that isn't there. So this is a
+    -- pure short-circuit (skips wasted matcher entries on idle buttons) with
+    -- zero behaviour change: newTargetPlayerButton stays nil exactly as before,
+    -- so the "clear old target" path below still runs unchanged.
+    if self.TargetUnitID and UnitExists(self.TargetUnitID) then
       -- Try enemies first (PID matcher), then allies (direct token/UnitIsUnit
       -- resolution — no PID). Target can be on either team.
       newTargetPlayerButton = BattleGroundEnemies:GetPlayerbuttonByUnitID(self.TargetUnitID, "Enemies")

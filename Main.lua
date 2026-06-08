@@ -1784,6 +1784,123 @@ do
     end
   end
 
+  -- ==========================================================================
+  -- Matcher helpers — lifted out of GetPlayerbuttonByUnitID so they are created
+  -- ONCE at load instead of allocated fresh on every matcher call (~1500+/s in
+  -- epics). This was the #1 GC-pressure source (143–733 KB/s p95). Behaviour is
+  -- identical to the former inner closures; the values they used to capture as
+  -- upvalues (unitID, ignoreExistingArena, unitClassID, unitRace) are now passed
+  -- as arguments. The cache tables (scanCycleCache / stickyPIDCache /
+  -- DYNAMIC_TOKENS) and ClassTokenToID remain do-block upvalues, reachable here.
+  -- ==========================================================================
+
+  -- Capture non-secret identity (gender/honor) from the live token onto the
+  -- matched button's PlayerDetails. Thin delegate to the module method.
+  -- NOTE: we deliberately do NOT capture a short-name here — a wrong-button
+  -- match (stale sticky / fingerprint fallback) would permanently pollute the
+  -- wrong frame (the "Luxnocis" warlock-frame bug). Call sites that follow a
+  -- possibly-wrong match deliberately OMIT this call (see the matcher body).
+  local function captureLiveAttrs(btn, unitID)
+    return BattleGroundEnemies:CaptureUnitAttrs(btn, unitID)
+  end
+
+  -- Gated write into scanCycleCache. Skips orb/flag carrier lookups
+  -- (ignoreExistingArena) and dynamic tokens (target/focus/mouseover/softN —
+  -- caching those cross-attaches when the token reassigns between events).
+  local function recordCycleMatch(button, unitID, ignoreExistingArena)
+    if not ignoreExistingArena and not DYNAMIC_TOKENS[unitID] then
+      scanCycleCache[unitID] = button
+    end
+  end
+
+  -- Gated write into stickyPIDCache. Same dynamic-token rule as the cycle cache:
+  -- sticky validates by class match, meaningless for same-class twins when a
+  -- dynamic token reassigns between them.
+  local function recordStickyMatch(button, classID, unitID)
+    if DYNAMIC_TOKENS[unitID] then
+      return
+    end
+    stickyPIDCache[unitID] = { button = button, classID = classID }
+  end
+
+  -- Public predicate wrapper so the matcher's paths share the same arena-
+  -- contradiction logic exposed for GetOrbCarrierButton/GetFlagCarrierButton.
+  local function arenaMappingContradicted(btn, token)
+    return BattleGroundEnemies:ArenaMappingContradicted(btn, token)
+  end
+
+  -- Numeric classID match without tainting on secret classToken strings.
+  local function buttonClassMatches(button, unitClassID)
+    return button.PlayerDetails and ClassTokenToID[button.PlayerDetails.PlayerClass or ""] == unitClassID
+  end
+
+  -- Generic safe-equality: post-12.0.5 both strings AND numbers can be secret.
+  -- Returns false if either side is secret OR either side is nil.
+  local function safeEq(a, b)
+    if a == nil or b == nil then
+      return false
+    end
+    if issecretvalue and (issecretvalue(a) or issecretvalue(b)) then
+      return false
+    end
+    return a == b
+  end
+
+  -- Soft-equality for the dominated cascade (inner tiebreakers in tiers
+  -- 7/8/8.5/9). Returns true when either side is nil/secret (no opinion) OR both
+  -- sides match. Returns false ONLY when both sides have definite non-nil
+  -- non-secret values that differ. The tier's primary attr still uses strict
+  -- safeEq, so the tier is gated correctly; softEq only relaxes the tiebreakers.
+  local function softEq(a, b)
+    if a == nil or b == nil then
+      return true
+    end
+    if issecretvalue and (issecretvalue(a) or issecretvalue(b)) then
+      return true
+    end
+    return a == b
+  end
+
+  -- Guild equality, three-state: nil = unknown, false = confirmed guildless,
+  -- "X" = in guild "X". Returns true when the values match (string==string or
+  -- false==false), false when they definitively differ, nil when either side is
+  -- unknown (nil or secret).
+  local function guildCmp(a, b)
+    if a == nil or b == nil then
+      return nil -- unknown
+    end
+    if issecretvalue and (issecretvalue(a) or issecretvalue(b)) then
+      return nil -- secret = unknown
+    end
+    return a == b -- handles string==string, false==false, and the cross cases
+  end
+
+  -- Strict-rule helper: returns true iff EVERY candidate has comparable (non-nil,
+  -- non-secret) stored data for the given field. If any candidate has nil/secret,
+  -- the tier shouldn't fire — picking the only candidate WITH data would be a
+  -- guess. For GuildName, `false` (confirmed guildless) counts as comparable
+  -- data — `v == nil` correctly excludes only nil without flagging false.
+  local function allCandidatesHaveAttr(candidates, field)
+    for i = 1, #candidates do
+      local pd = candidates[i].PlayerDetails
+      local v = pd and pd[field]
+      if v == nil then
+        return false
+      end
+      if issecretvalue and issecretvalue(v) then
+        return false
+      end
+    end
+    return true
+  end
+
+  -- Race compare (both sides non-secret post-12.0.5). unitRace is resolved
+  -- per-call in the matcher (race tier) and passed in, so this stays pure.
+  local function raceComparableAndEqual(button, unitRace)
+    local pr = button.PlayerDetails and button.PlayerDetails.PlayerRace
+    return pr ~= nil and unitRace ~= nil and pr == unitRace
+  end
+
   -- Enemy-only matcher. Allies are resolved by direct raidN/partyN/player
   -- token lookup via BattleGroundEnemies.Allies:GetAllyButtonByUnitID — no
   -- PID, no fingerprinting, no scoreboard. This function must never return
@@ -1818,46 +1935,12 @@ do
       return nil
     end
 
-    -- Capture non-secret identity from the live token and stash on the matched
-    -- button's PlayerDetails. Future matches against the same button get more
-    -- discriminators (gender + honor) than scoreboard alone provides.
-    -- UnitSex and UnitHonorLevel return non-secret numbers for targetable units;
-    -- overwrites nil OR secret-tagged values (scoreboard honorLevel is secret).
-    --
-    -- NOTE: we deliberately do NOT capture a short-name-only (UnitName first
-    -- return) here anymore. Any time a token produced a wrong-button match
-    -- (stale sticky, fingerprint fallback, etc.), the captured short-name
-    -- permanently polluted the wrong frame — e.g. the flag-carrier rogue's
-    -- name "Luxnocis" would stamp onto an unrelated warlock's frame and
-    -- survive scoreboard refreshes. ShowRealmnames=false is honoured by
-    -- splitting the scoreboard-supplied PlayerName via strsplit.
-    local function captureLiveAttrs(btn)
-      -- Thin wrapper — delegate to the module-level method so other
-      -- code paths (PostClick stash bypass, focus stash bypass) can
-      -- capture from the same authoritative source without going
-      -- through the matcher.
-      return BattleGroundEnemies:CaptureUnitAttrs(btn, unitID)
-    end
-
-    -- Gated write into scanCycleCache. Skips writes for orb/flag carrier
-    -- lookups (need fresh resolves) and for dynamic tokens (target/focus/
-    -- mouseover/softenemy/softfriend — caching those caused cross-attach
-    -- when the token reassigned between events).
-    local function recordCycleMatch(button)
-      if not ignoreExistingArena and not DYNAMIC_TOKENS[unitID] then
-        scanCycleCache[unitID] = button
-      end
-    end
-
-    -- Gated write into stickyPIDCache. Same dynamic-token rule as the cycle
-    -- cache: sticky validates by class match, which is meaningless for same-
-    -- class twins when a dynamic token reassigns between them.
-    local function recordStickyMatch(button, classID)
-      if DYNAMIC_TOKENS[unitID] then
-        return
-      end
-      stickyPIDCache[unitID] = { button = button, classID = classID }
-    end
+    -- Matcher per-call helpers captureLiveAttrs / recordCycleMatch /
+    -- recordStickyMatch are now defined ONCE at do-block scope (just above the
+    -- matcher) instead of being re-allocated as closures on every call
+    -- (~1500+/s in epics). Former upvalues (unitID, ignoreExistingArena) are
+    -- passed as arguments at the call sites below. The "Luxnocis" pollution
+    -- note and capture rationale live with captureLiveAttrs's definition above.
 
     -- Reject friendly units entirely — this matcher is enemy-only. In BGs
     -- (including cross-faction Blitz) UnitIsFriend correctly reflects team
@@ -1933,13 +2016,9 @@ do
     --   -- )
     -- end
 
-    -- Use BattleGroundEnemies:ArenaMappingContradicted so closures inside
-    -- this function reference the same predicate that's exposed publicly
-    -- (used by GetOrbCarrierButton/GetFlagCarrierButton in ObjectiveAndRespawn
-    -- to gate overwriting an existing chat-set mapping).
-    local function arenaMappingContradicted(btn, token)
-      return BattleGroundEnemies:ArenaMappingContradicted(btn, token)
-    end
+    -- arenaMappingContradicted(btn, token) is lifted to do-block scope above
+    -- (pure delegate to BattleGroundEnemies:ArenaMappingContradicted, exposed
+    -- publicly for GetOrbCarrierButton/GetFlagCarrierButton).
 
     -- For arena tokens, check the direct ArenaIDToPlayerButton mapping first.
     -- This is authoritative for stable assignments. For flag/orb carrier
@@ -1953,8 +2032,8 @@ do
         -- to the proper tiers so the matcher can re-resolve.
         self.ArenaIDToPlayerButton[unitID] = nil
       else
-        recordCycleMatch(arenaBtn)
-        captureLiveAttrs(arenaBtn)
+        recordCycleMatch(arenaBtn, unitID, ignoreExistingArena)
+        captureLiveAttrs(arenaBtn, unitID)
         -- _logTierMatch(arenaBtn, "arena-fast-path")
         return arenaBtn
       end
@@ -1992,7 +2071,7 @@ do
               self.ArenaIDToPlayerButton[arenaID] = nil
               -- continue the loop; another arena slot might match cleanly
             else
-              recordCycleMatch(arenaBtn)
+              recordCycleMatch(arenaBtn, unitID, ignoreExistingArena)
               -- captureLiveAttrs deliberately omitted: UnitIsUnit can return
               -- secret booleans in 12.0.5 PvP and we've seen wrong-twin
               -- positives. Don't poison the matched button's stored attrs.
@@ -2045,8 +2124,8 @@ do
       -- which can attribute the token to a wrong same-class twin.
       local nameButton = self[playerType].Players[BattleGroundEnemies:CanonicalName(unitName)]
       if nameButton then
-        recordCycleMatch(nameButton)
-        captureLiveAttrs(nameButton)
+        recordCycleMatch(nameButton, unitID, ignoreExistingArena)
+        captureLiveAttrs(nameButton, unitID)
         -- _logTierMatch(nameButton, "name-lookup")
         return nameButton
       end
@@ -2100,7 +2179,7 @@ do
         end
       end
       if stickyValid then
-        recordCycleMatch(sticky.button)
+        recordCycleMatch(sticky.button, unitID, ignoreExistingArena)
         -- captureLiveAttrs deliberately omitted: sticky perpetuates the
         -- prior tier's decision, which may have been a tier-6+ narrow-down
         -- rather than a tier-5 unique-class. Capturing here would re-poison
@@ -2140,19 +2219,17 @@ do
       -- becomes the "unique" tier-5 match, misrouting compound tokens to
       -- the wrong button (the cross-attach Grant/Viejito symptom).
       if count == 1 and match then
-        recordCycleMatch(match)
-        recordStickyMatch(match, unitClassID)
-        captureLiveAttrs(match)
+        recordCycleMatch(match, unitID, ignoreExistingArena)
+        recordStickyMatch(match, unitClassID, unitID)
+        captureLiveAttrs(match, unitID)
         -- _logTierMatch(match, "tier-5-class-unique")
         return match
       end
       hasMultipleCandidates = count > 1
     end
 
-    -- Helper: numeric classID match without tainting on secret classToken strings
-    local function buttonClassMatches(button)
-      return button.PlayerDetails and ClassTokenToID[button.PlayerDetails.PlayerClass or ""] == unitClassID
-    end
+    -- buttonClassMatches(button, unitClassID) is lifted to do-block scope above
+    -- (numeric classID match without tainting on secret classToken strings).
 
     -- Build the same-class candidate set ONCE for reuse across tiers 7-9.
     -- Mirrors the per-tier filtering logic (skip arena-claimed when not
@@ -2168,89 +2245,20 @@ do
         -- buttons must remain candidates so the strict-rule gate has the
         -- correct count and tiers below can resolve compound tokens that
         -- point at the carrier.
-        if buttonClassMatches(b) then
+        if buttonClassMatches(b, unitClassID) then
           sameClassCandidates[#sameClassCandidates + 1] = b
         end
       end
     end
-    -- Generic safe-equality: post-12.0.5 both strings AND numbers can be secret.
-    -- Returns false if either side is secret OR either side is nil.
-    local function safeEq(a, b)
-      if a == nil or b == nil then
-        return false
-      end
-      if issecretvalue and (issecretvalue(a) or issecretvalue(b)) then
-        return false
-      end
-      return a == b
-    end
-    -- Soft-equality for the dominated cascade (inner tiebreakers in tiers
-    -- 7/8/8.5/9). Returns true when either side is nil/secret (no opinion)
-    -- OR both sides match. Returns false ONLY when both sides have
-    -- definite non-nil non-secret values that differ.
-    -- Without this, the cascade rejects candidates whose stored attrs
-    -- haven't been populated yet by captureLiveAttrs — e.g., tier 9
-    -- guild-match unique-pick gets blocked because the candidate's
-    -- gender/honor were never captured. Outer key (the tier's primary
-    -- attr) still uses strict safeEq so the tier itself is gated correctly.
-    local function softEq(a, b)
-      if a == nil or b == nil then
-        return true
-      end
-      if issecretvalue and (issecretvalue(a) or issecretvalue(b)) then
-        return true
-      end
-      return a == b
-    end
-    -- Guild equality with three-state semantics:
-    --   nil   = unknown (we haven't established whether the unit is in a guild)
-    --   false = confirmed guildless
-    --   "X"   = in guild "X"
-    -- Returns true when the values match (both string and equal, or both false),
-    -- false when they definitively differ (string vs different string, or string
-    -- vs false, or false vs string), nil when at least one side is unknown.
-    local function guildCmp(a, b)
-      if a == nil or b == nil then
-        return nil -- unknown
-      end
-      if issecretvalue and (issecretvalue(a) or issecretvalue(b)) then
-        return nil -- secret = unknown
-      end
-      return a == b -- handles string==string, false==false, and the cross cases
-    end
-    -- Strict-rule helper: returns true if EVERY candidate has comparable
-    -- (non-nil, non-secret) stored data for the given field. If any
-    -- candidate has nil/secret, the tier shouldn't fire — we'd be picking
-    -- the only candidate WITH data, which is a guess (the others might
-    -- actually be the unit, we just can't compare).
-    -- For GuildName specifically, `false` (confirmed guildless) counts as
-    -- comparable data — Lua's `v == nil` correctly excludes only nil
-    -- without flagging false as missing.
-    local function allCandidatesHaveAttr(candidates, field)
-      for i = 1, #candidates do
-        local pd = candidates[i].PlayerDetails
-        local v = pd and pd[field]
-        if v == nil then
-          return false
-        end
-        if issecretvalue and issecretvalue(v) then
-          return false
-        end
-      end
-      return true
-    end
+    -- safeEq / softEq / guildCmp / allCandidatesHaveAttr are lifted to do-block
+    -- scope above (pure — they reference only issecretvalue and their own args,
+    -- so no per-call upvalues; full rationale lives with their definitions).
     -- Race from scoreboard (raceName, localized) and UnitRace(unit) 1st return
     -- are both non-secret post-12.0.5 — direct string compare is safe.
-    -- IMPORTANT: `unitRace` MUST be declared as a local BEFORE the function
-    -- so the function captures it as a proper upvalue. If declared after,
-    -- Lua resolves the name to a global (always nil) and every call to
-    -- raceComparableAndEqual returns false — silently breaking the race
-    -- tier (6) AND the race component of every higher tier (7/8/8.5/9).
+    -- `unitRace` is resolved per-call in the race tier below and reused by softEq
+    -- in the higher tiers; it's passed into raceComparableAndEqual(button,
+    -- unitRace), which is lifted to do-block scope above.
     local unitRace = nil
-    local function raceComparableAndEqual(button)
-      local pr = button.PlayerDetails and button.PlayerDetails.PlayerRace
-      return pr ~= nil and unitRace ~= nil and pr == unitRace
-    end
 
     -- Class+race unique match: disambiguate same-class candidates by race.
     if hasMultipleCandidates then
@@ -2261,15 +2269,15 @@ do
         local count = 0
         for i = 1, #list do
           local button = list[i]
-          if buttonClassMatches(button) and raceComparableAndEqual(button) then
+          if buttonClassMatches(button, unitClassID) and raceComparableAndEqual(button, unitRace) then
             count = count + 1
             match = button
           end
         end
         if count == 1 and match then
-          recordCycleMatch(match)
-          recordStickyMatch(match, unitClassID)
-          captureLiveAttrs(match)
+          recordCycleMatch(match, unitID, ignoreExistingArena)
+          recordStickyMatch(match, unitClassID, unitID)
+          captureLiveAttrs(match, unitID)
           -- _logTierMatch(match, "tier-6-race")
           return match
         end
@@ -2319,7 +2327,7 @@ do
         local count = 0
         for i = 1, #list do
           local button = list[i]
-          if buttonClassMatches(button) and safeEq(button.PlayerDetails.gender, unitGender) then
+          if buttonClassMatches(button, unitClassID) and safeEq(button.PlayerDetails.gender, unitGender) then
             local dominated = true
             if unitRace then
               dominated = softEq(button.PlayerDetails.PlayerRace, unitRace)
@@ -2334,8 +2342,8 @@ do
           end
         end
         if count == 1 and match then
-          recordCycleMatch(match)
-          recordStickyMatch(match, unitClassID)
+          recordCycleMatch(match, unitID, ignoreExistingArena)
+          recordStickyMatch(match, unitClassID, unitID)
           -- captureLiveAttrs deliberately omitted: tier 7+ relies on
           -- stored attrs that may have been seeded from an earlier wrong
           -- match. If the unique-match here is wrong, capturing would
@@ -2363,7 +2371,7 @@ do
         local count = 0
         for i = 1, #list do
           local button = list[i]
-          if buttonClassMatches(button) and safeEq(button.PlayerDetails.honorLevel, unitHonor) then
+          if buttonClassMatches(button, unitClassID) and safeEq(button.PlayerDetails.honorLevel, unitHonor) then
             local dominated = true
             if dominated and unitRace then
               dominated = softEq(button.PlayerDetails.PlayerRace, unitRace)
@@ -2383,8 +2391,8 @@ do
           end
         end
         if count == 1 and firstMatch then
-          recordCycleMatch(firstMatch)
-          recordStickyMatch(firstMatch, unitClassID)
+          recordCycleMatch(firstMatch, unitID, ignoreExistingArena)
+          recordStickyMatch(firstMatch, unitClassID, unitID)
           -- captureLiveAttrs omitted: see tier-7 comment above.
           -- _logTierMatch(firstMatch, "tier-8-honor")
           return firstMatch
@@ -2414,7 +2422,7 @@ do
         local count = 0
         for i = 1, #list do
           local button = list[i]
-          if buttonClassMatches(button) and safeEq(button.PlayerDetails.lastPowerType, unitPowerType) then
+          if buttonClassMatches(button, unitClassID) and safeEq(button.PlayerDetails.lastPowerType, unitPowerType) then
             local dominated = true
             if dominated and unitRace then
               dominated = softEq(button.PlayerDetails.PlayerRace, unitRace)
@@ -2435,8 +2443,8 @@ do
           end
         end
         if count == 1 and match then
-          recordCycleMatch(match)
-          recordStickyMatch(match, unitClassID)
+          recordCycleMatch(match, unitID, ignoreExistingArena)
+          recordStickyMatch(match, unitClassID, unitID)
           -- captureLiveAttrs omitted: see tier-7 comment above.
           -- _logTierMatch(match, "tier-8.5-power")
           return match
@@ -2480,7 +2488,7 @@ do
         local count = 0
         for i = 1, #list do
           local button = list[i]
-          if buttonClassMatches(button) and guildCmp(button.PlayerDetails.GuildName, unitGuild) == true then
+          if buttonClassMatches(button, unitClassID) and guildCmp(button.PlayerDetails.GuildName, unitGuild) == true then
             local dominated = true
             if dominated and unitRace then
               dominated = softEq(button.PlayerDetails.PlayerRace, unitRace)
@@ -2501,8 +2509,8 @@ do
           end
         end
         if count == 1 and match then
-          recordCycleMatch(match)
-          recordStickyMatch(match, unitClassID)
+          recordCycleMatch(match, unitID, ignoreExistingArena)
+          recordStickyMatch(match, unitClassID, unitID)
           -- captureLiveAttrs omitted: see tier-7 comment above.
           -- _logTierMatch(match, "tier-9-guild")
           return match
@@ -2722,7 +2730,7 @@ do
       local arenaPeers
       for i = 1, #list do
         local button = list[i]
-        if buttonClassMatches(button) and button.UnitIDs and button.UnitIDs.Arena then
+        if buttonClassMatches(button, unitClassID) and button.UnitIDs and button.UnitIDs.Arena then
           arenaPeers = arenaPeers or {}
           arenaPeers[#arenaPeers + 1] = button
         end
@@ -2738,7 +2746,7 @@ do
           local sameIsSecret = issecretvalue and issecretvalue(same)
           if ok and not sameIsSecret and same then
             -- Positive match — this unit IS the arena peer.
-            recordCycleMatch(peer)
+            recordCycleMatch(peer, unitID, ignoreExistingArena)
             -- captureLiveAttrs deliberately omitted: same hazard as
             -- arena-cross-identity above. UnitIsUnit can return secret
             -- bools in 12.0.5 PvP. Don't poison stored attrs from a
@@ -3373,9 +3381,24 @@ function BattleGroundEnemies:StartTargetScanTicker()
   if self.TargetScanTicker then
     self.TargetScanTicker:Cancel()
   end
+  -- #1A: the ticker fires every 0.3s (the in-combat cadence, UNCHANGED). Out of
+  -- combat we skip every other tick so ScanTargets runs at 0.6s instead —
+  -- targets barely change while idle, so this halves the idle scan work with no
+  -- perceptible difference, and combat is completely untouched (it runs every
+  -- tick the moment InCombatLockdown() is true, with no added entry latency).
+  -- The closure-local toggle resets whenever the ticker is (re)started.
+  local oocSkip = false
   self.TargetScanTicker = C_Timer.NewTicker(0.3, function()
     if not self.enabled then
       return
+    end
+    if InCombatLockdown() then
+      oocSkip = false
+    else
+      oocSkip = not oocSkip
+      if oocSkip then
+        return
+      end
     end
     self:ScanTargets()
   end)
