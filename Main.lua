@@ -1316,6 +1316,11 @@ function BattleGroundEnemies:PLAYER_LOGIN()
   self:RegisterEvent("PLAYER_REGEN_ENABLED")
   self:RegisterEvent("PLAYER_REGEN_DISABLED")
 
+  -- Secure-action block diagnostics (logged only under /bge debug). Cheap —
+  -- these fire only when a protected action is actually denied.
+  self:RegisterEvent("ADDON_ACTION_BLOCKED")
+  self:RegisterEvent("ADDON_ACTION_FORBIDDEN")
+
   self:UnregisterEvent("PLAYER_LOGIN")
 end
 
@@ -4126,6 +4131,72 @@ function BattleGroundEnemies:QueueForUpdateAfterCombat(tbl, funcName)
   table.insert(self.PendingUpdates, { tbl = tbl, funcName = funcName })
 end
 
+-- ===========================================================================
+-- Debug logging — toggle with /bge debug. OFF by default and a near-zero no-op
+-- when off (one nested table lookup), so it is safe to ship and to sprinkle
+-- liberally. Call BattleGroundEnemies:Debug(...) anywhere; args print
+-- space-joined behind a [BGE debug] tag. To catch an in-the-wild issue, have
+-- the user run /bge debug, reproduce, and screenshot the chat output.
+-- ===========================================================================
+-- Ring-buffer cap for the persisted debug log (newest entries are kept).
+local DEBUG_LOG_CAP = 1000
+
+function BattleGroundEnemies:IsDebug()
+  return (self.db and self.db.global and self.db.global.debugMode) and true or false
+end
+
+function BattleGroundEnemies:Debug(...)
+  if not (self.db and self.db.global and self.db.global.debugMode) then
+    return
+  end
+  local parts = {}
+  for i = 1, select("#", ...) do
+    parts[i] = tostring((select(i, ...)))
+  end
+  local msg = table.concat(parts, " ")
+  print("|cff33ff99[BGE debug]|r", msg)
+  -- Persist to the SavedVariables ring buffer (BattleGroundEnemiesDB.global.debugLog)
+  -- so issues survive past chat scrollback / a crash — review with /bge debug dump,
+  -- or read the SV file off disk. Scoped to this addon's own DB.
+  local log = self.db.global.debugLog
+  if not log then
+    log = {}
+    self.db.global.debugLog = log
+  end
+  log[#log + 1] = date("%m/%d %H:%M:%S") .. "  " .. msg
+  if #log >= DEBUG_LOG_CAP * 2 then
+    -- amortized trim: rebuild keeping only the newest DEBUG_LOG_CAP entries
+    local keep = {}
+    for i = #log - DEBUG_LOG_CAP + 1, #log do
+      keep[#keep + 1] = log[i]
+    end
+    self.db.global.debugLog = keep
+  end
+end
+
+-- Secure-action block diagnostics. ADDON_ACTION_BLOCKED / _FORBIDDEN fire when a
+-- protected action (target / focus / cast via a secure click) is denied by
+-- taint or combat lockdown — the exact failure class behind reported in-combat
+-- click-target/focus bugs. The blamed addon is the FIRST taint on the call
+-- stack, NOT necessarily us, so we log it verbatim. Prints only under /bge debug.
+function BattleGroundEnemies:ADDON_ACTION_BLOCKED(blockedAddon, blockedFunc)
+  self:Debug(
+    "ADDON_ACTION_BLOCKED",
+    "addon=" .. tostring(blockedAddon),
+    "func=" .. tostring(blockedFunc),
+    InCombatLockdown() and "(in combat)" or "(out of combat)"
+  )
+end
+
+function BattleGroundEnemies:ADDON_ACTION_FORBIDDEN(forbiddenAddon, forbiddenFunc)
+  self:Debug(
+    "ADDON_ACTION_FORBIDDEN",
+    "addon=" .. tostring(forbiddenAddon),
+    "func=" .. tostring(forbiddenFunc),
+    InCombatLockdown() and "(in combat)" or "(out of combat)"
+  )
+end
+
 function BattleGroundEnemies:PLAYER_REGEN_ENABLED()
   --Check if there are any outstanding updates that have been hold back due to being in combat
   for i = 1, #self.PendingUpdates do
@@ -4532,7 +4603,24 @@ function BattleGroundEnemies:UpdateMapID(retries)
   end
 end
 
-local function parseBattlefieldScore(index)
+-- #10a (UBS allocation): pool the per-row score tables so a 40-row epic lobby
+-- tick reuses tables instead of allocating ~40 fresh ones every fire.
+-- scoreRowPool[i] is the reusable table for scoreboard row i; parseBattlefieldScore
+-- fills a caller-supplied `result` after nil-clearing every field. SCORE_ROW_FIELDS
+-- is the EXHAUSTIVE field set (21 base PVPScoreInfo + 6 GetPlayerInfoByGUID), so the
+-- clear is deterministic — a reused row whose guid is nil this tick can't leak the
+-- prior occupant's localizedClass/sex/realmName onto the new button.
+local scoreRowPool = {}
+local SCORE_ROW_FIELDS = {
+  "name", "guid", "killingBlows", "honorableKills", "deaths", "honorGained",
+  "faction", "raceName", "className", "classToken", "damageDone", "healingDone",
+  "rating", "ratingChange", "prematchMMR", "mmrChange", "postmatchMMR",
+  "talentSpec", "honorLevel", "roleAssigned", "stats",
+  -- GetPlayerInfoByGUID-derived (only written when guid resolves):
+  "localizedClass", "englishClass", "localizedRace", "englishRace", "sex", "realmName",
+}
+
+local function parseBattlefieldScore(index, result)
   local scoreInfo = C_PvP.GetScoreInfo(index)
   if not scoreInfo then
     return
@@ -4554,29 +4642,35 @@ local function parseBattlefieldScore(index)
   -- lobby ran for every row on every UBS tick.
   -- Field list mirrors PVPScoreInfo in
   -- Blizzard_APIDocumentationGenerated/PvpInfoDocumentation.lua.
-  local result = {
-    name = scoreInfo.name,
-    guid = scoreInfo.guid,
-    killingBlows = scoreInfo.killingBlows,
-    honorableKills = scoreInfo.honorableKills,
-    deaths = scoreInfo.deaths,
-    honorGained = scoreInfo.honorGained,
-    faction = scoreInfo.faction,
-    raceName = scoreInfo.raceName,
-    className = scoreInfo.className,
-    classToken = scoreInfo.classToken,
-    damageDone = scoreInfo.damageDone,
-    healingDone = scoreInfo.healingDone,
-    rating = scoreInfo.rating,
-    ratingChange = scoreInfo.ratingChange,
-    prematchMMR = scoreInfo.prematchMMR,
-    mmrChange = scoreInfo.mmrChange,
-    postmatchMMR = scoreInfo.postmatchMMR,
-    talentSpec = scoreInfo.talentSpec,
-    honorLevel = scoreInfo.honorLevel,
-    roleAssigned = scoreInfo.roleAssigned,
-    stats = scoreInfo.stats,
-  }
+  -- #10a: `result` is a pooled, reused table. Clear EVERY field before writing
+  -- so a prior occupant's data can't survive — especially the conditional
+  -- GetPlayerInfoByGUID fields below, which are skipped when guid is nil. The
+  -- clear + writes are pure assignments (no compare / arith / table-key), so
+  -- possibly-secret fields stay taint-safe exactly as the old fresh-literal did.
+  for fi = 1, #SCORE_ROW_FIELDS do
+    result[SCORE_ROW_FIELDS[fi]] = nil
+  end
+  result.name = scoreInfo.name
+  result.guid = scoreInfo.guid
+  result.killingBlows = scoreInfo.killingBlows
+  result.honorableKills = scoreInfo.honorableKills
+  result.deaths = scoreInfo.deaths
+  result.honorGained = scoreInfo.honorGained
+  result.faction = scoreInfo.faction
+  result.raceName = scoreInfo.raceName
+  result.className = scoreInfo.className
+  result.classToken = scoreInfo.classToken
+  result.damageDone = scoreInfo.damageDone
+  result.healingDone = scoreInfo.healingDone
+  result.rating = scoreInfo.rating
+  result.ratingChange = scoreInfo.ratingChange
+  result.prematchMMR = scoreInfo.prematchMMR
+  result.mmrChange = scoreInfo.mmrChange
+  result.postmatchMMR = scoreInfo.postmatchMMR
+  result.talentSpec = scoreInfo.talentSpec
+  result.honorLevel = scoreInfo.honorLevel
+  result.roleAssigned = scoreInfo.roleAssigned
+  result.stats = scoreInfo.stats
 
   if not scoreInfo.guid then
     return result
@@ -5233,45 +5327,35 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
   end
   self._lastEnemyCount = numEnemies
 
-  local battlefieldScores = {}
-  local numScores = GetNumBattlefieldScores()
-  for i = 1, numScores do
-    local score = parseBattlefieldScore(i)
-    if score then
-      table.insert(battlefieldScores, score)
-    end
-  end
-
-  -- Merc-detection loop removed: AllyFaction is now derived authoritatively
-  -- from the user's own scoreboard row via C_PvP.GetScoreInfoByPlayerGuid
-  -- earlier in this function. info.faction already returns the user's
-  -- TEAM number for this match (merc-safe). Name-based merc-detection was
-  -- both redundant and unreliable (silently skipped for secret names).
-
-  -- Wipe the scoreboard source and rebuild from current rows. The
-  -- mark-and-sweep in AfterPlayerSourceUpdate (status 1/2 cycle) handles
-  -- both additions and removals — buttons whose scoreboard row disappeared
-  -- this tick stay at status 2 and get cleaned up by CreateOrRemovePlayerButtons.
+  -- #10a: wipe the scoreboard source FIRST (this drops last tick's references to
+  -- the pooled row tables in self.PlayerSources[Scoreboard]), THEN parse each row
+  -- straight into a reused pool table and add enemy rows directly — no fresh
+  -- per-row table and no battlefieldScores array allocated per fire. Reuse is safe
+  -- because the wipe precedes it and nothing else retains a row past the tick
+  -- (AfterPlayerSourceUpdate copies fields into a fresh playerDetails, never the
+  -- row itself).
   --
-  -- The old "never-shrink" guard (`newEnemyCount >= currentEnemyButtons`)
-  -- was added to prevent enemies vanishing on transient scoreboard blips
-  -- when names were SecretInActivePvPMatch. Post-12.0.5, PVPScoreInfo.name
-  -- is NeverSecret, so scoreboard rows reliably populate. The signature
-  -- gate above (GetBattlefieldTeamInfo count) already short-circuits
-  -- redundant ticks, making the shrink guard both unnecessary and harmful —
-  -- it permanently prevented removal of leavers.
+  -- The mark-and-sweep in AfterPlayerSourceUpdate (status 1/2 cycle) still handles
+  -- additions AND removals: a button whose scoreboard row vanished this tick stays
+  -- status 2 and is cleaned up by CreateOrRemovePlayerButtons. (Merc-detection is
+  -- moot — AllyFaction is derived from the user's own scoreboard row earlier; the
+  -- old never-shrink guard was removed: PVPScoreInfo.name is NeverSecret post-12.0.5
+  -- so rows populate reliably, and the signature gate above short-circuits redundant
+  -- ticks.)
   BattleGroundEnemies.Enemies:BeforePlayerSourceUpdate(self.consts.PlayerSources.Scoreboard)
 
-  for i = 1, #battlefieldScores do
-    local score = battlefieldScores[i]
-
-    local faction = score.faction
-    local name = score.name
-    local classToken = score.classToken
-
-    -- Allies are driven exclusively by GROUP_ROSTER_UPDATE (raidN/partyN
-    -- tokens). Scoreboard is enemy-only here.
-    if faction and name and classToken and faction == self.EnemyFaction then
+  local numScores = GetNumBattlefieldScores()
+  for i = 1, numScores do
+    local row = scoreRowPool[i]
+    if not row then
+      row = {}
+      scoreRowPool[i] = row
+    end
+    local score = parseBattlefieldScore(i, row)
+    -- Allies are driven exclusively by GROUP_ROSTER_UPDATE (raidN/partyN tokens);
+    -- Scoreboard is enemy-only here. parseBattlefieldScore returns nil (NOT `row`)
+    -- when GetScoreInfo has no data for a stale index, so a nil `score` is skipped.
+    if score and score.faction and score.name and score.classToken and score.faction == self.EnemyFaction then
       BattleGroundEnemies.Enemies:AddPlayerToSource(self.consts.PlayerSources.Scoreboard, score)
     end
   end

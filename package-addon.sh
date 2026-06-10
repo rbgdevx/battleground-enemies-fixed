@@ -57,6 +57,7 @@ rsync -a \
   --exclude='DEFERRED.md' \
   --exclude='NEW_CHANGES.md' \
   --exclude='IMPROVEMENTS.md' \
+  --exclude='NOTES.md' \
   --exclude='README.md' \
   --exclude='LICENSE' \
   --exclude='cspell.json' \

@@ -268,30 +268,51 @@ function healthBar:AttachToPlayerButton(playerButton)
       local mainTex = self:GetStatusBarTexture()
       local barWidth = self:GetWidth()
 
+      -- #4-S1: the anchor relationships for the 4 heal-prediction sub-bars are
+      -- INVARIANT across calls — each pins to the moving right/left edge of the
+      -- previous bar's StatusBar texture with offset 0, and the engine re-follows
+      -- that edge as SetValue resizes the texture. So set the anchors ONCE (lazy,
+      -- behind predictionAnchorsSet) instead of ClearAllPoints + 2x SetPoint per
+      -- bar on every UNIT_HEALTH (~300-410/s). The flag is cleared on a texture
+      -- swap (ApplyAllSettings) so we re-anchor to the new mainTex; width is
+      -- cached and re-applied on resize (SetModulePositions). The main healthBar
+      -- has no StatusBar texture until ApplyAllSettings runs, so this must be lazy
+      -- here, not in AttachToPlayerButton.
       local allHeal, playerHeal, otherHeal, healClamped = calc:GetIncomingHeals()
-      playerButton.myHealPrediction:ClearAllPoints()
-      playerButton.myHealPrediction:SetPoint("TOPLEFT", mainTex, "TOPRIGHT", 0, 0)
-      playerButton.myHealPrediction:SetPoint("BOTTOMLEFT", mainTex, "BOTTOMRIGHT", 0, 0)
-      playerButton.myHealPrediction:SetWidth(barWidth)
+      if not self.predictionAnchorsSet then
+        playerButton.myHealPrediction:SetPoint("TOPLEFT", mainTex, "TOPRIGHT", 0, 0)
+        playerButton.myHealPrediction:SetPoint("BOTTOMLEFT", mainTex, "BOTTOMRIGHT", 0, 0)
+        local prevTex = playerButton.myHealPrediction:GetStatusBarTexture()
+        playerButton.otherHealPrediction:SetPoint("TOPLEFT", prevTex, "TOPRIGHT", 0, 0)
+        playerButton.otherHealPrediction:SetPoint("BOTTOMLEFT", prevTex, "BOTTOMRIGHT", 0, 0)
+        local prevAbsorbTex = playerButton.otherHealPrediction:GetStatusBarTexture()
+        playerButton.totalAbsorb:SetPoint("TOPLEFT", prevAbsorbTex, "TOPRIGHT", 0, 0)
+        playerButton.totalAbsorb:SetPoint("BOTTOMLEFT", prevAbsorbTex, "BOTTOMRIGHT", 0, 0)
+        playerButton.myHealAbsorb:SetPoint("TOPRIGHT", mainTex, "TOPRIGHT", 0, 0)
+        playerButton.myHealAbsorb:SetPoint("BOTTOMRIGHT", mainTex, "BOTTOMRIGHT", 0, 0)
+        self.predictionAnchorsSet = true
+      end
+
+      -- barWidth (= healthBar width) only changes on a button resize. Cache it so
+      -- we skip 4 SetWidth + layout-dirty per fire in steady state. Invalidated in
+      -- playerButton:SetModulePositions (the sole place the bar width changes).
+      if self.cachedBarWidth ~= barWidth then
+        playerButton.myHealPrediction:SetWidth(barWidth)
+        playerButton.otherHealPrediction:SetWidth(barWidth)
+        playerButton.totalAbsorb:SetWidth(barWidth)
+        playerButton.myHealAbsorb:SetWidth(barWidth)
+        self.cachedBarWidth = barWidth
+      end
+
       playerButton.myHealPrediction:SetMinMaxValues(0, max)
       playerButton.myHealPrediction:SetValue(playerHeal)
       playerButton.myHealPrediction:Show()
 
-      local prevTex = playerButton.myHealPrediction:GetStatusBarTexture()
-      playerButton.otherHealPrediction:ClearAllPoints()
-      playerButton.otherHealPrediction:SetPoint("TOPLEFT", prevTex, "TOPRIGHT", 0, 0)
-      playerButton.otherHealPrediction:SetPoint("BOTTOMLEFT", prevTex, "BOTTOMRIGHT", 0, 0)
-      playerButton.otherHealPrediction:SetWidth(barWidth)
+      local damageAbsorbAmount, damageAbsorbClamped = calc:GetDamageAbsorbs()
       playerButton.otherHealPrediction:SetMinMaxValues(0, max)
       playerButton.otherHealPrediction:SetValue(otherHeal)
       playerButton.otherHealPrediction:Show()
 
-      local damageAbsorbAmount, damageAbsorbClamped = calc:GetDamageAbsorbs()
-      local prevAbsorbTex = playerButton.otherHealPrediction:GetStatusBarTexture()
-      playerButton.totalAbsorb:ClearAllPoints()
-      playerButton.totalAbsorb:SetPoint("TOPLEFT", prevAbsorbTex, "TOPRIGHT", 0, 0)
-      playerButton.totalAbsorb:SetPoint("BOTTOMLEFT", prevAbsorbTex, "BOTTOMRIGHT", 0, 0)
-      playerButton.totalAbsorb:SetWidth(barWidth)
       playerButton.totalAbsorb:SetMinMaxValues(0, max)
       playerButton.totalAbsorb:SetValue(damageAbsorbAmount)
       playerButton.totalAbsorb:Show()
@@ -300,10 +321,6 @@ function healthBar:AttachToPlayerButton(playerButton)
       playerButton.overAbsorbGlow:SetAlphaFromBoolean(damageAbsorbClamped, 1, 0)
 
       local healAbsorbAmount, healAbsorbClamped = calc:GetHealAbsorbs()
-      playerButton.myHealAbsorb:ClearAllPoints()
-      playerButton.myHealAbsorb:SetPoint("TOPRIGHT", mainTex, "TOPRIGHT", 0, 0)
-      playerButton.myHealAbsorb:SetPoint("BOTTOMRIGHT", mainTex, "BOTTOMRIGHT", 0, 0)
-      playerButton.myHealAbsorb:SetWidth(barWidth)
       playerButton.myHealAbsorb:SetMinMaxValues(0, max)
       playerButton.myHealAbsorb:SetValue(healAbsorbAmount)
       playerButton.myHealAbsorb:Show()
@@ -358,6 +375,11 @@ function healthBar:AttachToPlayerButton(playerButton)
     end
     local config = self.config
     self:SetStatusBarTexture(LSM:Fetch("statusbar", config.Texture))
+    -- #4-S1: SetStatusBarTexture can swap the underlying texture object, which
+    -- invalidates the one-shot heal-prediction anchors (they pin to it). Clear the
+    -- flag so the next UpdateHealth re-anchors to the current texture. Placed before
+    -- the playerDetails early-return below so it fires whenever the texture swaps.
+    self.predictionAnchorsSet = nil
     self.Background:SetVertexColor(unpack(config.Background))
 
     local playerDetails = playerButton.PlayerDetails
@@ -559,13 +581,21 @@ function healthBarText:AttachToPlayerButton(playerButton)
   end
 
   -- Reset is called when the button gets recycled for a new player AND
-  -- when the module is disabled via config. Hide the FontString — the
-  -- next UpdateHealthText will SetText+Show with fresh data.
-  -- Don't call SetText("") here: ApplyModuleSettings can call Reset on
-  -- the disable path before the font has been set on the FontString,
-  -- and SetText errors with "Font not set". Hide alone is sufficient.
+  -- when the module is disabled via config. Hide the FontString and clear
+  -- its string so a recycled button never re-shows the PREVIOUS occupant's
+  -- "X%" between BGs (UpdateHealthText's keep-last-on-nil guard and
+  -- ApplyAllSettings's unconditional Show would otherwise re-expose it).
+  -- The SetText("") MUST be guarded by GetFont(): ApplyModuleSettings can
+  -- call Reset on the disable path before the font has been set on the
+  -- FontString, and SetText errors with "Font not set" when no font is set.
+  -- GetFont() returns nil until SetFont has run (same idiom as Blizzard's
+  -- SecureUtil and this addon's ObjectiveAndRespawn/TargetIndicatorNumeric
+  -- Resets). The "" literal carries no secret value, so this is secret-safe.
   function container:Reset()
     self.fs:Hide()
+    if self.fs:GetFont() then
+      self.fs:SetText("")
+    end
   end
 
   playerButton.healthBarText = container

@@ -88,6 +88,9 @@ rsync -a \
   --exclude='AGENTS.md' \
   --exclude='CLAUDE.md' \
   --exclude='DEFERRED.md' \
+  --exclude='NEW_CHANGES.md' \
+  --exclude='IMPROVEMENTS.md' \
+  --exclude='NOTES.md' \
   --exclude='README.md' \
   --exclude='cspell.json' \
   --exclude='deploy-to-wow.sh' \
