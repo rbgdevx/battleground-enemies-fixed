@@ -2220,5 +2220,39 @@ end
 
 SLASH_BattleGroundEnemies1, SLASH_BattleGroundEnemies2 = "/BattleGroundEnemies", "/bge"
 SlashCmdList["BattleGroundEnemies"] = function(msg)
+  local cmd = strtrim((msg or "")):lower()
+  if cmd == "debug" then
+    local g = BattleGroundEnemies.db.global
+    g.debugMode = not g.debugMode
+    print(
+      "|cff33ff99[BGE]|r debug logging "
+        .. (g.debugMode and "|cff33ff99ON|r — reproduce the issue, then screenshot chat" or "|cffff5555OFF|r")
+    )
+    return
+  elseif cmd == "debug on" then
+    BattleGroundEnemies.db.global.debugMode = true
+    print("|cff33ff99[BGE]|r debug logging |cff33ff99ON|r")
+    return
+  elseif cmd == "debug off" then
+    BattleGroundEnemies.db.global.debugMode = false
+    print("|cff33ff99[BGE]|r debug logging |cffff5555OFF|r")
+    return
+  elseif cmd == "debug dump" then
+    local log = BattleGroundEnemies.db.global.debugLog
+    if not log or #log == 0 then
+      print("|cff33ff99[BGE]|r debug log is empty")
+      return
+    end
+    local from = math.max(1, #log - 50)
+    print("|cff33ff99[BGE]|r debug log — " .. #log .. " entries (showing last " .. (#log - from + 1) .. "):")
+    for i = from, #log do
+      print(log[i])
+    end
+    return
+  elseif cmd == "debug clear" then
+    BattleGroundEnemies.db.global.debugLog = {}
+    print("|cff33ff99[BGE]|r debug log cleared")
+    return
+  end
   AceConfigDialog:Open("BattleGroundEnemiesFixed")
 end
