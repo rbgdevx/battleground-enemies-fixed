@@ -43,8 +43,21 @@ local function powerUpdateImpl(self, unitID, powerToken)
     -- UnitPower / UnitPowerMax return secret values in Rated PvP.
     -- We must NOT do math (cur / max * 100) or comparisons (if cur > 50).
     -- We just pass them blindly to the status bar.
-    local cur = UnitPower(unitID, powerType) or 0
-    local max = UnitPowerMax(unitID, powerType) or 1
+    local cur = UnitPower(unitID, powerType)
+    local max = UnitPowerMax(unitID, powerType)
+
+    -- Keep-prior-on-nil: in 12.0.7 a restricted/stale token (nameplateNtarget,
+    -- arenaNtarget, a detached self.unitID) no longer errors from UnitPower/
+    -- UnitPowerMax — it returns nil. Pre-12.0.7 that error aborted this function
+    -- via the outer pcall in UpdatePower, leaving the bar's last fill intact; the
+    -- old `or 0`/`or 1` fallback would instead drive the bar to empty (visible
+    -- flicker-to-zero). Mirror the HealthBar keep-prior guard (the "fix health
+    -- resetting" fix). A secret value is truthy, so `not cur` distinguishes a
+    -- genuine nil from a secret without tainting; a real 0 (empty energy/rage) is
+    -- also truthy and still renders.
+    if not cur or not max then
+      return
+    end
 
     self:UpdateMinMaxValues(max)
     self:SetValue(cur)
@@ -179,10 +192,15 @@ function power:AttachToPlayerButton(playerButton)
 
   function playerButton.Power:UnitIdUpdate(unitID)
     if unitID then
-      local ok, powerType, powerToken = pcall(UnitPowerType, unitID)
-      if not ok then
+      -- 12.0.7: UnitPowerType no longer errors on restricted/compound tokens (it
+      -- returns nil), so the old `pcall ... if not ok then return` error-gate is
+      -- now dead. Gate on a missing power type instead — preserving the original
+      -- "skip compound tokens" behavior. powerToken (powerTypeToken) carries no
+      -- secret flag, so `not powerToken` is taint-safe.
+      local _, powerToken = UnitPowerType(unitID)
+      if not powerToken then
         return
-      end -- compound token rejected
+      end
 
       self:CheckForNewPowerColor(powerToken)
       self:UpdatePower(unitID)

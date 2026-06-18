@@ -36,7 +36,7 @@ function BattleGroundEnemies:NewContainer(playerButton, createChildF, setupChild
     local widestRow = 0
     local highestColumn = 0
     local numInputs = #self.inputs
-    local pointX, offsetX, offsetY, pointY
+    local offsetX, offsetY
 
     local point, offsetDirectionX, offsetDirectionY =
         Data.Helpers.getContainerAnchorPointForConfig(growRightwards, growDownwards)

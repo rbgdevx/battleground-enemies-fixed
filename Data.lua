@@ -571,7 +571,7 @@ do
           table.insert(Data.RolesToSpec[role], { classToken = classToken, specName = maleSpecName }) --for testmode
 
           --if specName == "Танцующий с ветром" then specName = "Танцующая с ветром" end -- fix for russian bug, fix added on 2017.08.27
-          local specID, specName, _, icon, role = GetSpecializationInfoForClassID(classID, i, 3) -- female version
+          local _, specName = GetSpecializationInfoForClassID(classID, i, 3) -- female version
           if not Data.Classes[classToken][specName] then                                         --there is a female version of that specName
             Data.Classes[classToken][specName] = Data.Classes[classToken][maleSpecName]
           end

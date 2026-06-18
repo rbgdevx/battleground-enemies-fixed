@@ -121,27 +121,6 @@ local combatIndicator = BattleGroundEnemies:NewButtonModule({
   attachSettingsToButton = false,
 })
 
-local states = {
-  Unknown = 0,
-  Combat = 1,
-  OutOfCombat = 2,
-}
-
-local stateStateToIcon = {
-  Unknown = {
-    Combat = false,
-    OutOfCombat = false,
-  },
-  Combat = {
-    Combat = true,
-    OutOfCombat = false,
-  },
-  OutOfCombat = {
-    Combat = false,
-    OutOfCombat = true,
-  },
-}
-
 local function getState(inCombat)
   if inCombat == nil then
     return 0

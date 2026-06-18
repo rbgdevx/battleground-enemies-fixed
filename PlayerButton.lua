@@ -117,7 +117,6 @@ local function endDrag()
 end
 
 --Libs
-local LSM = LibStub("LibSharedMedia-3.0")
 local LRC = LibStub("LibRangeCheck-3.0")
 
 -- One baseline harm spell per class for C_Spell.IsSpellInRange.
@@ -723,8 +722,8 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     elseif unitIDs.Ally then
       unitIDs.HasAllyUnitID = true
       -- Direct token map — no PID matching.
-      local playerButton = BattleGroundEnemies.Allies:GetAllyButtonByUnitID(unitIDs.Ally)
-      if playerButton and playerButton == self then
+      local allyButton = BattleGroundEnemies.Allies:GetAllyButtonByUnitID(unitIDs.Ally)
+      if allyButton and allyButton == self then
         self:UpdateUnitID(unitIDs.Ally, unitIDs.Ally .. "target")
         unitIDs.HasAllyUnitID = true
       end
@@ -787,9 +786,11 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
                     -- the module we are depending on hasn't been set yet
                     allModulesSet = false
                   end
+                -- luacheck: ignore 542
                 else
                   -- return print("error", relativeFrame, "for module", moduleName, "doesnt exist")
                 end
+              -- luacheck: ignore 542
               else
                 --do nothing, the point was probably deleted
               end
@@ -1217,8 +1218,8 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     -- points at a different player after the user moved their cursor),
     -- the bar would read the wrong unit's health.
     -- Fall back to self.unitID ONLY when the event unitID isn't usable —
-    -- compound tokens like "arena2target" are rejected by UnitHealth in
-    -- 12.0+, and a non-existent unit would just return 0/nil.
+    -- compound tokens like "arena2target" return nil from UnitHealth in 12.0.7
+    -- (they errored pre-12.0.7), and a non-existent unit would just return 0/nil.
     local queryID = unitID
     if not queryID or not UnitExists(queryID) then
       queryID = self.unitID
@@ -1231,25 +1232,20 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       healthMissing = maxHealth - health
       healthPercent = maxHealth > 0 and (health / maxHealth) * 100 or 0
     elseif isAlly then
-      local ok, h = pcall(UnitHealth, queryID)
-      local ok2, hMissing = pcall(UnitHealthMissing, queryID)
-      local ok3, hMax = pcall(UnitHealthMax, queryID)
-      local ok4, hPct = pcall(UnitHealthPercent, queryID, true, CurveConstants.ScaleTo100)
-
-      health = (ok and h) or nil
-      healthMissing = (ok2 and hMissing) or nil
-      healthPercent = (ok4 and hPct) or nil
-      maxHealth = (ok3 and hMax) or nil
+      -- 12.0.7: these health APIs (UnitTokenPvPRestrictedForAddOns) no longer error
+      -- on compound/restricted tokens — they return nil/secret — so the old
+      -- pcall + `(ok and v) or nil` guarding is redundant (ok was always true). A
+      -- nil here is handled downstream by UpdateHealth's keep-prior guard
+      -- (HealthBar.lua), and secret values pass straight through to SetValue.
+      health = UnitHealth(queryID)
+      healthMissing = UnitHealthMissing(queryID)
+      maxHealth = UnitHealthMax(queryID)
+      healthPercent = UnitHealthPercent(queryID, true, CurveConstants.ScaleTo100)
     else
-      local ok, h = pcall(UnitHealth, queryID, true)
-      local ok2, hMissing = pcall(UnitHealthMissing, queryID, true)
-      local ok3, hMax = pcall(UnitHealthMax, queryID)
-      local ok4, hPct = pcall(UnitHealthPercent, queryID, true, CurveConstants.ScaleTo100)
-
-      health = (ok and h) or nil
-      healthMissing = (ok2 and hMissing) or nil
-      healthPercent = (ok4 and hPct) or nil
-      maxHealth = (ok3 and hMax) or nil
+      health = UnitHealth(queryID, true)
+      healthMissing = UnitHealthMissing(queryID, true)
+      maxHealth = UnitHealthMax(queryID)
+      healthPercent = UnitHealthPercent(queryID, true, CurveConstants.ScaleTo100)
     end
 
     self:UpdateHealth(queryID, health, healthMissing, healthPercent, maxHealth)
@@ -1427,7 +1423,7 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       end
 
       local inCombatLockdown = InCombatLockdown()
-      local checker, range = LRC[self.PlayerIsEnemy and "GetHarmMaxChecker" or "GetFriendMaxChecker"](
+      local checker, _ = LRC[self.PlayerIsEnemy and "GetHarmMaxChecker" or "GetFriendMaxChecker"](
         LRC,
         inCombatLockdown and self.config.RangeIndicator_Range_InCombat or self.config.RangeIndicator_Range_OutOfCombat,
         inCombatLockdown
@@ -1494,12 +1490,12 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     self:DispatchEvent("UpdatePower", queryID, powerToken)
   end
 
-  function playerButton:UpdateTargetedByEnemy(playerButton, targeted)
+  function playerButton:UpdateTargetedByEnemy(otherButton, targeted)
     local unitIDs = self.UnitIDs
-    unitIDs.TargetedByEnemy[playerButton] = targeted
+    unitIDs.TargetedByEnemy[otherButton] = targeted
     self:DispatchEvent("UpdateTargetIndicators")
 
-    if playerButton == BattleGroundEnemies.UserButton then
+    if otherButton == BattleGroundEnemies.UserButton then
       self:UpdateEnemyUnitID("Target", targeted and "target" or nil)
     end
 
@@ -1517,28 +1513,28 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
   end
 
   -- returns true if the other button is a enemy from the point of view of the button. True if button is ally and other button is enemy, and vice versa
-  function playerButton:IsEnemyToMe(playerButton)
-    return self.PlayerIsEnemy ~= playerButton.PlayerIsEnemy
+  function playerButton:IsEnemyToMe(otherButton)
+    return self.PlayerIsEnemy ~= otherButton.PlayerIsEnemy
   end
 
-  function playerButton:IsNowTargeting(playerButton)
-    self.Target = playerButton
+  function playerButton:IsNowTargeting(otherButton)
+    self.Target = otherButton
 
-    if not self:IsEnemyToMe(playerButton) then
+    if not self:IsEnemyToMe(otherButton) then
       return
     end --we only care of the other player is of opposite faction
 
-    playerButton:UpdateTargetedByEnemy(self, true)
+    otherButton:UpdateTargetedByEnemy(self, true)
   end
 
-  function playerButton:IsNoLongerTarging(playerButton)
+  function playerButton:IsNoLongerTarging(otherButton)
     self.Target = nil
 
-    if not self:IsEnemyToMe(playerButton) then
+    if not self:IsEnemyToMe(otherButton) then
       return
     end --we only care of the other player is of opposite faction
 
-    playerButton:UpdateTargetedByEnemy(self, nil)
+    otherButton:UpdateTargetedByEnemy(self, nil)
   end
 
   function playerButton:UpdateTarget()
@@ -1652,38 +1648,38 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
   end
 
   function playerButton:IsToTheLeftOfFrame(systemFrame)
-    local myLeft, myRight, myBottom, myTop = self:GetScaledSelectionSides()
-    local systemFrameLeft, systemFrameRight, systemFrameBottom, systemFrameTop = systemFrame:GetScaledSelectionSides()
+    local _, myRight, _, _ = self:GetScaledSelectionSides()
+    local systemFrameLeft, _, _, _ = systemFrame:GetScaledSelectionSides()
     return myRight < systemFrameLeft
   end
 
   function playerButton:IsToTheRightOfFrame(systemFrame)
-    local myLeft, myRight, myBottom, myTop = self:GetScaledSelectionSides()
-    local systemFrameLeft, systemFrameRight, systemFrameBottom, systemFrameTop = systemFrame:GetScaledSelectionSides()
+    local myLeft, _, _, _ = self:GetScaledSelectionSides()
+    local _, systemFrameRight, _, _ = systemFrame:GetScaledSelectionSides()
     return myLeft > systemFrameRight
   end
 
   function playerButton:IsAboveFrame(systemFrame)
-    local myLeft, myRight, myBottom, myTop = self:GetScaledSelectionSides()
-    local systemFrameLeft, systemFrameRight, systemFrameBottom, systemFrameTop = systemFrame:GetScaledSelectionSides()
+    local _, _, myBottom, _ = self:GetScaledSelectionSides()
+    local _, _, _, systemFrameTop = systemFrame:GetScaledSelectionSides()
     return myBottom > systemFrameTop
   end
 
   function playerButton:IsBelowFrame(systemFrame)
-    local myLeft, myRight, myBottom, myTop = self:GetScaledSelectionSides()
-    local systemFrameLeft, systemFrameRight, systemFrameBottom, systemFrameTop = systemFrame:GetScaledSelectionSides()
+    local _, _, _, myTop = self:GetScaledSelectionSides()
+    local _, _, systemFrameBottom, _ = systemFrame:GetScaledSelectionSides()
     return myTop < systemFrameBottom
   end
 
   function playerButton:IsVerticallyAlignedWithFrame(systemFrame)
-    local myLeft, myRight, myBottom, myTop = self:GetScaledSelectionSides()
-    local systemFrameLeft, systemFrameRight, systemFrameBottom, systemFrameTop = systemFrame:GetScaledSelectionSides()
+    local _, _, myBottom, myTop = self:GetScaledSelectionSides()
+    local _, _, systemFrameBottom, systemFrameTop = systemFrame:GetScaledSelectionSides()
     return (myTop >= systemFrameBottom) and (myBottom <= systemFrameTop)
   end
 
   function playerButton:IsHorizontallyAlignedWithFrame(systemFrame)
-    local myLeft, myRight, myBottom, myTop = self:GetScaledSelectionSides()
-    local systemFrameLeft, systemFrameRight, systemFrameBottom, systemFrameTop = systemFrame:GetScaledSelectionSides()
+    local myLeft, myRight, _, _ = self:GetScaledSelectionSides()
+    local systemFrameLeft, systemFrameRight, _, _ = systemFrame:GetScaledSelectionSides()
     return (myRight >= systemFrameLeft) and (myLeft <= systemFrameRight)
   end
 
@@ -1708,7 +1704,7 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
   playerButton.ButtonModules = {}
   for moduleName, moduleFrame in pairs(BattleGroundEnemies.ButtonModules) do
     if moduleFrame.AttachToPlayerButton then
-      local moduleOnFrame = moduleFrame:AttachToPlayerButton(playerButton)
+      moduleFrame:AttachToPlayerButton(playerButton)
 
       playerButton[moduleName].GetConfig = function(self)
         self.config = playerButton.playerCountConfig.ButtonModules[moduleName]

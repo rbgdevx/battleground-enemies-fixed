@@ -7,11 +7,23 @@
     "//"
   ],
   "workspace.ignoreDir": [
-    "Libs",
     ".libraries",
     ".git",
     ".vscode",
-    ".claude"
+    ".claude",
+    "libs/AceConfig-3.0",
+    "libs/AceDB-3.0",
+    "libs/AceDBOptions-3.0",
+    "libs/AceGUI-3.0",
+    "libs/AceGUI-3.0-SharedMediaWidgets",
+    "libs/CallbackHandler-1.0",
+    "libs/LibDeflate",
+    "libs/LibRangeCheck-3.0",
+    "libs/LibSerialize",
+    "libs/LibSharedMedia-3.0",
+    "libs/LibSpellIconSelector",
+    "libs/LibStub",
+    "libs/UTF8"
   ],
   "diagnostics.workspaceDelay": 3000,
   "diagnostics.disable": [
@@ -151,7 +163,12 @@
     "CLOSE",
     "OKAY",
     "PLAYER_COUNT_ALLIANCE",
-    "PLAYER_COUNT_HORDE"
+    "PLAYER_COUNT_HORDE",
+    "SLASH_BattleGroundEnemies1",
+    "SLASH_BattleGroundEnemies2",
+    "GetFramerate",
+    "GetAddOnCPUUsage",
+    "UpdateAddOnCPUUsage"
   ],
   "completion.callSnippet": "Replace",
   "completion.keywordSnippet": "Replace",

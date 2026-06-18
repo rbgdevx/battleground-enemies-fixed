@@ -487,7 +487,6 @@ local function CreateMainFrame(playerType)
           local groupMember = groupMembers[i]
           local specName = groupMember.specName
           if not specName or specName == "" then
-            local name = groupMember.name
             local match = self:FindPlayerInSource(BattleGroundEnemies.consts.PlayerSources.Scoreboard, groupMember)
             if match then
               groupMember.specName = match.talentSpec
@@ -597,8 +596,7 @@ local function CreateMainFrame(playerType)
       return BattleGroundEnemies:QueueForUpdateAfterCombat(mainframe, "CheckEnableState")
     end
 
-    if BattleGroundEnemies:IsTestmodeActive() then
-    else
+    if not BattleGroundEnemies:IsTestmodeActive() then
       if self.PlayerType == BattleGroundEnemies.consts.PlayerTypes.Enemies then
         self:RegisterEvent("NAME_PLATE_UNIT_ADDED")
         self:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
@@ -882,9 +880,9 @@ local function CreateMainFrame(playerType)
     )
   end
 
-  function mainframe:GetPlayerbuttonByUnitID(unitID, playerType)
+  function mainframe:GetPlayerbuttonByUnitID(unitID, requestedPlayerType)
     -- Delegate to the robust GUID/PID matcher in Main.lua
-    return BattleGroundEnemies:GetPlayerbuttonByUnitID(unitID, playerType)
+    return BattleGroundEnemies:GetPlayerbuttonByUnitID(unitID, requestedPlayerType)
   end
 
   function mainframe:GetRandomPlayer()
@@ -1872,12 +1870,12 @@ function BattleGroundEnemies.Allies:GetAllyButtonByUnitID(unitID)
   -- Same non-player rejection as the enemy matcher: pets / NPCs / totems
   -- must never resolve to a player button. Without this, a pet whose name
   -- collides with an ally would false-match via the name fallback below.
-  -- UnitIsPlayer isn't in the SecretWhenUnitComparisonRestricted family,
-  -- but pcall anyway for compound-token safety. Only reject on EXPLICIT
-  -- false; nil/secret falls through so we don't accidentally drop a
-  -- confirmed ally.
-  local okPlayer, isPlayer = pcall(UnitIsPlayer, unitID)
-  if okPlayer and isPlayer == false then
+  -- UnitIsPlayer isn't in the restricted-token family and Blizzard calls it
+  -- bare everywhere — it returns nil (not an error) on a compound token. Only
+  -- reject on EXPLICIT false; nil/secret falls through so we don't accidentally
+  -- drop a confirmed ally.
+  local isPlayer = UnitIsPlayer(unitID)
+  if isPlayer == false then
     return nil
   end
   local direct = self.tokenToButton[unitID]
@@ -1979,7 +1977,7 @@ function BattleGroundEnemies.Allies:GroupInSpecT_Update(event, GUID, unitID, inf
 end
 
 function BattleGroundEnemies.Allies:AddGroupMember(name, isLeader, isAssistant, classToken, unitID, raidRole)
-  local raceName, raceFile, raceID = UnitRace(unitID)
+  local raceName = UnitRace(unitID)
   local GUID = UnitGUID(unitID)
 
   if not GUID or type(GUID) ~= "string" or (issecretvalue and issecretvalue(GUID)) then

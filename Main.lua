@@ -36,7 +36,7 @@ local GetNumGroupMembers = GetNumGroupMembers
 local GetRaidRosterInfo = GetRaidRosterInfo
 local GetSpellName = C_Spell and C_Spell.GetSpellName or GetSpellName
 local GetTime = GetTime
-local GetUnitName = GetUnitName
+local GetUnitName
 local InCombatLockdown = InCombatLockdown
 local IsInInstance = IsInInstance
 local IsInRaid = IsInRaid
@@ -105,6 +105,11 @@ LSM:Register("statusbar", "UI-StatusBar", "Interface\\TargetingFrame\\UI-StatusB
 
 ---@class BattleGroundEnemies: frame
 BattleGroundEnemies = CreateFrame("Frame", "BattleGroundEnemies", UIParent)
+-- File-scoped upvalue: every reference below resolves to this local instead of
+-- a global lookup, so the addon's own reads of its frame no longer log as
+-- tainted global reads at taintLog 2 (e.g. the Main.lua:627/1281 lines). The
+-- global name still exists (CreateFrame registered it) for other files.
+local BattleGroundEnemies = BattleGroundEnemies
 BattleGroundEnemies.Counter = {}
 BattleGroundEnemies.PlayerGUIDs = {}
 BattleGroundEnemies.DuplicateLog = {}
@@ -155,7 +160,16 @@ end
 -- Server-side sort is no longer tracked: enemies are sorted by class+name
 -- on our end via PlayerSortingByClassName, so the row order from
 -- SortBattlefieldScoreData is irrelevant to the addon.
-BattleGroundEnemies._scoreboardFaction = nil
+--
+-- Initialized to -1 (NOT nil) to match Blizzard's own default: the scoreboard
+-- opens on the "All" tab (factionEnum -1, per PVPMatchScoreboard.xml). Starting
+-- at nil made the first UPDATE_BATTLEFIELD_SCORE tick on a fresh join see
+-- `nil ~= -1` and call SetBattlefieldScoreFaction(-1) unnecessarily — which
+-- synchronously rebuilds Blizzard's scoreboard under our taint and crashed on
+-- the (secret, mid-match) honor level. The filter is already -1 on join, so we
+-- no longer force it there; the hook below keeps this in sync if anything ever
+-- changes it, and the existing re-assert handles that case unchanged.
+BattleGroundEnemies._scoreboardFaction = -1
 hooksecurefunc("SetBattlefieldScoreFaction", function(factionEnum)
   BattleGroundEnemies._scoreboardFaction = factionEnum
 end)
@@ -316,8 +330,6 @@ BattleGroundEnemies.specCache = {} -- key = GUID, value = specName (localized)
 --     end
 --   end
 -- end
-
-local playerSpells
 
 ---@class bgeState
 ---@field WOW_PROJECT_ID number
@@ -1425,17 +1437,21 @@ function BattleGroundEnemies:ARENA_OPPONENT_UPDATE(unitID, unitEvent)
   if unitEvent == "cleared" then --"unseen", "cleared" or "destroyed"
     local playerButton = self.ArenaIDToPlayerButton[unitID]
     if playerButton then
-      -- Skip the wipe when the local player is dead/ghost AND the bound
-      -- carrier is NOT the local player. Blizzard fires "cleared" for
-      -- arena tokens when the dead user loses visibility — but other
-      -- carriers may still be alive and holding the objective. Wiping
-      -- here makes their icon disappear until you respawn.
+      -- "cleared" is the AUTHORITATIVE removal signal (drop / cap / return /
+      -- carrier death). Per Blizzard's arena-unit semantics, viewer-death and
+      -- mere loss-of-visibility surface as "unseen" (UnitExists -> false, the
+      -- frame is KEPT), NEVER as "cleared" — so hiding here can never wipe a
+      -- still-live carrier. Hide UNCONDITIONALLY, even while the viewer is
+      -- dead and binding-agnostically (PID- or chat-bound). This mirrors the
+      -- ObjectiveFrames oracle (core/events.lua HandleCarrierVisibility hides
+      -- on "cleared" with zero dead-check). UpdateEnemyUnitID -> SetBindings
+      -- self-defers under combat lockdown, so this is combat-safe.
       --
-      -- If the bound carrier IS the local user (user dropped the
-      -- objective by dying), the wipe IS correct and runs.
-      if UnitIsDeadOrGhost("player") and playerButton ~= self.UserButton then
-        return
-      end
+      -- (The old dead-guard early-return here was the disappear-while-dead
+      -- leak for PID-bound carriers: it suppressed real removals to protect a
+      -- case Blizzard never produces. A still-held carrier whose icon was lost
+      -- to a /reload-while-dead is re-established by the persist-and-replay
+      -- path in Modules/ObjectiveAndRespawn.lua, not by suppressing this hide.)
       self.ArenaIDToPlayerButton[unitID] = nil
       playerButton:UpdateEnemyUnitID("Arena", false)
       playerButton:DispatchEvent("ArenaOpponentHidden")
@@ -1537,123 +1553,21 @@ do
     if not pd or not token then
       return false
     end
-    local okClass, _, liveClassID = pcall(UnitClassBase, token)
-    if okClass and liveClassID then
+    local _, liveClassID = UnitClassBase(token)
+    if liveClassID then
       local storedClassID = ClassTokenToID[pd.PlayerClass or ""]
       if storedClassID and storedClassID ~= liveClassID then
         return true
       end
     end
-    local okRace, liveRace = pcall(UnitRace, token)
-    if okRace and liveRace and not (issecretvalue and issecretvalue(liveRace)) then
+    local liveRace = UnitRace(token)
+    if liveRace and not (issecretvalue and issecretvalue(liveRace)) then
       local storedRace = pd.PlayerRace
       if storedRace and storedRace ~= "Unknown" and storedRace ~= liveRace then
         return true
       end
     end
     return false
-  end
-
-  -- Race token to numeric ID (built once from C_CreatureInfo at load time)
-  local RaceTokenToID = {}
-  do
-    local playableRaces =
-      { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 22, 25, 27, 28, 29, 30, 31, 32, 34, 35, 36, 37, 52, 84, 85, 86 }
-    for i = 1, #playableRaces do
-      local raceInfo = C_CreatureInfo.GetRaceInfo(playableRaces[i])
-      if raceInfo and raceInfo.clientFileString then
-        RaceTokenToID[raceInfo.clientFileString] = raceInfo.raceID
-      end
-    end
-    -- Some code paths feed in localized race names (e.g. "Undead", "Earthen")
-    -- rather than the C_CreatureInfo clientFileString ("Scourge", "EarthenDwarf").
-    -- Add aliases so the lookup succeeds for both formats.
-    RaceTokenToID["Undead"] = RaceTokenToID["Scourge"] or 5
-    RaceTokenToID["Earthen"] = RaceTokenToID["EarthenDwarf"] or 85
-  end
-
-  -- Collapse faction-variant race IDs to a single canonical ID
-  local RaceCollapseMap = {
-    [24] = 25, -- Pandaren (Neutral)
-    [26] = 25, -- Pandaren (Horde)
-    [70] = 52, -- Dracthyr (Horde)
-    [84] = 85, -- Earthen (Horde)
-    [91] = 86, -- Harronir (Alt ID)
-  }
-
-  -- PID = Player ID (unique identifier using bit-shifting)
-  -- Gender:     × 2^32 - positions 33+
-  -- Race:       × 2^24 - positions 25-32
-  -- Class:      × 2^16 - positions 17-24
-  -- HonorLevel: × 2^0  - positions 0-15
-  -- Returns fullPID, basePID, corePID, classGenderPID, classPID
-  --   fullPID        = gender + race + class + honor (most specific)
-  --   basePID        = gender + race + class (honor stripped)
-  --   corePID        = race + class only (gender stripped)
-  --   classGenderPID = gender + class (race stripped, for when race is nil/mismatched)
-  --   classPID       = class only (race+gender stripped, broadest match)
-  local function EN_CalculatePID(raceID, classID, gender, honorLevel)
-    if not classID then
-      return 0, 0, 0, 0, 0
-    end
-    local classPID = classID * 65536
-    local genderComponent = (gender or 0) * 4294967296
-    local classGenderPID = genderComponent + classPID
-    if not raceID then
-      -- Race unavailable (combat secret) -- classGenderPID and classPID are usable
-      return 0, 0, 0, classGenderPID, classPID
-    end
-    local collapsedRaceID = RaceCollapseMap[raceID] or raceID
-    if not collapsedRaceID then
-      return 0, 0, 0, classGenderPID, classPID
-    end
-    local corePID = (collapsedRaceID * 16777216) + classPID
-    local basePID = genderComponent + corePID
-    local honor = (honorLevel and honorLevel > 0) and honorLevel or 0
-    return basePID + honor, basePID, corePID, classGenderPID, classPID
-  end
-
-  local function EN_UnitPID(unit)
-    if not UnitExists(unit) then
-      return 0, 0, 0, 0, 0
-    end
-    local _, _, raceID = UnitRace(unit)
-    local _, _, classID = UnitClass(unit)
-    local gender = UnitSex(unit)
-    if not classID then
-      return 0, 0, 0, 0, 0
-    end
-    local unitHonor = UnitHonorLevel(unit)
-    -- Detect placeholder data: WARRIOR class (1) with no race suggests incomplete API data.
-    -- WoW may return classID=1 as default before real data loads. Skip matching to avoid
-    -- false positives; retry mechanisms will catch it once proper data is available.
-    -- Only check for players (UnitIsPlayer) to avoid false positives from NPCs/objects.
-    if classID == 1 and (not raceID or raceID == 0) then
-      return 0, 0, 0, 0, 0
-    end
-    return EN_CalculatePID(raceID, classID, gender, unitHonor)
-  end
-
-  local function EN_ScoreboardPID(p)
-    -- Race: use PlayerRace from scoreboard. Format matches
-    -- C_CreatureInfo.GetRaceInfo().clientFileString (e.g. "BloodElf").
-    local raceID = RaceTokenToID[p.PlayerRace or ""] or 0
-    local classID = ClassTokenToID[p.PlayerClass or ""] or 0
-    if raceID == 0 and p.PlayerRace and p.PlayerRace ~= "Unknown" then
-      -- Only warn once per race token to avoid spam
-      local warnKey = "race_" .. p.PlayerRace
-      if not (BattleGroundEnemies.DuplicateLog or {})[warnKey] then
-        BattleGroundEnemies.DuplicateLog = BattleGroundEnemies.DuplicateLog or {}
-        BattleGroundEnemies.DuplicateLog[warnKey] = true
-      end
-    end
-    -- Gender: try GetPlayerInfoByGUID (may return nil for unseen enemies)
-    local gender
-    if p.guid then
-      local _, cachedGender = GetCachedPlayerInfo(p.guid)
-      gender = cachedGender
-    end
-    return EN_CalculatePID(raceID, classID, gender, p.honorLevel)
   end
 
   -- Per-scan-cycle cache: avoids redundant PID matching for the same unit
@@ -1760,7 +1674,12 @@ do
     if currentGuild == nil or (issecretvalue and issecretvalue(currentGuild)) or pd._GuildNameSource == "harvest" then
       local gn = GetGuildInfo(unitID)
       if gn then
-        if currentGuild == nil or currentGuild == false or (issecretvalue and issecretvalue(currentGuild)) or gn ~= currentGuild then
+        if
+          currentGuild == nil
+          or currentGuild == false
+          or (issecretvalue and issecretvalue(currentGuild))
+          or gn ~= currentGuild
+        then
           pd.GuildName = gn
           pd._GuildNameSource = "live"
         elseif gn == currentGuild and pd._GuildNameSource == "harvest" then
@@ -1779,12 +1698,13 @@ do
         end
       end
     end
-    -- lastPowerType: pcall because UnitPowerType errors on compound tokens
-    local okPower, pt = pcall(UnitPowerType, unitID)
-    if okPower and pt and pt ~= pd.lastPowerType then
+    -- lastPowerType: UnitPowerType (MayReturnNothing) returns nil, not an error,
+    -- on compound tokens in 12.0.7 — no pcall needed.
+    local pt = UnitPowerType(unitID)
+    if pt and pt ~= pd.lastPowerType then
       pd.lastPowerType = pt
       pd._lastPowerTypeSource = "live"
-    elseif okPower and pt and pd._lastPowerTypeSource == "harvest" then
+    elseif pt and pd._lastPowerTypeSource == "harvest" then
       pd._lastPowerTypeSource = "live"
     end
   end
@@ -1928,15 +1848,14 @@ do
     -- Reject non-players (pets, NPCs, totems, objects) at the door. Without
     -- this, the matcher happily processes anything, and stale sticky-PID /
     -- fallback class-match tiers can attribute a pet's identity to a random
-    -- same-class player button. UnitIsPlayer is NOT in the
-    -- SecretWhenUnitComparisonRestricted family (that tag covers Friend /
-    -- Enemy / UnitIsUnit), but wrap in pcall anyway for compound-token
-    -- safety (raid1target, nameplate1target, etc). Only reject on an
-    -- EXPLICIT false. nil/secret returns fall through — downstream guards
-    -- (GUID/name lookups, class checks) still refuse to match when identity
-    -- data is unknown.
-    local okPlayer, isPlayer = pcall(UnitIsPlayer, unitID)
-    if okPlayer and isPlayer == false then
+    -- same-class player button. UnitIsPlayer is NOT in the restricted-token
+    -- family and Blizzard calls it bare everywhere — on a compound token
+    -- (raid1target, nameplate1target, etc) it returns nil, not an error. Only
+    -- reject on an EXPLICIT false. nil/secret returns fall through — downstream
+    -- guards (GUID/name lookups, class checks) still refuse to match when
+    -- identity data is unknown.
+    local isPlayer = UnitIsPlayer(unitID)
+    if isPlayer == false then
       return nil
     end
 
@@ -2177,9 +2096,12 @@ do
         -- the sticky points at the wrong hunter. Use the same contradiction
         -- predicate that arena tiers use; it short-circuits to "valid" when
         -- live race is unreadable, so we don't over-invalidate.
-        local okClass, _, classID = pcall(UnitClassBase, unitID)
-        if okClass and classID and sticky.classID == classID
-            and not BattleGroundEnemies:ArenaMappingContradicted(sticky.button, unitID) then
+        local _, classID = UnitClassBase(unitID)
+        if
+          classID
+          and sticky.classID == classID
+          and not BattleGroundEnemies:ArenaMappingContradicted(sticky.button, unitID)
+        then
           stickyValid = true
         end
       end
@@ -2199,12 +2121,12 @@ do
 
     -- Unique-class match: if only one button on this side has the unit's class, it's unambiguous.
     -- If multiple share the class, narrow by race (class+race unique match).
-    -- 12.0.5: compare via numeric classID (third return of UnitClass) instead of
-    -- the classToken string — strings may be secret and comparison would taint.
+    -- 12.0.5: compare via numeric classID (second return of UnitClassBase) instead
+    -- of the classToken string — strings may be secret and comparison would taint.
     local hasMultipleCandidates = false
-    local okClass, _, unitClassID = pcall(UnitClassBase, unitID)
+    local _, unitClassID = UnitClassBase(unitID)
     local list = self[playerType].PlayerList
-    if okClass and unitClassID and list then
+    if unitClassID and list then
       local match = nil
       local count = 0
       for i = 1, #list do
@@ -2267,8 +2189,8 @@ do
 
     -- Class+race unique match: disambiguate same-class candidates by race.
     if hasMultipleCandidates then
-      local okRace, unitRaceLocalized = pcall(UnitRace, unitID)
-      if okRace and unitRaceLocalized then
+      local unitRaceLocalized = UnitRace(unitID)
+      if unitRaceLocalized then
         unitRace = unitRaceLocalized
         local match = nil
         local count = 0
@@ -2321,13 +2243,13 @@ do
     -- candidate WITH gender data by default — that's a guess (the others
     -- might be the unit, we just couldn't compare). Skip when data sparse.
     if hasMultipleCandidates and refinedCandidates and allCandidatesHaveAttr(refinedCandidates, "gender") then
-      local okGender, unitGender = pcall(UnitSexBase, unitID)
+      local unitGender = UnitSexBase(unitID)
       -- `unitGender ~= nil` (NOT `> 0`): UnitSexBase returns the modern
       -- UnitSex enum where 0 = Male, 1 = Female, 2 = None, ... A `> 0`
       -- guard would silently exclude Male players. The legacy UnitSex
       -- (not Base) used 1 = unknown / 2 = male / 3 = female where `> 0`
       -- was meaningless and `> 1` was the correct "exclude unknown" check.
-      if okGender and unitGender ~= nil then
+      if unitGender ~= nil then
         local match = nil
         local count = 0
         for i = 1, #list do
@@ -2369,9 +2291,9 @@ do
     -- through cleanly to the guild tier instead of silently matching nothing.
     -- STRICT RULE: every same-class candidate must have stored honor.
     if hasMultipleCandidates and refinedCandidates and allCandidatesHaveAttr(refinedCandidates, "honorLevel") then
-      local okHonor, unitHonor = pcall(UnitHonorLevel, unitID)
-      if okHonor and unitHonor and unitHonor > 0 then
-        local okGender, unitGender = pcall(UnitSexBase, unitID)
+      local unitHonor = UnitHonorLevel(unitID)
+      if unitHonor and unitHonor > 0 then
+        local unitGender = UnitSexBase(unitID)
         local firstMatch = nil
         local count = 0
         for i = 1, #list do
@@ -2381,7 +2303,7 @@ do
             if dominated and unitRace then
               dominated = softEq(button.PlayerDetails.PlayerRace, unitRace)
             end
-            if dominated and okGender and unitGender ~= nil then
+            if dominated and unitGender ~= nil then
               dominated = softEq(button.PlayerDetails.gender, unitGender)
             end
             if dominated then
@@ -2418,11 +2340,12 @@ do
     -- staleness window is bounded.
     -- STRICT RULE: every same-class candidate must have stored lastPowerType.
     if hasMultipleCandidates and refinedCandidates and allCandidatesHaveAttr(refinedCandidates, "lastPowerType") then
-      -- pcall: UnitPowerType errors on compound tokens, doesn't return nil.
-      local okPower, unitPowerType = pcall(UnitPowerType, unitID)
-      if okPower and unitPowerType then
-        local okGender, unitGender = pcall(UnitSexBase, unitID)
-        local okHonor, unitHonor = pcall(UnitHonorLevel, unitID)
+      -- 12.0.7: UnitPowerType (MayReturnNothing) returns nil, not an error, on
+      -- compound tokens — no pcall needed.
+      local unitPowerType = UnitPowerType(unitID)
+      if unitPowerType then
+        local unitGender = UnitSexBase(unitID)
+        local unitHonor = UnitHonorLevel(unitID)
         local match = nil
         local count = 0
         for i = 1, #list do
@@ -2432,10 +2355,10 @@ do
             if dominated and unitRace then
               dominated = softEq(button.PlayerDetails.PlayerRace, unitRace)
             end
-            if dominated and okGender and unitGender ~= nil then
+            if dominated and unitGender ~= nil then
               dominated = softEq(button.PlayerDetails.gender, unitGender)
             end
-            if dominated and okHonor and unitHonor and unitHonor > 0 then
+            if dominated and unitHonor and unitHonor > 0 then
               dominated = softEq(button.PlayerDetails.honorLevel, unitHonor)
             end
             if dominated then
@@ -2487,21 +2410,23 @@ do
       -- Tier 9 only fires if we have ANY guild signal for the unit
       -- (string or false). nil = unknown unit guild → skip.
       if unitGuild ~= nil then
-        local okGender, unitGender = pcall(UnitSexBase, unitID)
-        local okHonor, unitHonor = pcall(UnitHonorLevel, unitID)
+        local unitGender = UnitSexBase(unitID)
+        local unitHonor = UnitHonorLevel(unitID)
         local match = nil
         local count = 0
         for i = 1, #list do
           local button = list[i]
-          if buttonClassMatches(button, unitClassID) and guildCmp(button.PlayerDetails.GuildName, unitGuild) == true then
+          if
+            buttonClassMatches(button, unitClassID) and guildCmp(button.PlayerDetails.GuildName, unitGuild) == true
+          then
             local dominated = true
             if dominated and unitRace then
               dominated = softEq(button.PlayerDetails.PlayerRace, unitRace)
             end
-            if dominated and okGender and unitGender ~= nil then
+            if dominated and unitGender ~= nil then
               dominated = softEq(button.PlayerDetails.gender, unitGender)
             end
-            if dominated and okHonor and unitHonor then
+            if dominated and unitHonor then
               dominated = softEq(button.PlayerDetails.honorLevel, unitHonor)
             end
             if dominated then
@@ -3079,7 +3004,7 @@ function BattleGroundEnemies:ScanTargets()
 
       if not allyBtn and not targetName then
         -- If first call failed, try without realm
-        ok, name, server = pcall(GetUnitName, targetUnitID, false)
+        ok, name = pcall(GetUnitName, targetUnitID, false)
         if ok and name then
           local ok2, computed = pcall(buildTargetNameNonSecretNoRealm, name)
           if ok2 then
@@ -3247,7 +3172,7 @@ function BattleGroundEnemies:ScanTargets()
 
       if not allyBtn and not targetName then
         -- If first call failed, try without realm
-        ok, name, server = pcall(GetUnitName, targetUnitID, false)
+        ok, name = pcall(GetUnitName, targetUnitID, false)
         if ok and name then
           local ok2, computed = pcall(buildTargetNameNonSecretNoRealm, name)
           if ok2 then
@@ -3491,8 +3416,6 @@ function BattleGroundEnemies:HandleAllyFocusChanged(newFocus)
 end
 
 function BattleGroundEnemies:HandleTargetChanged(newTarget)
-  local targetName = self:SafeGetUnitName("target")
-
   if BattleGroundEnemies.currentTarget then
     BattleGroundEnemies.currentTarget:UpdateEnemyUnitID("Target", false)
 
@@ -4612,12 +4535,34 @@ end
 -- prior occupant's localizedClass/sex/realmName onto the new button.
 local scoreRowPool = {}
 local SCORE_ROW_FIELDS = {
-  "name", "guid", "killingBlows", "honorableKills", "deaths", "honorGained",
-  "faction", "raceName", "className", "classToken", "damageDone", "healingDone",
-  "rating", "ratingChange", "prematchMMR", "mmrChange", "postmatchMMR",
-  "talentSpec", "honorLevel", "roleAssigned", "stats",
+  "name",
+  "guid",
+  "killingBlows",
+  "honorableKills",
+  "deaths",
+  "honorGained",
+  "faction",
+  "raceName",
+  "className",
+  "classToken",
+  "damageDone",
+  "healingDone",
+  "rating",
+  "ratingChange",
+  "prematchMMR",
+  "mmrChange",
+  "postmatchMMR",
+  "talentSpec",
+  "honorLevel",
+  "roleAssigned",
+  "stats",
   -- GetPlayerInfoByGUID-derived (only written when guid resolves):
-  "localizedClass", "englishClass", "localizedRace", "englishRace", "sex", "realmName",
+  "localizedClass",
+  "englishClass",
+  "localizedRace",
+  "englishRace",
+  "sex",
+  "realmName",
 }
 
 local function parseBattlefieldScore(index, result)
@@ -4924,8 +4869,10 @@ function BattleGroundEnemies:HarvestPlayerHistory()
         -- GetPlayerInfoByGUID: realm always; sex only if button source
         -- didn't have it. Convert legacy → modern.
         if scoreInfo.guid and not (issecretvalue and issecretvalue(scoreInfo.guid)) then
-          local ok, _lc, _ec, _lr, _er, gpiSex, _nm, rl = pcall(GetPlayerInfoByGUID, scoreInfo.guid)
+          local ok, _, _, _, _, gpiSex, _, rl = pcall(GetPlayerInfoByGUID, scoreInfo.guid)
           if ok then
+            -- realm is declared above; intentional realm-or-rl fallback, not uninitialized
+            -- luacheck: ignore 321
             realm = realm or rl
             if not sex and gpiSex then
               sex = LEGACY_TO_MODERN_SEX[gpiSex] or gpiSex
@@ -5013,8 +4960,8 @@ function BattleGroundEnemies:HarvestRaidRoster()
       return
     end
     -- Real player characters only — skip pets, NPCs, vehicles.
-    local okPlayer, isPlayer = pcall(UnitIsPlayer, unit)
-    if not okPlayer or not isPlayer then
+    local isPlayer = UnitIsPlayer(unit)
+    if not isPlayer then
       return
     end
     local guid = UnitGUID(unit)
@@ -5053,9 +5000,9 @@ function BattleGroundEnemies:HarvestRaidRoster()
       return
     end
 
-    local _, gender = pcall(UnitSexBase, unit) -- modern enum (0=Male, 1=Female, 2=None); Nilable=true
-    local _, honor = pcall(UnitHonorLevel, unit)
-    local _, powerType = pcall(UnitPowerType, unit) -- numeric enum; MayReturnNothing
+    local gender = UnitSexBase(unit) -- modern enum (0=Male, 1=Female, 2=None); Nilable=true
+    local honor = UnitHonorLevel(unit)
+    local powerType = UnitPowerType(unit) -- numeric enum; MayReturnNothing
 
     local guildName = GetGuildInfo(unit)
     local guildToStore
@@ -5074,7 +5021,7 @@ function BattleGroundEnemies:HarvestRaidRoster()
     -- Note: GetPlayerInfoByGUID returns LEGACY sex enum, but we already have
     -- modern-enum gender from UnitSexBase, so we ignore its sex return.
     local realm
-    local okGpi, _lc, _ec, _lr, _er, _gpiSex, _nm, rl = pcall(GetPlayerInfoByGUID, guid)
+    local okGpi, _, _, _, _, _, _, rl = pcall(GetPlayerInfoByGUID, guid)
     if okGpi and type(rl) == "string" and rl ~= "" then
       realm = rl
     end
@@ -5219,16 +5166,23 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
     -- pre-check and bail out of validation entirely if our own name reads
     -- back as secret. AllyFaction stays nil, enemy panel stays empty, the
     -- "never wrong" trade-off holds.
-    if ok and myInfo and myInfo.faction ~= nil and type(myInfo.name) == "string"
-        and not (issecretvalue and issecretvalue(myInfo.name)) then
+    if
+      ok
+      and myInfo
+      and myInfo.faction ~= nil
+      and type(myInfo.name) == "string"
+      and not (issecretvalue and issecretvalue(myInfo.name))
+    then
       local raidNames = nil
       if IsInRaid() then
         raidNames = {}
         for i = 1, GetNumGroupMembers() or 0 do
           local memberName = GetRaidRosterInfo(i)
-          if type(memberName) == "string"
-              and not (issecretvalue and issecretvalue(memberName))
-              and memberName ~= myInfo.name then
+          if
+            type(memberName) == "string"
+            and not (issecretvalue and issecretvalue(memberName))
+            and memberName ~= myInfo.name
+          then
             raidNames[memberName] = true
           end
         end
@@ -5256,7 +5210,6 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
             else
               -- Disagreement: at least one peer says different team.
               -- Don't commit; retry next tick.
-              agreed = 0
               break
             end
           end
@@ -5425,7 +5378,7 @@ function BattleGroundEnemies:GROUP_ROSTER_UPDATE()
   if buildAllies then
     if IsInRaid() then
       for i = 1, numGroupMembers do -- the player itself only shows up here when he is in a raid
-        local name, rank, subgroup, level, localizedClass, classToken, zone, online, isDead, role, isML, combatRole =
+        local name, rank, _, _, _, classToken, _, _, _, role, _, _ =
           GetRaidRosterInfo(i)
 
         -- Canonicalize the GetRaidRosterInfo name so it can be compared with
@@ -5483,7 +5436,7 @@ function BattleGroundEnemies:GROUP_ROSTER_UPDATE()
   end
 
   -- unitIDs are now assigned — refresh trinket icons if we're in an arena.
-  local _, instanceType = IsInInstance()
+  _, instanceType = IsInInstance()
   if instanceType == "arena" then
     self:ARENA_COOLDOWNS_UPDATE()
   end
