@@ -96,9 +96,9 @@ function level:AttachToPlayerButton(playerButton)
     end
   end
 
-  container.SetLevel = function(self, level)
-    if not playerButton.PlayerLevel or level ~= playerButton.PlayerLevel then
-      playerButton.PlayerLevel = level
+  container.SetLevel = function(self, newLevel)
+    if not playerButton.PlayerLevel or newLevel ~= playerButton.PlayerLevel then
+      playerButton.PlayerLevel = newLevel
     end
     self:DisplayLevel()
   end

@@ -11,13 +11,15 @@
 # Excludes (dev-only, not part of the addon distribution):
 #   .git/, .gitignore, .DS_Store, ._* (AppleDouble), .claude/, .vscode/,
 #   .luarc.json, .libraries/, AGENTS.md, CLAUDE.md, DEFERRED.md,
-#   NEW_CHANGES.md, IMPROVEMENTS.md, README.md, LICENSE, cspell.json,
+#   NEW_CHANGES.md, IMPROVEMENTS.md, README.md, cspell.json,
 #   stylua.toml, deploy-to-wow.sh,
-#   package-addon.sh, Modules/PerfHUD.lua (dev-only; its load line +
-#   SavedVariables are also stripped from the staged .toc below)
+#   package-addon.sh, Modules/PerfHUD.lua + libs/PerfHUD-1.0/ (dev-only perf
+#   tooling, never shipped to users). The glue's load line + its SavedVariables
+#   are stripped from the staged .toc, and the lib's <Include> is stripped from
+#   the staged embeds.xml, so the packaged addon has no dangling references.
 #
 # Kept:
-#   .toc / .xml / .lua, Libs/, Modules/, fonts/, bge_logo.tga
+#   .toc / .xml / .lua, libs/, Modules/, fonts/, bge_logo.tga
 
 set -euo pipefail
 
@@ -58,27 +60,36 @@ rsync -a \
   --exclude='NEW_CHANGES.md' \
   --exclude='IMPROVEMENTS.md' \
   --exclude='NOTES.md' \
+  --exclude='DROPPED.md' \
+  --exclude='REPORT.md' \
   --exclude='README.md' \
-  --exclude='LICENSE' \
   --exclude='cspell.json' \
   --exclude='stylua.toml' \
   --exclude='deploy-to-wow.sh' \
   --exclude='package-addon.sh' \
   --exclude='Modules/PerfHUD.lua' \
+  --exclude='libs/PerfHUD-1.0/' \
   "$SRC/" "$STAGE/BattleGroundEnemiesFixed/"
 
-# --- Strip the dev-only PerfHUD module from the shipped .toc -------------
-# PerfHUD.lua is excluded above (it loads only on the dev's own client via
-# deploy-to-wow.sh). Remove its load line + SavedVariables from the STAGED
-# .toc so the packaged addon has no dangling file reference for end users.
-# Operates on the staged copy only — the working-tree .toc is untouched, so
-# local testing still loads PerfHUD.
+# --- Strip the dev-only PerfHUD tooling from the staged copy -------------
+# Both Modules/PerfHUD.lua (BGE glue) and libs/PerfHUD-1.0/ (the lib) are
+# excluded above — they load only on the dev's own client via deploy-to-wow.sh.
+# Remove their references from the STAGED files so the packaged addon has no
+# dangling references for end users:
+#   .toc       — the glue's load line + the PerfHUD SavedVariables
+#   embeds.xml — the lib's <Include> line
+# Operates on the staged copies only — the working tree is untouched, so local
+# testing still loads PerfHUD.
 STAGE_TOC="$STAGE/BattleGroundEnemiesFixed/BattleGroundEnemiesFixed.toc"
 sed -i '' \
   -e 's/,[[:space:]]*BattleGroundEnemiesPerfHUDLog//' \
   -e '/^## SavedVariablesPerCharacter:[[:space:]]*BattleGroundEnemiesPerfHUD[[:space:]]*$/d' \
   -e '/PerfHUD\.lua/d' \
   "$STAGE_TOC"
+STAGE_EMBEDS="$STAGE/BattleGroundEnemiesFixed/embeds.xml"
+sed -i '' \
+  -e '/PerfHUD-1\.0/d' \
+  "$STAGE_EMBEDS"
 
 # --- Zip it -------------------------------------------------------------
 # COPYFILE_DISABLE=1 prevents macOS from injecting AppleDouble (._*) files

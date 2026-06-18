@@ -107,7 +107,7 @@ function trinket:AttachToPlayerButton(playerButton)
       texture = GetItemIcon(itemID)
     elseif spellId and not spellIdSecret then
       -- Guard: GetSpellTexture crashes on nil input
-      local spellTexture, spellTextureNoOverride = GetSpellTexture(spellId)
+      local _, spellTextureNoOverride = GetSpellTexture(spellId)
       texture = spellTextureNoOverride
     end
     -- Fallback: spellId/itemID are secret (arena Midnight restriction) — use generic medallion icon

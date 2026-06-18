@@ -198,10 +198,10 @@ local allieDefaults15man = {
       UseButtonHeightAsWidth = true,
       UseButtonHeightAsHeight = true,
       Cooldown = {
-        FontSize = 12,
+        FontSize = 15,
       },
       Text = {
-        FontSize = 17,
+        FontSize = 15,
         JustifyH = "CENTER",
         JustifyV = "MIDDLE",
       },
@@ -411,10 +411,10 @@ local enemyDefault15man = {
       UseButtonHeightAsWidth = true,
       UseButtonHeightAsHeight = true,
       Cooldown = {
-        FontSize = 12,
+        FontSize = 15,
       },
       Text = {
-        FontSize = 17,
+        FontSize = 15,
         JustifyH = "CENTER",
         JustifyV = "MIDDLE",
       },
@@ -706,10 +706,10 @@ Data.defaultSettings = {
               UseButtonHeightAsWidth = true,
               UseButtonHeightAsHeight = true,
               Cooldown = {
-                FontSize = 12,
+                FontSize = 15,
               },
               Text = {
-                FontSize = 17,
+                FontSize = 15,
                 JustifyH = "CENTER",
                 JustifyV = "MIDDLE",
               },
@@ -923,10 +923,10 @@ Data.defaultSettings = {
               UseButtonHeightAsWidth = true,
               UseButtonHeightAsHeight = true,
               Cooldown = {
-                FontSize = 12,
+                FontSize = 15,
               },
               Text = {
-                FontSize = 17,
+                FontSize = 15,
                 JustifyH = "CENTER",
                 JustifyV = "MIDDLE",
               },
@@ -1165,10 +1165,10 @@ Data.defaultSettings = {
               UseButtonHeightAsWidth = true,
               UseButtonHeightAsHeight = true,
               Cooldown = {
-                FontSize = 12,
+                FontSize = 15,
               },
               Text = {
-                FontSize = 17,
+                FontSize = 15,
                 JustifyH = "CENTER",
                 JustifyV = "MIDDLE",
               },
@@ -1380,10 +1380,10 @@ Data.defaultSettings = {
               UseButtonHeightAsWidth = true,
               UseButtonHeightAsHeight = true,
               Cooldown = {
-                FontSize = 12,
+                FontSize = 15,
               },
               Text = {
-                FontSize = 17,
+                FontSize = 15,
                 JustifyH = "CENTER",
                 JustifyV = "MIDDLE",
               },

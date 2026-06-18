@@ -10,19 +10,6 @@ local AceGUI = LibStub("AceGUI-3.0")
 local LibDeflate = LibStub("LibDeflate")
 local LibSerialize = LibStub("LibSerialize")
 
-local CopyTable = CopyTable
-    or function(settings, shallow)
-      local copy = {}
-      for k, v in pairs(settings) do
-        if type(v) == "table" and not shallow then
-          copy[k] = CopyTable(v)
-        else
-          copy[k] = v
-        end
-      end
-      return copy
-    end
-
 local MergeTable = MergeTable
     or function(destination, source)
       for k, v in pairs(source) do
@@ -58,15 +45,15 @@ function BattleGroundEnemies:CreateAceGUIImportExportFrame(mode)
   frame.EditBox = editbox
 
   if mode == "Import" then
-    editbox:SetCallback("OnEnterPressed", function(widget, callbackName, text)
-      frame:SetUserData("input", text)
-      if text and text ~= "" then
+    editbox:SetCallback("OnEnterPressed", function(widget, callbackName, inputText)
+      frame:SetUserData("input", inputText)
+      if inputText and inputText ~= "" then
         frame.ImportButton:SetDisabled(false)
       else
         frame.ImportButton:SetDisabled(true)
       end
     end)
-    editbox:SetCallback("OnTextChanged", function(widget, callbackName, text)
+    editbox:SetCallback("OnTextChanged", function(widget, callbackName, inputText)
       frame.ImportButton:SetDisabled(true)
     end)
 

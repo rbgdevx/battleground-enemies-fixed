@@ -5,7 +5,7 @@
   "ignorePaths": [
     ".git/**",
     ".libraries/**",
-    "Libs/**",
+    "libs/**",
     "Locales.lua",
     "Data.lua",
     "*.lock",

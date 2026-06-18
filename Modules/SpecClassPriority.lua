@@ -198,7 +198,7 @@ local function attachToPlayerButton(playerButton)
         local numClasses = GetNumClasses()
         local localizedClass
         for i = 1, numClasses do -- we could also just save the localized class name it into the button itself, but since its only used for this tooltip no need for that
-          local className, classFile, classID = GetClassInfo(i)
+          local className, classFile, _ = GetClassInfo(i)
           if classFile and classFile == playerDetails.PlayerClass then
             localizedClass = className
           end
@@ -226,10 +226,12 @@ local function attachToPlayerButton(playerButton)
     if true then
       return
     end
+    -- intentionally unreachable: soft-disabled by the if-true-then-return above
+    -- luacheck: ignore 511
     local numPoints = self:GetNumPoints()
     local highestLevel = 0
     for i = 1, numPoints do
-      local point, relativeTo, relativePoint, xOfs, yOfs = self:GetPoint(i)
+      local _, relativeTo, _, _, _ = self:GetPoint(i)
       if relativeTo then
         local level = relativeTo:GetFrameLevel()
         if level and level > highestLevel then

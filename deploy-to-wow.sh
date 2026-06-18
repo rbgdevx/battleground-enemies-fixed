@@ -28,7 +28,7 @@
 # Kept:
 #   LICENSE       — legal requirement for redistribution
 #   .toc / .xml / .lua  — addon code
-#   Libs/, Modules/, fonts/, etc. — addon assets
+#   libs/, Modules/, fonts/, etc. — addon assets
 #   bge_logo.tga  — addon logo
 
 set -euo pipefail
@@ -91,6 +91,8 @@ rsync -a \
   --exclude='NEW_CHANGES.md' \
   --exclude='IMPROVEMENTS.md' \
   --exclude='NOTES.md' \
+  --exclude='DROPPED.md' \
+  --exclude='REPORT.md' \
   --exclude='README.md' \
   --exclude='cspell.json' \
   --exclude='deploy-to-wow.sh' \

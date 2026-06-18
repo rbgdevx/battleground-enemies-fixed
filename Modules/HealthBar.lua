@@ -227,14 +227,15 @@ function healthBar:AttachToPlayerButton(playerButton)
   playerButton.healthBar.Background:SetTexture("Interface/Buttons/WHITE8X8")
 
   function playerButton.healthBar:UpdateHealth(unitID, health, healthMissing, healthPercent, maxHealth)
-    -- Fetch live health if arguments are missing
+    -- Fetch live health if arguments are missing. 12.0.7: UnitHealth/UnitHealthMax
+    -- (UnitTokenPvPRestrictedForAddOns) return nil instead of erroring on
+    -- compound/restricted tokens, so the old pcall is redundant — a nil falls
+    -- through to the keep-prior guard below.
     if not health and unitID then
-      local ok, h = pcall(UnitHealth, unitID)
-      health = (ok and h) or nil
+      health = UnitHealth(unitID)
     end
     if not maxHealth and unitID then
-      local ok3, hMax = pcall(UnitHealthMax, unitID)
-      maxHealth = (ok3 and hMax) or nil
+      maxHealth = UnitHealthMax(unitID)
     end
 
     -- Dead: force health to 0, hide prediction
@@ -278,7 +279,7 @@ function healthBar:AttachToPlayerButton(playerButton)
       -- cached and re-applied on resize (SetModulePositions). The main healthBar
       -- has no StatusBar texture until ApplyAllSettings runs, so this must be lazy
       -- here, not in AttachToPlayerButton.
-      local allHeal, playerHeal, otherHeal, healClamped = calc:GetIncomingHeals()
+      local _, playerHeal, otherHeal, _ = calc:GetIncomingHeals()
       if not self.predictionAnchorsSet then
         playerButton.myHealPrediction:SetPoint("TOPLEFT", mainTex, "TOPRIGHT", 0, 0)
         playerButton.myHealPrediction:SetPoint("BOTTOMLEFT", mainTex, "BOTTOMRIGHT", 0, 0)
@@ -472,7 +473,7 @@ function healthBarText:AttachToPlayerButton(playerButton)
     -- per API docs, so this should rarely fire — but if any unexpected
     -- error occurs, treat it the same as nil values: keep the last shown
     -- text rather than hiding (which would cause flash).
-    local ok, err = pcall(function()
+    local _, _ = pcall(function()
       if config.HealthTextType == "health" then
         self.fs:SetText(AbbreviateNumbers(health))
         self.fs:Show()

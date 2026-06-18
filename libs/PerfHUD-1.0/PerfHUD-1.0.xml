@@ -1,0 +1,4 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
+  <!-- Requires LibStub to be loaded first (see your embeds.xml ordering). -->
+  <Script file="PerfHUD-1.0.lua"/>
+</Ui>
