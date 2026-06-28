@@ -65,7 +65,7 @@ local targetIndicatorNumeric = BattleGroundEnemies:NewButtonModule({
   generalDefaults = generalDefaults,
   options = options,
   generalOptions = generalOptions,
-  events = { "UpdateTargetIndicators" },
+  events = { "UpdateTargetIndicators", "OnTestmodeEnabled", "OnTestmodeDisabled", "OnTestmodeTick" },
   enabledInThisExpansion = true,
   attachSettingsToButton = true,
 })
@@ -74,6 +74,13 @@ function targetIndicatorNumeric:AttachToPlayerButton(playerButton)
   playerButton.TargetIndicatorNumeric = BattleGroundEnemies.MyCreateFontString(playerButton)
 
   function playerButton.TargetIndicatorNumeric:UpdateTargetIndicators()
+    -- Test mode drives the count via OnTestmodeTick (fake players have no real
+    -- TargetedByEnemy entries); don't let a live update reset the simulated value
+    -- (ApplyAllSettings calls this, so a settings change would otherwise blank it).
+    if BattleGroundEnemies:IsTestmodeActive() then
+      return
+    end
+
     local enemyTargets = 0
 
     if playerButton.UnitIDs and playerButton.UnitIDs.TargetedByEnemy then
@@ -109,6 +116,26 @@ function targetIndicatorNumeric:AttachToPlayerButton(playerButton)
     end
     self:ApplyFontStringSettings(self.config.Text)
     self:UpdateTargetIndicators()
+  end
+
+  -- Test mode: simulate a random number of enemies targeting this player so the
+  -- numeric indicator is visible/tunable outside a live BG (honors HideWhenZero).
+  function playerButton.TargetIndicatorNumeric:OnTestmodeEnabled()
+    self.testmodeEnabled = true
+  end
+
+  function playerButton.TargetIndicatorNumeric:OnTestmodeDisabled()
+    self.testmodeEnabled = false
+    self:Reset()
+  end
+
+  function playerButton.TargetIndicatorNumeric:OnTestmodeTick()
+    local enemyTargets = math.random(0, 5)
+    if enemyTargets == 0 and self.config and self.config.HideWhenZero then
+      self:SetText("")
+    else
+      self:SetText(enemyTargets)
+    end
   end
 
   playerButton.TargetIndicatorNumeric.Reset = function(self)

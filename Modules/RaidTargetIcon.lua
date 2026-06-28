@@ -60,6 +60,14 @@ function raidTargetIcon:AttachToPlayerButton(playerButton)
     if not self.config then
       return
     end
+    -- In test mode the marker is simulated; there's no live raid-target data to
+    -- re-read, so calling UpdateRaidTargetIcon() with no index would hit the else
+    -- branch and Hide() the icon on every unrelated settings re-apply. Leave the
+    -- simulated icon as-is. (Live raid markers are driven by the UpdateRaidTargetIcon
+    -- event, unaffected by this.)
+    if BattleGroundEnemies:IsTestmodeActive() then
+      return
+    end
     self:UpdateRaidTargetIcon()
   end
 

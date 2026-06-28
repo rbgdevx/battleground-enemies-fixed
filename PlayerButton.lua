@@ -775,12 +775,19 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
                   moduleFrameOnButton:SetScale(scale)
                   if relativeFrame:GetNumPoints() > 0 then
                     local effectiveScale = moduleFrameOnButton:GetEffectiveScale()
+                    -- When Spec Name is enabled it tucks under Name; nudge Name
+                    -- up so the Name + Spec Name pair stays centered on Name's
+                    -- anchor target (e.g. the Role icon). 0 when Spec Name is off.
+                    local offsetY = pointConfig.OffsetY or 0
+                    if moduleName == "Name" and BattleGroundEnemies.GetNameSpecNameYAdjust then
+                      offsetY = offsetY + BattleGroundEnemies:GetNameSpecNameYAdjust(self.playerCountConfig)
+                    end
                     moduleFrameOnButton:SetPoint(
                       pointConfig.Point,
                       relativeFrame,
                       pointConfig.RelativePoint,
                       (pointConfig.OffsetX or 0) / effectiveScale,
-                      (pointConfig.OffsetY or 0) / effectiveScale
+                      offsetY / effectiveScale
                     )
                   else
                     -- the module we are depending on hasn't been set yet
@@ -920,7 +927,13 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     end
 
     self:SetWidth(conf.BarWidth)
-    self:SetHeight(conf.BarHeight)
+    -- Grow the button by the spec-name text height when that module is enabled
+    -- (0 otherwise). The row spacing in mainframe:ButtonPositioning adds the same
+    -- amount, so taller buttons don't overlap.
+    local specNameExtra = BattleGroundEnemies.GetSpecNameReservedHeight
+        and BattleGroundEnemies:GetSpecNameReservedHeight(conf)
+        or 0
+    self:SetHeight(conf.BarHeight + specNameExtra)
 
     self:ApplyRangeIndicatorSettings()
 
@@ -1434,9 +1447,14 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
         return
       end
 
-      local myClass = BattleGroundEnemies.UserButton
+      -- Prefer the cached self-button class (identical to before when BGE tracks
+      -- your team); fall back to the native player class so spell-based range
+      -- checks still work with friendly frames off (no UserButton then). Both are
+      -- the uppercase English class token (e.g. "MAGE"), so the fallback matches.
+      local myClass = (BattleGroundEnemies.UserButton
           and BattleGroundEnemies.UserButton.PlayerDetails
-          and BattleGroundEnemies.UserButton.PlayerDetails.PlayerClass
+          and BattleGroundEnemies.UserButton.PlayerDetails.PlayerClass)
+          or select(2, UnitClass("player"))
       local interactResult = checkInteractDist(unitID)
       local itemResult = isItemInRange(unitID)
       local spellResult = isSpellInRange(unitID, myClass)

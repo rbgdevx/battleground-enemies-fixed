@@ -1156,6 +1156,12 @@ local function CreateMainFrame(playerType)
     local columns = config.BarColumns
 
     local barHeight = config.BarHeight
+    -- Spec Name (when enabled) makes each button taller by the spec text height
+    -- in ApplyButtonSettings; add the same amount to the row pitch so the taller
+    -- buttons don't overlap. Returns 0 when the module is disabled.
+    if BattleGroundEnemies.GetSpecNameReservedHeight then
+      barHeight = barHeight + BattleGroundEnemies:GetSpecNameReservedHeight(config)
+    end
     local barWidth = config.BarWidth
 
     local verticalSpacing = config.BarVerticalSpacing
