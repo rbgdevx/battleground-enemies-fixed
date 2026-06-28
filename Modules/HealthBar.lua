@@ -426,7 +426,16 @@ function healthBarText:AttachToPlayerButton(playerButton)
     end
 
     -- Test mode override: synthetic values when the test harness is active.
-    if BattleGroundEnemies:IsTestmodeActive() then
+    -- Skip FAKE players: their health is always computed via FakeUnitHealth(), so
+    -- a nil here means a settings re-apply churn (ApplyAllSettings ->
+    -- UpdateHealthText(nil,...)), NOT missing data. Forcing 50% on them blanked
+    -- the simulated value on every unrelated settings change. Falling through
+    -- instead hits the keep-last-value guard below, preserving the sim. Real
+    -- players that genuinely lack health data still get the 50% fallback.
+    if
+      BattleGroundEnemies:IsTestmodeActive()
+      and not (playerButton.PlayerDetails and playerButton.PlayerDetails.isFakePlayer)
+    then
       if not health or not maxHealth then
         health = 50000
         healthPercent = 50

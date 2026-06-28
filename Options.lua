@@ -615,9 +615,61 @@ local FontOutlines = {
   [""] = L.None,
   ["OUTLINE"] = L.Normal,
   ["THICKOUTLINE"] = L.Thick,
+  -- WoW's SetFont "flags" string accepts MONOCHROME on its own or combined with
+  -- an outline. Comma-separated, matching Blizzard's own "OUTLINE, THICK" style.
+  ["MONOCHROME"] = L.Monochrome,
+  ["OUTLINE, MONOCHROME"] = L.MonochromeOutline,
+  ["THICKOUTLINE, MONOCHROME"] = L.MonochromeThickOutline,
 }
 
-function Data.AddNormalTextSettings(location, defaults, withOutline)
+-- Shared font-shadow controls (toggle + color + X/Y offset). Mirrors the global
+-- Text shadow block. `location` is the same table the surrounding group's
+-- get/set operate on, so the disabled closures read the live EnableShadow value.
+-- Returns the entries to be merged into a settings group's args, keyed so they
+-- slot in alongside the font controls.
+function Data.AddFontShadowSettings(location, order)
+  local function shadowDisabled()
+    return not location.EnableShadow
+  end
+  return {
+    EnableShadow = {
+      type = "toggle",
+      name = L.FontShadow_Enabled,
+      desc = L.FontShadow_Enabled_Desc,
+      order = order,
+    },
+    ShadowColor = {
+      type = "color",
+      name = L.FontShadowColor,
+      desc = L.FontShadowColor_Desc,
+      disabled = shadowDisabled,
+      hasAlpha = true,
+      order = order + 1,
+    },
+    ShadowOffsetX = {
+      type = "range",
+      name = L.ShadowOffsetX,
+      desc = L.ShadowOffsetX_Desc,
+      min = -5,
+      max = 5,
+      step = 0.5,
+      disabled = shadowDisabled,
+      order = order + 2,
+    },
+    ShadowOffsetY = {
+      type = "range",
+      name = L.ShadowOffsetY,
+      desc = L.ShadowOffsetY_Desc,
+      min = -5,
+      max = 5,
+      step = 0.5,
+      disabled = shadowDisabled,
+      order = order + 3,
+    },
+  }
+end
+
+function Data.AddNormalTextSettings(location, defaults, withOutline, withShadow)
   local args = {
     Reset = {
       type = "execute",
@@ -662,10 +714,21 @@ function Data.AddNormalTextSettings(location, defaults, withOutline)
       order = 5,
     }
   end
+  if withShadow then
+    args.ShadowSpacer = Data.AddVerticalSpacing(6)
+    for k, v in pairs(Data.AddFontShadowSettings(location, 7)) do
+      args[k] = v
+    end
+  end
   return args
 end
 
-function Data.AddCooldownSettings(location, withOutline)
+function Data.AddCooldownSettings(location, withOutline, withVerticalAlign, withShadow)
+  -- Order/layout mirrors Data.AddNormalTextSettings (the "Text" group) so the two
+  -- groups line up row-for-row: alignment row, then FontSize+FontOutline, then
+  -- the shadow block. There's no horizontal alignment for a countdown, so a
+  -- half-width spacer stands in for JustifyH and keeps JustifyV in the same
+  -- (right-hand) column it occupies in the Text group.
   local args = {
     FontSize = {
       type = "range",
@@ -675,9 +738,29 @@ function Data.AddCooldownSettings(location, withOutline)
       max = 40,
       step = 1,
       width = "normal",
-      order = 3,
+      order = 4,
     },
   }
+  if withVerticalAlign then
+    args.JustifyV = {
+      type = "select",
+      name = L.JustifyV,
+      desc = L.JustifyV_Desc,
+      values = JustifyVValues,
+      order = 2,
+    }
+    -- Empty filler completing the alignment row (stands in for the absent
+    -- Horizontal alignment) so FontSize/FontOutline wrap to their own row like
+    -- the Text group. width "normal" matches a no-width select, so JustifyV +
+    -- filler fill the row exactly; AddHorizontalSpacing's "half" was only a
+    -- quarter-row and let FontSize slip up onto the alignment row.
+    args.AlignmentSpacer = {
+      type = "description",
+      name = " ",
+      width = "normal",
+      order = 3,
+    }
+  end
   if withOutline then
     args.FontOutline = {
       type = "select",
@@ -685,8 +768,14 @@ function Data.AddCooldownSettings(location, withOutline)
       desc = L.Font_Outline_Desc,
       values = FontOutlines,
       width = "normal",
-      order = 4,
+      order = 5,
     }
+  end
+  if withShadow then
+    args.ShadowSpacer = Data.AddVerticalSpacing(6)
+    for k, v in pairs(Data.AddFontShadowSettings(location, 7)) do
+      args[k] = v
+    end
   end
   return args
 end
@@ -2028,6 +2117,31 @@ function BattleGroundEnemies:SetupOptions()
                 end,
                 hasAlpha = true,
                 order = 8,
+              },
+              Fake2 = Data.AddVerticalSpacing(9),
+              ShadowOffsetX = {
+                type = "range",
+                name = L.ShadowOffsetX,
+                desc = L.ShadowOffsetX_Desc,
+                min = -5,
+                max = 5,
+                step = 0.5,
+                disabled = function()
+                  return not location.Text.EnableShadow
+                end,
+                order = 10,
+              },
+              ShadowOffsetY = {
+                type = "range",
+                name = L.ShadowOffsetY,
+                desc = L.ShadowOffsetY_Desc,
+                min = -5,
+                max = 5,
+                step = 0.5,
+                disabled = function()
+                  return not location.Text.EnableShadow
+                end,
+                order = 11,
               },
             },
             order = 7,

@@ -341,6 +341,12 @@ BattleGroundEnemies.specCache = {} -- key = GUID, value = specName (localized)
 
 BattleGroundEnemies.states = {
   testmodeActive = false,
+  -- Whether the test-mode "fake events" animation ticker should be running.
+  -- Runtime-only (never persisted): the user toggles it via
+  -- ToggleTestmodeOnUpdate, Enable() honours it so a settings change doesn't
+  -- silently resume a paused animation, and EnableTestMode() resets it ON so a
+  -- fresh test-mode session always starts animated.
+  testmodeAnimationEnabled = true,
   userIsAlive = not UnitIsDeadOrGhost("player"),
   ---@type bgeState
   real = {
@@ -794,12 +800,22 @@ local function setupFakePlayersTestmodeTicker()
 end
 
 function BattleGroundEnemies.ToggleTestmodeOnUpdate()
-  local enabled = not BattleGroundEnemies.FakePlayersUpdateTicker
+  -- Track the intent in a persistent flag rather than inferring it from the
+  -- ticker's existence. Otherwise any settings change (-> ApplyAllSettings ->
+  -- Enable) would recreate the ticker and resurrect an animation the user had
+  -- just paused.
+  local enabled = not BattleGroundEnemies.states.testmodeAnimationEnabled
+  BattleGroundEnemies.states.testmodeAnimationEnabled = enabled
   if enabled then
     setupFakePlayersTestmodeTicker()
+    -- Resume the swipe timers so they animate alongside the fake events again.
+    BattleGroundEnemies:ResumeAllCooldowns()
     BattleGroundEnemies:Information(L.FakeEventsEnabled)
   else
     stopFakePlayersTicker()
+    -- Freeze the swipe timers too — they run on WoW's clock, not the ticker,
+    -- so without this they keep counting down after the animation is paused.
+    BattleGroundEnemies:PauseAllCooldowns()
     BattleGroundEnemies:Information(L.FakeEventsDisabled)
   end
 end
@@ -809,6 +825,11 @@ function BattleGroundEnemies:EnableTestMode()
     return BattleGroundEnemies:Information(L.ErrorTestmodeInCombat)
   end
   self.states.testmodeActive = true
+  -- A freshly enabled test mode always starts animated, regardless of whether
+  -- the user had paused the animation during a previous session. Clear any
+  -- leftover cooldown pause from a prior paused session so swipes animate.
+  self.states.testmodeAnimationEnabled = true
+  self:ResumeAllCooldowns()
   self:SetupTestmode()
 
   self.Allies:OnTestmodeEnabled()
@@ -974,17 +995,6 @@ end
 
 -- if lets say raid1 leaves all remaining players get shifted up, so raid2 is the new raid1, raid 3 gets raid2 etc.
 
-local function EnableShadowColor(fontString, enableShadow, shadowColor)
-  if shadowColor then
-    fontString:SetShadowColor(unpack(shadowColor))
-  end
-  if enableShadow then
-    fontString:SetShadowOffset(1, -1)
-  else
-    fontString:SetShadowOffset(0, 0)
-  end
-end
-
 function BattleGroundEnemies.CropImage(texture, width, height, hasTexcoords)
   local left, right, top, bottom = 0.075, 0.925, 0.075, 0.925
   local ratio = height / width
@@ -999,6 +1009,9 @@ function BattleGroundEnemies.CropImage(texture, width, height, hasTexcoords)
   end
 end
 
+-- CreateFont needs a unique global name; hand them out from a counter.
+local bgeNextFontID = 1
+
 local function ApplyFontStringSettings(fs, settings, isCooldown)
   local globals = Mixin({}, BattleGroundEnemies.db.profile.Text)
   if isCooldown then
@@ -1007,7 +1020,33 @@ local function ApplyFontStringSettings(fs, settings, isCooldown)
 
   local configTable = Mixin({}, globals, settings)
 
-  fs:SetFont(LSM:Fetch("font", configTable.Font), configTable.FontSize, configTable.FontOutline)
+  -- Font + shadow are applied via a per-fontstring Font OBJECT (created once,
+  -- lazily, and reused on every re-apply). As of WoW 12.0.7 a shadow set
+  -- directly on a fontstring (SetShadowColor/SetShadowOffset after an inline
+  -- SetFont) no longer renders -- it only draws when baked into a Font object
+  -- and applied via SetFontObject. Blizzard's own shadowed text uses font
+  -- objects, which is why chat/game text still show shadows.
+  if not fs.bgeFont then
+    fs.bgeFont = CreateFont("BGEFont" .. bgeNextFontID)
+    bgeNextFontID = bgeNextFontID + 1
+  end
+  local fontObj = fs.bgeFont
+
+  fontObj:SetFont(LSM:Fetch("font", configTable.Font), configTable.FontSize, configTable.FontOutline)
+
+  if configTable.ShadowColor then
+    fontObj:SetShadowColor(unpack(configTable.ShadowColor))
+  end
+  if configTable.EnableShadow then
+    -- Historical (1, -1) fallback for profiles saved before these keys existed.
+    fontObj:SetShadowOffset(configTable.ShadowOffsetX or 1, configTable.ShadowOffsetY or -1)
+  else
+    fontObj:SetShadowOffset(0, 0)
+  end
+
+  -- SetFontObject resets justify/wordwrap/text color to the object's defaults,
+  -- so every per-fontstring override below MUST be applied AFTER this call.
+  fs:SetFontObject(fontObj)
 
   --idk why, but without this the SetJustifyH and SetJustifyV dont seem to work sometimes even tho GetJustifyH returns the new, correct value
   fs:GetRect()
@@ -1029,8 +1068,6 @@ local function ApplyFontStringSettings(fs, settings, isCooldown)
   if configTable.FontColor then
     fs:SetTextColor(unpack(configTable.FontColor))
   end
-
-  fs:EnableShadowColor(configTable.EnableShadow, configTable.ShadowColor)
 end
 
 local function ApplyCooldownSettings(self, config, cdReverse, swipeColor)
@@ -1061,7 +1098,6 @@ function BattleGroundEnemies.MyCreateFontString(parent)
   ---@field DisplayedName string
   local fontString = parent:CreateFontString(nil, "OVERLAY")
   fontString.ApplyFontStringSettings = ApplyFontStringSettings
-  fontString.EnableShadowColor = EnableShadowColor
   fontString:SetDrawLayer("OVERLAY", 2)
   return fontString
 end
@@ -1085,9 +1121,14 @@ function BattleGroundEnemies.AttachCooldownSettings(cooldown)
     ---@class MyFontString
     cooldown.Text = fontstring
     cooldown.Text.ApplyFontStringSettings = ApplyFontStringSettings
-    cooldown.Text.EnableShadowColor = EnableShadowColor
   end
 end
+
+-- Registry of every Cooldown frame we create, so the test-mode animation toggle
+-- can freeze/unfreeze the swipe timers (Cooldown:Pause/Resume, available 12.0.x).
+-- Cooldowns run on WoW's own clock, independent of the fake-event ticker, so
+-- stopping the ticker alone leaves trinket/DR/respawn swipes counting down.
+BattleGroundEnemies.AllCooldowns = BattleGroundEnemies.AllCooldowns or {}
 
 function BattleGroundEnemies.MyCreateCooldown(parent)
   local cooldown = CreateFrame("Cooldown", nil, parent)
@@ -1096,7 +1137,31 @@ function BattleGroundEnemies.MyCreateCooldown(parent)
 
   BattleGroundEnemies.AttachCooldownSettings(cooldown)
 
+  BattleGroundEnemies.AllCooldowns[#BattleGroundEnemies.AllCooldowns + 1] = cooldown
+
   return cooldown
+end
+
+-- Pause/Resume every cooldown swipe. Only ever called from the test-mode
+-- animation toggle (and EnableTestMode), so it never touches real-match cooldowns.
+function BattleGroundEnemies:PauseAllCooldowns()
+  local cds = self.AllCooldowns
+  for i = 1, #cds do
+    local cd = cds[i]
+    if cd and not cd:IsPaused() then
+      cd:Pause()
+    end
+  end
+end
+
+function BattleGroundEnemies:ResumeAllCooldowns()
+  local cds = self.AllCooldowns
+  for i = 1, #cds do
+    local cd = cds[i]
+    if cd and cd:IsPaused() then
+      cd:Resume()
+    end
+  end
 end
 
 -- Shared button update ticker: single timer updates all active buttons
@@ -1200,7 +1265,13 @@ function BattleGroundEnemies:Enable()
   self:StartTargetScanTicker()
   self:StartCombatIndicatorTicker()
   if BattleGroundEnemies:IsTestmodeActive() then
-    setupFakePlayersTestmodeTicker()
+    -- Only re-arm the animation ticker if the user hasn't paused it. Enable()
+    -- runs on every settings change while test mode is active, so an
+    -- unconditional restart here would undo the "Toggle test mode animation"
+    -- pause.
+    if BattleGroundEnemies.states.testmodeAnimationEnabled then
+      setupFakePlayersTestmodeTicker()
+    end
     RequestFrame:Hide()
   else
     RequestFrame:Show()
@@ -2907,6 +2978,103 @@ function BattleGroundEnemies:ScanTargets()
     end
   end
 
+  -- Drive the ally -> enemy target indicators (the class-colored squares on enemy
+  -- frames). Two sources, picked by whether BGE is tracking your team:
+  --
+  --  * BGE friendly frames ON  -> poll the existing ally BUTTONS. UpdateTarget()
+  --    (-> IsNowTargeting -> UpdateTargetedByEnemy) is the path those buttons
+  --    already use; the only event that drives it for group members (UNIT_TARGET)
+  --    is flaky in a BG, so we poll. UserButton is skipped (the deferred
+  --    PLAYER_TARGET_CHANGED click-stash path owns the viewer's own target).
+  --
+  --  * BGE friendly frames OFF -> there are no ally buttons, but the NATIVE raid/
+  --    party unit APIs (raidNtarget + UnitClass) still tell us who each teammate
+  --    targets and their class. This is fundamentally an enemy-frame feature, so
+  --    it must not depend on BGE's friendly frames existing. Each targeting ally
+  --    becomes a lightweight "virtual source" carrying its class color, stored in
+  --    the enemy's TargetedByEnemy set so the indicator modules render it with no
+  --    changes. A per-slot map clears an ally's square when it switches/drops.
+  --
+  -- The two paths are mutually exclusive, so an ally is never counted twice.
+  local haveAllyButtons = false
+  if self.Allies and self.Allies.Players then
+    for _ in pairs(self.Allies.Players) do
+      haveAllyButtons = true
+      break
+    end
+  end
+
+  if haveAllyButtons then
+    for _, allyButton in pairs(self.Allies.Players) do
+      if allyButton ~= self.UserButton then
+        allyButton:UpdateTarget()
+      end
+    end
+  else
+    self._virtualAllySources = self._virtualAllySources or {}
+    self._allyTargeterSlot = self._allyTargeterSlot or {}
+
+    local function scanAllyTargeter(slotKey, allyUnit)
+      -- Skip the viewer's own slot only if their BGE ally button exists (the
+      -- UserButton path covers it then). With friendly frames off there's no
+      -- UserButton, so the viewer is tracked here like every other teammate.
+      if self.UserButton and UnitIsUnit(allyUnit, "player") then
+        return
+      end
+
+      local newBtn
+      local targetUnit = allyUnit .. "target"
+      if UnitExists(targetUnit) and IsEnemyUnit(targetUnit) then
+        newBtn = self:GetPlayerbuttonByUnitID(targetUnit, "Enemies")
+      end
+
+      local source = self._virtualAllySources[slotKey]
+      if not source then
+        source = { PlayerDetails = {} }
+        self._virtualAllySources[slotKey] = source
+      end
+
+      local oldBtn = self._allyTargeterSlot[slotKey]
+      if oldBtn and oldBtn ~= newBtn then
+        if oldBtn.UnitIDs and oldBtn.UnitIDs.TargetedByEnemy then
+          oldBtn.UnitIDs.TargetedByEnemy[source] = nil
+        end
+        oldBtn:DispatchEvent("UpdateTargetIndicators")
+      end
+
+      if newBtn and newBtn.UnitIDs and newBtn.UnitIDs.TargetedByEnemy then
+        local _, classToken = UnitClass(allyUnit)
+        local color = classToken and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classToken]
+        if color then
+          source.PlayerDetails.PlayerClassColor = color
+          source.Target = newBtn
+          newBtn.UnitIDs.TargetedByEnemy[source] = true
+          newBtn:DispatchEvent("UpdateTargetIndicators")
+        else
+          newBtn = nil
+        end
+      else
+        newBtn = nil
+      end
+
+      if not newBtn then
+        source.Target = nil
+      end
+      self._allyTargeterSlot[slotKey] = newBtn
+    end
+
+    if IsInRaid() then
+      for i = 1, GetNumGroupMembers() do
+        scanAllyTargeter("raid" .. i, "raid" .. i)
+      end
+    elseif IsInGroup() then
+      scanAllyTargeter("player", "player")
+      for i = 1, GetNumGroupMembers() - 1 do
+        scanAllyTargeter("party" .. i, "party" .. i)
+      end
+    end
+  end
+
   -- Scan arena units (direct refs — exist in arena AND objective BGs like flags/orbs)
   for i = 1, 5 do
     local unitID = arenaUnits[i]
@@ -3426,9 +3594,16 @@ function BattleGroundEnemies:HandleTargetChanged(newTarget)
   end
 
   if newTarget then --i target an existing player
+    -- The "target" unitID for whatever you target is a user-side fact
+    -- (UnitExists("target")), not an ally-frame one — set it whether or not BGE
+    -- tracks your team, so your current target's health/power/combat stays sourced
+    -- with friendly frames off. The clear side above is already ungated, so this
+    -- just makes the set consistent; when friendly frames are ON it ran here
+    -- anyway, so there's no behavior change. Indicator binding (IsNowTargeting)
+    -- still needs the ally self-button; with friendly frames off the native
+    -- ally-targeter scan covers your own square instead.
+    newTarget:UpdateEnemyUnitID("Target", "target")
     if self.UserButton then
-      newTarget:UpdateEnemyUnitID("Target", "target")
-
       self.UserButton:IsNowTargeting(newTarget)
     end
     newTarget.MyTarget:Show()

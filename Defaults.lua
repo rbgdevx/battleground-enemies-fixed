@@ -9,7 +9,7 @@ local allieDefaults15man = {
   Position_X = 300,
   Position_Y = 600,
   BarWidth = 185,
-  BarHeight = 35,
+  BarHeight = 32,
   BarVerticalGrowdirection = "downwards",
   BarVerticalSpacing = 2,
   BarColumns = 1,
@@ -222,7 +222,7 @@ local enemyDefault15man = {
   Position_X = 900,
   Position_Y = 600,
   BarWidth = 185,
-  BarHeight = 35,
+  BarHeight = 32,
   BarVerticalGrowdirection = "downwards",
   BarVerticalSpacing = 2,
   BarColumns = 1,
@@ -474,6 +474,8 @@ Data.defaultSettings = {
       FontOutline = "",
       EnableShadow = true,
       ShadowColor = { 0, 0, 0, 0.8 },
+      ShadowOffsetX = 1,
+      ShadowOffsetY = -1,
     },
 
     RBG = {

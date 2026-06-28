@@ -60,7 +60,13 @@ local symbolicTargetIndicator = BattleGroundEnemies:NewButtonModule({
   localizedModuleName = L.TargetIndicatorSymbolic,
   defaultSettings = defaultSettings,
   options = options,
-  events = { "UpdateTargetIndicators", "PlayerButtonSizeChanged" },
+  events = {
+    "UpdateTargetIndicators",
+    "PlayerButtonSizeChanged",
+    "OnTestmodeEnabled",
+    "OnTestmodeDisabled",
+    "OnTestmodeTick",
+  },
   enabledInThisExpansion = true,
   attachSettingsToButton = true,
 })
@@ -89,27 +95,12 @@ function symbolicTargetIndicator:AttachToPlayerButton(playerButton)
     symbol:SetPoint("TOP", math.floor(index / 2) * (index % 2 == 0 and -config.IconSpacing or config.IconSpacing), 0) --1: 0, 0 2: -10, 0 3: 10, 0 4: -20, 0 > i = even > left, uneven > right
   end
 
-  function playerButton.TargetIndicatorSymbolic:UpdateTargetIndicators()
-    self:GetConfig()
-
-    -- Render-time validation: prune stale entries where the source button's
-    -- .Target no longer points back to us. This catches phantom indicators
-    -- caused by PID oscillation leaving orphaned TargetedByEnemy entries.
-    local stale
-    for sourceButton in pairs(playerButton.UnitIDs.TargetedByEnemy) do
-      if sourceButton.Target ~= playerButton then
-        stale = stale or {}
-        stale[#stale + 1] = sourceButton
-      end
-    end
-    if stale then
-      for _, key in ipairs(stale) do
-        playerButton.UnitIDs.TargetedByEnemy[key] = nil
-      end
-    end
-
+  -- Render exactly #colorList class-colored symbols (creating/reusing frames),
+  -- then hide any extras. Shared by the live UpdateTargetIndicators path and the
+  -- test-mode simulation so both look identical.
+  playerButton.TargetIndicatorSymbolic.RenderSymbols = function(self, colorList)
     local i = 1
-    for enemyButton in pairs(playerButton.UnitIDs.TargetedByEnemy) do
+    for _, classColor in ipairs(colorList) do
       local indicator = self.Symbols[i]
       if not indicator then
         indicator =
@@ -125,7 +116,6 @@ function symbolicTargetIndicator:AttachToPlayerButton(playerButton)
 
         self:SetSizeAndPosition(i)
       end
-      local classColor = enemyButton.PlayerDetails.PlayerClassColor
       indicator:SetBackdropColor(classColor.r, classColor.g, classColor.b)
       indicator:Show()
 
@@ -136,6 +126,61 @@ function symbolicTargetIndicator:AttachToPlayerButton(playerButton)
       self.Symbols[i]:Hide()
       i = i + 1
     end
+  end
+
+  function playerButton.TargetIndicatorSymbolic:UpdateTargetIndicators()
+    self:GetConfig()
+
+    -- Test mode drives rendering via OnTestmodeTick (fake players have no real
+    -- TargetedByEnemy entries); don't let a live update blank the simulation.
+    if BattleGroundEnemies:IsTestmodeActive() then
+      return
+    end
+
+    -- Render-time validation: prune stale entries where the source button's
+    -- .Target no longer points back to us (phantom indicators from PID
+    -- oscillation leaving orphaned TargetedByEnemy entries), and collect the
+    -- class color of each surviving targeter in the same pass.
+    local stale
+    local colorList = {}
+    for sourceButton in pairs(playerButton.UnitIDs.TargetedByEnemy) do
+      if sourceButton.Target ~= playerButton then
+        stale = stale or {}
+        stale[#stale + 1] = sourceButton
+      else
+        colorList[#colorList + 1] = sourceButton.PlayerDetails.PlayerClassColor
+      end
+    end
+    if stale then
+      for _, key in ipairs(stale) do
+        playerButton.UnitIDs.TargetedByEnemy[key] = nil
+      end
+    end
+
+    self:RenderSymbols(colorList)
+  end
+
+  -- Test mode: simulate a random number of enemies targeting this player, each
+  -- a random class color, so the symbolic indicator is visible/tunable outside a
+  -- live BG. Mirrors how the other button modules preview themselves.
+  function playerButton.TargetIndicatorSymbolic:OnTestmodeEnabled()
+    self.testmodeEnabled = true
+  end
+
+  function playerButton.TargetIndicatorSymbolic:OnTestmodeDisabled()
+    self.testmodeEnabled = false
+    self:RenderSymbols({})
+  end
+
+  function playerButton.TargetIndicatorSymbolic:OnTestmodeTick()
+    self:GetConfig()
+    local classColors = CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS
+    local colorList = {}
+    for i = 1, math.random(0, 4) do
+      local classToken = CLASS_SORT_ORDER[math.random(1, #CLASS_SORT_ORDER)]
+      colorList[i] = classColors[classToken]
+    end
+    self:RenderSymbols(colorList)
   end
 
   playerButton.TargetIndicatorSymbolic.ApplyAllSettings = function(self)

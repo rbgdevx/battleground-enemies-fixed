@@ -25,10 +25,19 @@ local defaultSettings = {
   Cooldown = {
     FontSize = 15,
     FontOutline = "OUTLINE", -- matches the global Cooldown default; preserves current look
+    JustifyV = "MIDDLE",
+    EnableShadow = true,
+    ShadowColor = { 0, 0, 0, 0.8 },
+    ShadowOffsetX = 1,
+    ShadowOffsetY = -1,
   },
   Text = {
     FontSize = 15,
     FontOutline = "OUTLINE", -- Normal (overrides the global Text default of None)
+    EnableShadow = true,
+    ShadowColor = { 0, 0, 0, 0.8 },
+    ShadowOffsetX = 1,
+    ShadowOffsetY = -1,
   },
   UseButtonHeightAsHeight = true,
   UseButtonHeightAsWidth = true,
@@ -47,7 +56,7 @@ local options = function(location)
       set = function(option, ...)
         return Data.SetOption(location.Text, option, ...)
       end,
-      args = Data.AddNormalTextSettings(location.Text, nil, true),
+      args = Data.AddNormalTextSettings(location.Text, nil, true, true),
     },
     CooldownTextSettings = {
       type = "group",
@@ -60,7 +69,7 @@ local options = function(location)
         return Data.SetOption(location.Cooldown, option, ...)
       end,
       order = 2,
-      args = Data.AddCooldownSettings(location.Cooldown, true),
+      args = Data.AddCooldownSettings(location.Cooldown, true, true, true),
     },
   }
 end
@@ -1479,8 +1488,14 @@ function objectiveAndRespawn:AttachToPlayerButton(playerButton)
   end)
 
   frame.AuraText = BattleGroundEnemies.MyCreateFontString(frame)
-  frame.AuraText:SetAllPoints()
+  -- Anchor the text by its center to the icon's center instead of SetAllPoints.
+  -- A single anchor (no opposing edges) lets the fontstring auto-size to its
+  -- content and overflow the icon symmetrically rather than being clipped to
+  -- the icon's bounds. WordWrap off keeps it a single centered line.
+  frame.AuraText:SetPoint("CENTER", frame, "CENTER")
   frame.AuraText:SetJustifyH("CENTER")
+  frame.AuraText:SetJustifyV("MIDDLE")
+  frame.AuraText:SetWordWrap(false)
 
   frame.Cooldown = BattleGroundEnemies.MyCreateCooldown(frame)
   frame.Cooldown:Hide()
@@ -1503,6 +1518,16 @@ function objectiveAndRespawn:AttachToPlayerButton(playerButton)
     end
     self.ActiveRespawnTimer = false
     self.Cooldown:Clear() -- this doesn't seem to trigger OnCooldownDone for some reason, i am sure it used to in the past
+    -- Cooldown:Clear() stops the countdown but leaves the last-rendered number
+    -- frozen in the native fontstring (Blizzard only refreshes it on the
+    -- cooldown's own OnUpdate, which no longer ticks once cleared -- the same
+    -- quirk behind the OnCooldownDone note above). In a live match the Hide()
+    -- above masks it, but test mode re-Shows this frame for the next objective,
+    -- exposing a stale respawn number over the new stack text. Blank it so a
+    -- cleared cooldown never carries a leftover number.
+    if self.Cooldown.Text then
+      self.Cooldown.Text:SetText("")
+    end
   end
 
   function frame:HideText()
@@ -1811,33 +1836,35 @@ function objectiveAndRespawn:AttachToPlayerButton(playerButton)
     if not self.testmodeEnabled then
       self.testmodeEnabled = true
     end
-    -- Randomly show an objective or respawn, or hide
+    -- Start every tick from a fully-reset slate so exactly ONE visual is ever
+    -- active in this row: a prior tick's objective stack number can't linger
+    -- over a respawn swirl, nor a respawn countdown over a fresh objective's
+    -- stacks (the user-reported overlaps). Reset() hides the frame, clears the
+    -- icon, blanks the stack text AND the cooldown number; each branch below
+    -- then builds up only its own icon + text.
+    self:Reset()
+    -- Randomly show an objective or respawn, or leave hidden.
     local roll = math.random(1, 5)
     if roll <= 2 then
       -- Show a flag/objective icon, previewing its stack-text format.
       local spellId = testObjectiveSpells[math.random(1, #testObjectiveSpells)]
       self.Icon:SetTexture(GetSpellTexture(spellId))
       self:Show()
-      self.ActiveRespawnTimer = false
-      self.Cooldown:Clear()
       local sample = testObjectiveStackText[spellId]
       if sample then
         -- OG shownValue convention, same as PaintStackSlot.
         self.AuraText:SetText(sample)
         self.shownValue = sample
-      else
-        self:HideText()
       end
     elseif roll == 3 then
-      -- Simulate death with respawn timer
+      -- Simulate death with respawn timer (Reset() already cleared the stack
+      -- text, mirroring the real frame:UnitDied HideText() before the ghost).
       self.Icon:SetTexture(GetSpellTexture(8326))
       self:Show()
       self.ActiveRespawnTimer = true
       self.Cooldown:SetCooldown(GetTime(), 16)
-    else
-      -- Hide (no objective)
-      self:Reset()
     end
+    -- roll >= 4: stay reset (no objective shown this tick).
   end
 
   playerButton.ObjectiveAndRespawn = frame
