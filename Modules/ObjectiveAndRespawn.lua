@@ -889,6 +889,12 @@ local function PaintStackSlot(idx)
   if not (f and f.AuraText) then
     return
   end
+  -- AuraText only has a font once ApplyAllSettings has run (enabled modules
+  -- only). Painting a number onto a fontstring with no font throws "Font not
+  -- set", so skip until it exists -- the next paint after setup fills it in.
+  if not f.AuraText:GetFont() then
+    return
+  end
   -- Don't paint over a death/respawn swirl: the ghost visual owns the icon and
   -- HideText already cleared the number when it took over.
   if f.ActiveRespawnTimer then
@@ -1531,7 +1537,14 @@ function objectiveAndRespawn:AttachToPlayerButton(playerButton)
   end
 
   function frame:HideText()
-    self.AuraText:SetText("")
+    -- AuraText gets its font from ApplyAllSettings, which only runs while the
+    -- module is enabled on this button. On a disabled button (or before setup
+    -- applies after a mid-combat reload) the fontstring has no font, and
+    -- SetText() then throws "Font not set". Guard so HideText is safe from every
+    -- caller; shownValue still updates so the dedup stays correct.
+    if self.AuraText:GetFont() then
+      self.AuraText:SetText("")
+    end
     self.shownValue = false
   end
 
