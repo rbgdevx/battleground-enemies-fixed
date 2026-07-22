@@ -35,10 +35,27 @@
 set -euo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEST="/Applications/World of Warcraft/_retail_/Interface/AddOns/BattleGroundEnemiesFixed"
 
-if [[ ! -d "$(dirname "$DEST")" ]]; then
-  echo "ERROR: AddOns parent dir missing: $(dirname "$DEST")" >&2
+# Live AddOns folder. Override with WOW_ADDONS_DIR, else pick the first
+# known install location that exists (macOS, then Windows/Git Bash).
+if [[ -n "${WOW_ADDONS_DIR:-}" ]]; then
+  ADDONS="$WOW_ADDONS_DIR"
+else
+  ADDONS=""
+  for candidate in \
+    "/Applications/World of Warcraft/_retail_/Interface/AddOns" \
+    "/c/Program Files (x86)/World of Warcraft/_retail_/Interface/AddOns" \
+    "/c/Program Files/World of Warcraft/_retail_/Interface/AddOns"; do
+    if [[ -d "$candidate" ]]; then
+      ADDONS="$candidate"
+      break
+    fi
+  done
+fi
+DEST="$ADDONS/BattleGroundEnemiesFixed"
+
+if [[ -z "$ADDONS" || ! -d "$ADDONS" ]]; then
+  echo "ERROR: AddOns dir not found. Set WOW_ADDONS_DIR to your Interface/AddOns path." >&2
   exit 1
 fi
 
@@ -67,37 +84,59 @@ fi
 next=$((last + 1))
 new="${prefix}.${next}"
 echo "Bumping version: $current -> $new"
-# macOS BSD sed: -i '' = in-place, no backup file.
-sed -i '' -E "s/^(## Version:) .*/\1 ${new}/" "$TOC"
+# In-place sed differs between BSD (macOS) and GNU (Linux/Git Bash) sed.
+if sed --version >/dev/null 2>&1; then
+  sed -i -E "s/^(## Version:) .*/\1 ${new}/" "$TOC"
+else
+  sed -i '' -E "s/^(## Version:) .*/\1 ${new}/" "$TOC"
+fi
 
 # --- Step 2: wipe-and-replace the live install --------------------------
 # Per the user's spec ("delete the existing folder... replace with a copy
 # of the repo folder"). rsync --delete would also work; the explicit rm
 # makes intent obvious and guarantees no orphan files survive between
 # deploys.
-rm -rf "$DEST"
+# On Windows the directory handle itself can be held open (Explorer,
+# antivirus) making the rm of the dir fail even though its contents
+# deleted fine — in that case just empty it and reuse it.
+rm -rf "$DEST" 2>/dev/null || true
+if [[ -d "$DEST" ]]; then
+  find "$DEST" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+fi
 mkdir -p "$DEST"
 
-rsync -a \
-  --exclude='.git/' \
-  --exclude='.gitignore' \
-  --exclude='.DS_Store' \
-  --exclude='.claude/' \
-  --exclude='.vscode/' \
-  --exclude='.luarc.json' \
-  --exclude='.libraries/' \
-  --exclude='AGENTS.md' \
-  --exclude='CLAUDE.md' \
-  --exclude='DEFERRED.md' \
-  --exclude='TOKEN_TIERS.md' \
-  --exclude='NEW_CHANGES.md' \
-  --exclude='IMPROVEMENTS.md' \
-  --exclude='NOTES.md' \
-  --exclude='DROPPED.md' \
-  --exclude='REPORT.md' \
-  --exclude='README.md' \
-  --exclude='cspell.json' \
-  --exclude='deploy-to-wow.sh' \
-  "$SRC/" "$DEST/"
+EXCLUDES=(
+  '.git'
+  '.gitignore'
+  '.DS_Store'
+  '.claude'
+  '.vscode'
+  '.luarc.json'
+  '.libraries'
+  'AGENTS.md'
+  'CLAUDE.md'
+  'DEFERRED.md'
+  'TOKEN_TIERS.md'
+  'NEW_CHANGES.md'
+  'IMPROVEMENTS.md'
+  'NOTES.md'
+  'DROPPED.md'
+  'REPORT.md'
+  'README.md'
+  'cspell.json'
+  'deploy-to-wow.sh'
+)
+
+if command -v rsync >/dev/null 2>&1; then
+  rsync_args=()
+  for e in "${EXCLUDES[@]}"; do rsync_args+=(--exclude="$e"); done
+  rsync -a "${rsync_args[@]}" "$SRC/" "$DEST/"
+else
+  # Git Bash on Windows ships no rsync; DEST is freshly wiped above, so a
+  # plain tar pipe mirror with the same excludes is equivalent.
+  tar_args=()
+  for e in "${EXCLUDES[@]}"; do tar_args+=(--exclude="./$e"); done
+  tar -C "$SRC" "${tar_args[@]}" -cf - . | tar -C "$DEST" -xf -
+fi
 
 echo "Done. Reload UI in-game (/reload) or relaunch the client to pick up changes."

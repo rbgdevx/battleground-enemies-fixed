@@ -288,12 +288,7 @@ hud:AddMetric("enemyFrames", "Enemy frames", {
   end,
   render = function(v)
     local onStr, offStr = "|cff66dd66ON|r", "|cff888888OFF|r"
-    return string_format(
-      "Enemy frames: %s  %d buttons  |cff8888aa[%s]|r",
-      v.on and onStr or offStr,
-      v.count,
-      v.bracket
-    )
+    return string_format("Enemy frames: %s  %d buttons  |cff8888aa[%s]|r", v.on and onStr or offStr, v.count, v.bracket)
   end,
 })
 
@@ -304,12 +299,7 @@ hud:AddMetric("allyFrames", "Ally frames", {
   end,
   render = function(v)
     local onStr, offStr = "|cff66dd66ON|r", "|cff888888OFF|r"
-    return string_format(
-      "Ally frames: %s  %d buttons  |cff8888aa[%s]|r",
-      v.on and onStr or offStr,
-      v.count,
-      v.bracket
-    )
+    return string_format("Ally frames: %s  %d buttons  |cff8888aa[%s]|r", v.on and onStr or offStr, v.count, v.bracket)
   end,
 })
 

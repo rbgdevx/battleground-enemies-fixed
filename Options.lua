@@ -2351,20 +2351,22 @@ local function bgeDumpCarriers(reason)
       local arena = pad and pad.PlayerArenaUnitID
       local boundArena = btn.UnitIDs and btn.UnitIDs.Arena
       if arena or boundArena then
-        BattleGroundEnemies:JitterLog(string.format(
-          "CARRIER:%s %s %s | PAUID=%s Arena=%s exists=%s || unit=%s type1=%s type2=%s macro1=%s mouse=%s",
-          reason,
-          label,
-          tostring(pad and pad.PlayerName or "?"),
-          tostring(arena),
-          tostring(boundArena),
-          tostring(arena and UnitExists(arena)),
-          tostring(btn:GetAttribute("unit")),
-          tostring(btn:GetAttribute("type1")),
-          tostring(btn:GetAttribute("type2")),
-          tostring(btn:GetAttribute("macrotext1")),
-          tostring(btn:IsMouseEnabled())
-        ))
+        BattleGroundEnemies:JitterLog(
+          string.format(
+            "CARRIER:%s %s %s | PAUID=%s Arena=%s exists=%s || unit=%s type1=%s type2=%s macro1=%s mouse=%s",
+            reason,
+            label,
+            tostring(pad and pad.PlayerName or "?"),
+            tostring(arena),
+            tostring(boundArena),
+            tostring(arena and UnitExists(arena)),
+            tostring(btn:GetAttribute("unit")),
+            tostring(btn:GetAttribute("type1")),
+            tostring(btn:GetAttribute("type2")),
+            tostring(btn:GetAttribute("macrotext1")),
+            tostring(btn:IsMouseEnabled())
+          )
+        )
       end
     end
   end
