@@ -123,9 +123,7 @@ function BattleGroundEnemies:GetNameSpecNameYAdjust(playerCountConfig)
   if reserved == 0 then
     return 0
   end
-  local specConfig = playerCountConfig
-      and playerCountConfig.ButtonModules
-      and playerCountConfig.ButtonModules.SpecName
+  local specConfig = playerCountConfig and playerCountConfig.ButtonModules and playerCountConfig.ButtonModules.SpecName
   local points = specConfig and specConfig.Points
   local specOffsetY = (points and points[1] and points[1].OffsetY) or 0
   -- -1 empirical correction: the "Ag" sample includes descender space most spec

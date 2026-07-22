@@ -431,8 +431,7 @@ local function SharedObjectiveArenaSlot(name)
   if not btn then
     return nil
   end
-  local carrierFaction = btn.PlayerIsEnemy and BattleGroundEnemies.EnemyFaction
-    or BattleGroundEnemies.AllyFaction
+  local carrierFaction = btn.PlayerIsEnemy and BattleGroundEnemies.EnemyFaction or BattleGroundEnemies.AllyFaction
   return (carrierFaction == 0) and 2 or 1 -- Horde→arena2, Alliance→arena1
 end
 
