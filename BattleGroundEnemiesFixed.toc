@@ -45,6 +45,3 @@ Modules\DR.lua
 Modules\PerfHUD.lua
 
 Options.lua
-
-# THROWAWAY diagnostic — delete this line + the file to remove (see file header)
-BGE_TokenRig.lua
