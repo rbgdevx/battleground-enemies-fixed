@@ -1170,8 +1170,10 @@ end
 
 -- Shared button update ticker: single timer updates all active buttons
 -- instead of each button having its own OnUpdate handler.
+-- 0.3s matches the per-button OnUpdate ticker (Mainframe.lua) and ScanTargets'
+-- in-combat cadence, so all three polling systems tick at the same floor rate.
 local buttonUpdateTicker = nil
-local BUTTON_UPDATE_PERIOD = 0.2
+local BUTTON_UPDATE_PERIOD = 0.3
 
 local function UpdateAllPlayerButtons()
   if not BattleGroundEnemies.enabled or not BattleGroundEnemies.states.userIsAlive then
