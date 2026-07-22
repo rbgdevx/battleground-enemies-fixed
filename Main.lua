@@ -1270,7 +1270,6 @@ function BattleGroundEnemies:Enable()
   wipe(self.scoreboardSpecByName)
   self._allySpecCount = nil
 
-
   self:RegisterEvents()
   StartButtonUpdateTicker()
   -- Re-arm persistent tickers cancelled by Disable(). Explicit start here
@@ -1699,7 +1698,6 @@ do
   -- (ScanTargets sweeps, UNIT_TARGET, PLAYER_TARGET_CHANGED_Deferred all
   -- run the matcher for the same unitID within a few ticks).
   -- local _lastLoggedMismatch = {}
-
 
   function BattleGroundEnemies:ClearPIDCaches()
     wipe(scanCycleCache)
@@ -4335,7 +4333,6 @@ function BattleGroundEnemies:Debug(...)
   end
 end
 
-
 -- Secure-action block diagnostics. ADDON_ACTION_BLOCKED / _FORBIDDEN fire when a
 -- protected action (target / focus / cast via a secure click) is denied by
 -- taint or combat lockdown — the exact failure class behind reported in-combat
@@ -5641,8 +5638,7 @@ function BattleGroundEnemies:GROUP_ROSTER_UPDATE()
   if buildAllies then
     if IsInRaid() then
       for i = 1, numGroupMembers do -- the player itself only shows up here when he is in a raid
-        local name, rank, _, _, _, classToken, _, _, _, role, _, _ =
-          GetRaidRosterInfo(i)
+        local name, rank, _, _, _, classToken, _, _, _, role, _, _ = GetRaidRosterInfo(i)
 
         -- Canonicalize the GetRaidRosterInfo name so it can be compared with
         -- UserDetails.PlayerName (canonical post-refactor). For same-realm

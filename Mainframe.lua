@@ -813,7 +813,8 @@ local function CreateMainFrame(playerType)
       and self.playerTypeConfig.Enabled
       and self.playerCountConfig
       and self.playerCountConfig.Enabled
-    ) and true
+    )
+        and true
       or false
   end
 
