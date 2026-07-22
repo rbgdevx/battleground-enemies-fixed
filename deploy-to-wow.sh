@@ -21,6 +21,7 @@
 #   AGENTS.md     — agent instructions
 #   CLAUDE.md     — agent instructions
 #   DEFERRED.md   — maintainer notes
+#   TOKEN_TIERS.md — maintainer notes (unit token tier reference)
 #   README.md     — repo readme (not addon metadata)
 #   cspell.json   — spell-check config
 #   deploy-to-wow.sh — this script itself
@@ -88,6 +89,7 @@ rsync -a \
   --exclude='AGENTS.md' \
   --exclude='CLAUDE.md' \
   --exclude='DEFERRED.md' \
+  --exclude='TOKEN_TIERS.md' \
   --exclude='NEW_CHANGES.md' \
   --exclude='IMPROVEMENTS.md' \
   --exclude='NOTES.md' \

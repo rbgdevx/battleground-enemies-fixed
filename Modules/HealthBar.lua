@@ -226,6 +226,36 @@ function healthBar:AttachToPlayerButton(playerButton)
   playerButton.healthBar.Background:SetAllPoints()
   playerButton.healthBar.Background:SetTexture("Interface/Buttons/WHITE8X8")
 
+  -- Jitter hunt (TEMP, log #2 of the write-pipeline bracket): record every
+  -- outcome at the FINAL writer — the bar itself. outcome = "write" (values
+  -- reached SetValue), "skip" (nil values, keep-prior), "dead" (forced 0).
+  -- src = the tagged caller stashed by playerButton:UNIT_HEALTH ("?" = an
+  -- untagged path wrote — itself a finding). De-duped on the
+  -- (token|outcome|src) signature per bar so a steady state logs once and
+  -- every alternation between writers logs each transition. Enemy bars only.
+  -- Health values are secret and never touched — only the metadata is logged.
+  local function _jitterBarLog(outcome, unitID)
+    if not playerButton.PlayerIsEnemy then
+      return
+    end
+    local src = tostring(playerButton._lastHealthSource or "?")
+    local sig = tostring(unitID or "nil") .. "|" .. outcome .. "|" .. src
+    if playerButton._jitterBarSig == sig then
+      return
+    end
+    playerButton._jitterBarSig = sig
+    if not BattleGroundEnemies:IsInPvPInstance() then
+      return
+    end
+    local nm = playerButton.PlayerDetails and playerButton.PlayerDetails.PlayerName
+    if type(nm) ~= "string" or (issecretvalue and issecretvalue(nm)) then
+      nm = "?"
+    end
+    BattleGroundEnemies:JitterLog(
+      "BARWRITE " .. nm .. " tok=" .. tostring(unitID or "nil") .. " src=" .. src .. " " .. outcome
+    )
+  end
+
   function playerButton.healthBar:UpdateHealth(unitID, health, healthMissing, healthPercent, maxHealth)
     -- Fetch live health if arguments are missing. 12.0.7: UnitHealth/UnitHealthMax
     -- (UnitTokenPvPRestrictedForAddOns) return nil instead of erroring on
@@ -238,9 +268,15 @@ function healthBar:AttachToPlayerButton(playerButton)
       maxHealth = UnitHealthMax(unitID)
     end
 
-    -- Dead: force health to 0, hide prediction
+    -- Dead: force health to 0, hide prediction. Range only needs to exist
+    -- (any range shows an empty bar at 0) — don't re-hammer it per write.
     if playerButton.isDead then
-      self:SetMinMaxValues(0, maxHealth or 1)
+      _jitterBarLog("dead", unitID)
+      if not self._rangeSetAt then
+        self:SetMinMaxValues(0, maxHealth or 1)
+        self._rangeSetAt = GetTime()
+        self._rangeBasisTok = unitID
+      end
       self:SetValue(0)
       playerButton.myHealPrediction:Hide()
       playerButton.otherHealPrediction:Hide()
@@ -255,10 +291,28 @@ function healthBar:AttachToPlayerButton(playerButton)
     -- If pcall fell back to nil, don't clobber the bar — keep prior values.
     -- SetMinMaxValues/SetValue require numbers and will error on nil.
     if not health or not maxHealth then
+      _jitterBarLog("skip", unitID)
       return
     end
 
-    self:SetMinMaxValues(0, maxHealth)
+    _jitterBarLog("write", unitID)
+    -- Blizzard-shaped range handling (CompactUnitFrame model): the range is
+    -- NOT re-set on every health write — Blizzard sets it in a separate
+    -- function on UNIT_MAXHEALTH and SetValue()s health alone. Post-12.0.7
+    -- maxHealth is a FRESH SECRET object per read, so the old per-write
+    -- SetMinMaxValues re-based the bar's range against a new secret up to
+    -- ~60x/s while SetValue raced it. Refresh the range only when:
+    --   * _rangeDirty — the UNIT_MAXHEALTH event fired for this button
+    --     (playerButton:UNIT_MAXHEALTH), i.e. the max ACTUALLY changed;
+    --   * the writing token CHANGES (plain string compare — never secrets):
+    --     a new read basis deserves a matching new range;
+    --   * it was never set (fresh/reset bar).
+    if self._rangeDirty or self._rangeBasisTok ~= unitID or not self._rangeSetAt then
+      self:SetMinMaxValues(0, maxHealth)
+      self._rangeDirty = nil
+      self._rangeBasisTok = unitID
+      self._rangeSetAt = GetTime()
+    end
     self:SetValue(health)
 
     local calc = playerButton.healPredCalc
@@ -347,6 +401,11 @@ function healthBar:AttachToPlayerButton(playerButton)
   function playerButton.healthBar:Reset()
     self:SetMinMaxValues(0, 1)
     self:SetValue(1)
+    -- New occupant = new range basis (see the Blizzard-shaped range handling
+    -- in UpdateHealth): force the first write to establish a fresh range.
+    self._rangeBasisTok = nil
+    self._rangeSetAt = nil
+    self._rangeDirty = nil
     if playerButton.myHealPrediction then
       playerButton.myHealPrediction:Hide()
     end

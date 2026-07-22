@@ -468,31 +468,26 @@ local function CreateMainFrame(playerType)
         if BattleGroundEnemies.db.profile.Testmode_UseTeammates then
           addWholeGroup = true
         else
-          --just addMyself and fill up the rest with fakeplayers
+          -- Show the fake allies REGARDLESS of UserButton. UserButton is the
+          -- user's own frame, which only exists in an actual match -- gating the
+          -- fakes on it left test-mode ally frames empty out of game. Add the
+          -- fakes always; add the real user only when their button exists. This is
+          -- inside IsTestmodeActive(), so it can't render ghost frames outside a BG.
+          local fakeAllies = self.PlayerSources[BattleGroundEnemies.consts.PlayerSources.FakePlayers]
+          for i = 1, #fakeAllies do
+            table.insert(newPlayers, fakeAllies[i])
+          end
           if type(BattleGroundEnemies.UserButton) == "table" and BattleGroundEnemies.UserButton.PlayerDetails then
-            table.insert(newPlayers, groupMembers[numGroupMembers]) --i am always last in here
-            local fakeAllies = self.PlayerSources[BattleGroundEnemies.consts.PlayerSources.FakePlayers]
-            local numFakeAllies = #fakeAllies
-            for i = 1, numFakeAllies do
-              local fakeAlly = fakeAllies[i]
-              table.insert(newPlayers, fakeAlly)
-            end
+            table.insert(newPlayers, groupMembers[numGroupMembers]) --user is always last
           end
         end
       else
         addWholeGroup = true
       end
       if addWholeGroup then
+        -- Spec already resolved from the scoreboard map in AddGroupMember.
         for i = 1, numGroupMembers do
-          local groupMember = groupMembers[i]
-          local specName = groupMember.specName
-          if not specName or specName == "" then
-            local match = self:FindPlayerInSource(BattleGroundEnemies.consts.PlayerSources.Scoreboard, groupMember)
-            if match then
-              groupMember.specName = match.talentSpec
-            end
-          end
-          table.insert(newPlayers, groupMember)
+          table.insert(newPlayers, groupMembers[i])
         end
       end
     end
@@ -905,6 +900,19 @@ local function CreateMainFrame(playerType)
   end
 
   function mainframe:SetupButtonForNewPlayer(playerDetails)
+    -- Jitter log: every setup wipes the health bar to FULL (module Reset loop
+    -- below) — the only full-bar writer. Frequent mid-match entries here for the
+    -- SAME names = button churn, the (a) theory of the full-flash. Canonical
+    -- PlayerName is non-secret by construction (Players[] dict key); guard
+    -- anyway so a secret can never reach string.format.
+    if BattleGroundEnemies:IsInPvPInstance() then
+      local nm = playerDetails and playerDetails.PlayerName
+      if type(nm) ~= "string" or (issecretvalue and issecretvalue(nm)) then
+        nm = "?"
+      end
+      BattleGroundEnemies:JitterLog("RECYCLE " .. self.PlayerType .. " <- " .. nm)
+    end
+
     local playerButton = self.InactivePlayerButtons[#self.InactivePlayerButtons]
     if playerButton then --recycle a previous used button
       table_remove(self.InactivePlayerButtons, #self.InactivePlayerButtons)
@@ -945,14 +953,15 @@ local function CreateMainFrame(playerType)
     self.Target = nil
 
     local TimeSinceLastOnUpdate = 0
-    -- 0.2s = 5 Hz per button (halved from 0.1s / 10 Hz). Shared by both the
+    -- 0.3s per button (was 0.2s, before that 0.1s). Shared by both the
     -- enemy and ally OnUpdate handlers below. UpdateAll's health/power data
     -- is already driven by UNIT_HEALTH / UNIT_POWER_FREQUENT push events;
     -- this ticker is a safety-net poll (mainly for range-indicator state and
-    -- compound tokens). Halving it cuts the UpdateAll call volume ~50%
-    -- (the single biggest CPU line in epic BG combat, up to 124-378 ms/s)
+    -- compound tokens). 0.3s matches ScanTargets' in-combat cadence so the
+    -- two polling systems tick at the same floor rate; further cuts the
+    -- UpdateAll call volume (the single biggest CPU line in epic BG combat)
     -- at the cost of ~100ms extra range-indicator latency (imperceptible).
-    local UpdatePeriod = 0.2 --update every 0.2 seconds
+    local UpdatePeriod = 0.3 --update every 0.3 seconds
 
     -- Initial range state: enemies start out-of-range, allies start in-range.
     -- Note: UpdateRange may no-op if self.config is nil (not yet set by ApplyButtonSettings).
@@ -1281,6 +1290,13 @@ local function CreateMainFrame(playerType)
       PlayerClassColor = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classToken],
       PlayerRace = race or "Unknown", -- store localized race name directly (merc-mode safe)
       PlayerSpecName = spec, --set to false since we use Mixin() and Mixin doesnt mixin nil values and therefore we dont overwrite values with nil
+      -- LIVE spec exactly as the source delivered it (scoreboard talentSpec for
+      -- real players, GetSpecializationInfoByID for test-mode fakes). Secret
+      -- mid-match; pure pass-through. The harvest seeder below may overwrite
+      -- PlayerSpecName (which feeds LOGIC: role/icon/tooltip) with the stale
+      -- last-seen spec — this field is NEVER touched by harvest, so display-only
+      -- consumers (Spec Name module) always render the CURRENT match's spec.
+      PlayerSpecNameScoreboard = spec,
       PlayerRole = (specData and specData.roleID) -- 1st priority: spec-based role
         or (additionalData and additionalData.groupRole) -- 2nd priority: group role (allies only)
         or (additionalData and additionalData.roleAssigned), -- 3rd priority: scoreboard role
@@ -1517,6 +1533,20 @@ local function CreateMainFrame(playerType)
       end
       if newName then
         self.Players[newName] = playerButton
+      end
+
+      -- Secret fields are invisible to the two compare loops above (both skip
+      -- any secret side), so a live spec ARRIVING from the scoreboard (empty ->
+      -- present secret) never flips detailsChanged — the Spec Name module would
+      -- stay blank until some unrelated field changed. Detect the transition via
+      -- PRESENCE only: type() is safe on secrets and returns "string" for a
+      -- present spec (same idiom SpecName:SetSpec uses). Mid-match steady state
+      -- is string -> string (a fresh secret each tick), so this fires once per
+      -- player when their spec first lands, not on every score tick.
+      local oldSpecPresent = type(currentDetails and currentDetails.PlayerSpecNameScoreboard) == "string"
+      local newSpecPresent = type(playerDetails.PlayerSpecNameScoreboard) == "string"
+      if oldSpecPresent ~= newSpecPresent then
+        detailsChanged = true
       end
 
       playerButton.PlayerDetails = playerDetails
@@ -1972,16 +2002,6 @@ end
 BattleGroundEnemies.Enemies = CreateMainFrame(BattleGroundEnemies.consts.PlayerTypes.Enemies)
 BattleGroundEnemies.Enemies.Counter = {}
 
-function BattleGroundEnemies.Allies:GroupInSpecT_Update(event, GUID, unitID, info)
-  if not GUID or type(GUID) ~= "string" or not info.class then
-    return
-  end
-
-  BattleGroundEnemies.specCache[GUID] = info.spec_name_localized
-
-  BattleGroundEnemies:GROUP_ROSTER_UPDATE()
-end
-
 function BattleGroundEnemies.Allies:AddGroupMember(name, isLeader, isAssistant, classToken, unitID, raidRole)
   local raceName = UnitRace(unitID)
   local GUID = UnitGUID(unitID)
@@ -1991,12 +2011,9 @@ function BattleGroundEnemies.Allies:AddGroupMember(name, isLeader, isAssistant, 
   end
 
   if name and raceName and classToken then
-    local ok, specName = pcall(function()
-      return BattleGroundEnemies.specCache[GUID]
-    end)
-    if not ok then
-      specName = nil
-    end
+    -- Spec from the scoreboard (LibGroupInSpecT removed). talentSpec is secret
+    -- mid-match; a plain table read returns it (or nil) without evaluating it.
+    local specName = BattleGroundEnemies.scoreboardSpecByName[BattleGroundEnemies:CanonicalName(name)]
     local groupRole = UnitGroupRolesAssigned(unitID) -- Get assigned role from group
 
     self:AddPlayerToSource(BattleGroundEnemies.consts.PlayerSources.GroupMembers, {
@@ -2380,7 +2397,9 @@ function BattleGroundEnemies.Enemies:RemoveGroupTarget(button, sourceUnit)
   self.GroupTargetMap[button][sourceUnit] = nil
 
   local nextUnitID = next(self.GroupTargetMap[button]) and select(2, next(self.GroupTargetMap[button]))
-  button:UpdateEnemyUnitID("GroupTarget", nextUnitID)
+  -- nextUnitID is recycled from an earlier tick (unverified) — pass
+  -- residualReassign so UpdateEnemyUnitID skips the health/power snapshot.
+  button:UpdateEnemyUnitID("GroupTarget", nextUnitID, true)
 end
 
 function BattleGroundEnemies.Enemies:AddNameplateTarget(button, sourceUnit, targetUnitID)
@@ -2398,7 +2417,8 @@ function BattleGroundEnemies.Enemies:RemoveNameplateTarget(button, sourceUnit)
   self.NameplateTargetMap[button][sourceUnit] = nil
 
   local nextUnitID = next(self.NameplateTargetMap[button]) and select(2, next(self.NameplateTargetMap[button]))
-  button:UpdateEnemyUnitID("NameplateTarget", nextUnitID)
+  -- Unverified re-pick — no snapshot (see RemoveGroupTarget).
+  button:UpdateEnemyUnitID("NameplateTarget", nextUnitID, true)
 end
 
 function BattleGroundEnemies.Enemies:AddArenaTarget(button, sourceUnit, targetUnitID)
@@ -2416,7 +2436,8 @@ function BattleGroundEnemies.Enemies:RemoveArenaTarget(button, sourceUnit)
   self.ArenaTargetMap[button][sourceUnit] = nil
 
   local nextUnitID = next(self.ArenaTargetMap[button]) and select(2, next(self.ArenaTargetMap[button]))
-  button:UpdateEnemyUnitID("ArenaTarget", nextUnitID)
+  -- Unverified re-pick — no snapshot (see RemoveGroupTarget).
+  button:UpdateEnemyUnitID("ArenaTarget", nextUnitID, true)
 end
 
 function BattleGroundEnemies.Enemies:AddGroupPetTarget(button, sourceUnit, targetUnitID)
@@ -2434,7 +2455,8 @@ function BattleGroundEnemies.Enemies:RemoveGroupPetTarget(button, sourceUnit)
   self.GroupPetTargetMap[button][sourceUnit] = nil
 
   local nextUnitID = next(self.GroupPetTargetMap[button]) and select(2, next(self.GroupPetTargetMap[button]))
-  button:UpdateEnemyUnitID("GroupPetTarget", nextUnitID)
+  -- Unverified re-pick — no snapshot (see RemoveGroupTarget).
+  button:UpdateEnemyUnitID("GroupPetTarget", nextUnitID, true)
 end
 
 function BattleGroundEnemies.Enemies:UNIT_TARGET(unitID)

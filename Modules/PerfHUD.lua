@@ -533,8 +533,12 @@ wrapButton = function(btn)
     btn.UNIT_HEALTH = wrapped
     -- Aliases set in PlayerButton.lua right after UNIT_HEALTH is defined still
     -- point at the original closure. Re-point so they're counted too.
+    -- UNIT_MAXHEALTH is deliberately NOT re-pointed: it's a REAL handler now
+    -- (flags the health bar's range dirty), not an alias — re-pointing would
+    -- silently clobber that behavior while profiling. It delegates to
+    -- self:UNIT_HEALTH, which resolves to `wrapped` at call time, so its
+    -- work is still counted.
     btn.UNIT_HEALTH_FREQUENT = wrapped
-    btn.UNIT_MAXHEALTH = wrapped
     btn.UNIT_HEAL_PREDICTION = wrapped
     btn.UNIT_ABSORB_AMOUNT_CHANGED = wrapped
     btn.UNIT_HEAL_ABSORB_AMOUNT_CHANGED = wrapped

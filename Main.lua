@@ -271,7 +271,11 @@ BattleGroundEnemies.Testmode = {
 BattleGroundEnemies.ButtonModules = {} --contains moduleFrames, key is the module name
 BattleGroundEnemies.UserFaction = UnitFactionGroup("player")
 BattleGroundEnemies.UserButton = false --the button of the Player himself
-BattleGroundEnemies.specCache = {} -- key = GUID, value = specName (localized)
+-- Ally spec source. LibGroupInSpecT was removed, so group-member specs come from
+-- the scoreboard like enemies: a non-secret CanonicalName -> talentSpec map,
+-- rebuilt each UPDATE_BATTLEFIELD_SCORE. talentSpec is SecretInActivePvPMatch and
+-- carried as a pure pass-through (no comparison/concat), exactly as enemies do.
+BattleGroundEnemies.scoreboardSpecByName = {}
 
 -- ButtonEventLog: ring buffer of recent button-lifecycle events. Used by the
 -- watchdog to dump a timeline when PlayerList exceeds NumPlayers, so we can
@@ -1256,6 +1260,16 @@ function BattleGroundEnemies:Enable()
   -- (entries get re-written as honorLevel/spec/role evolve), so an extra
   -- clear is always safe.
   self._harvestedThisMatch = nil
+  -- Reset the ally-spec map AND its growth counter for the new match. The map is
+  -- otherwise only wiped at the top of UBS, so without this the Enable()
+  -- GROUP_ROSTER_UPDATE below (which runs before the first scoreboard tick) could
+  -- render a STALE spec carried over from the previous match for a re-queued ally.
+  -- Clearing the counter makes the first new-match score tick re-fire the refresh.
+  wipe(self.scoreboardSpecByName)
+  self._allySpecCount = nil
+
+  -- Jitter log match separator (instanceMapID is a plain number, never secret).
+  self:JitterLog("=== Enable, instanceMapID=" .. tostring(select(8, GetInstanceInfo())) .. " ===")
 
   self:RegisterEvents()
   StartButtonUpdateTicker()
@@ -1686,6 +1700,80 @@ do
   -- run the matcher for the same unitID within a few ticks).
   -- local _lastLoggedMismatch = {}
 
+  -- Jitter-hunt ROUTE logging (TEMP, 2026-07-07): silent, writes to the
+  -- SavedVariables jitter log (never chat). Fires only when a token resolves
+  -- to a DIFFERENT button than its previous resolve, tagged with the tier
+  -- that produced the match. The suspected full-flash mechanism: compound
+  -- tokens (raidNtarget etc.) are DYNAMIC -> bypass sticky + cycle caches ->
+  -- re-run the tier chain every call, and tiers 7-9 depend on live reads
+  -- (gender/honor/guild/power) that blink in and out mid-combat -- so the
+  -- SAME token can flap between two same-class buttons as different tiers
+  -- win, alternating two players' health on one bar. This log names the
+  -- flapping token, both buttons, and the winning tiers. Legit retargets
+  -- also log (an ally switching targets IS a route change) -- those are
+  -- expected and low-rate; flapping shows as rapid A->B->A with mixed tiers.
+  -- Only non-secret data: tokens are literals, names canonical.
+  -- _fmtProbe stringifies possibly-secret live reads WITHOUT evaluating them
+  -- (nil -> "nil", secret -> "secret", else tostring). Shared by the ROUTE
+  -- live-read suffix below and the PETLEAK probe in the matcher.
+  local function _fmtProbe(v)
+    if v == nil then
+      return "nil"
+    end
+    if issecretvalue and issecretvalue(v) then
+      return "secret"
+    end
+    return tostring(v)
+  end
+  local _jitterRouteLast = {}
+  local function _logTierMatch(unitID, button, path)
+    if not (unitID:match("target$") or unitID:match("^nameplate%d+$")) then
+      return
+    end
+    if _jitterRouteLast[unitID] == button then
+      return
+    end
+    local prev = _jitterRouteLast[unitID]
+    _jitterRouteLast[unitID] = button
+    if not BattleGroundEnemies:IsInPvPInstance() then
+      return
+    end
+    local nm = button and button.PlayerDetails and button.PlayerDetails.PlayerName
+    if type(nm) ~= "string" or (issecretvalue and issecretvalue(nm)) then
+      nm = "?"
+    end
+    local prevNm = "-"
+    if prev then
+      prevNm = prev.PlayerDetails and prev.PlayerDetails.PlayerName
+      if type(prevNm) ~= "string" or (issecretvalue and issecretvalue(prevNm)) then
+        prevNm = "?"
+      end
+    end
+    -- Live identity reads at the moment of the route change (log #1 of the
+    -- write-pipeline bracket). Docs: UnitClassBase/UnitRace are
+    -- MayReturnNothing — they can blink to nil but never lie — so:
+    --   cls flipping with the route  = the unit behind the token really
+    --     changed (genuine retarget, matcher innocent for this line);
+    --   cls steady while route flips = matcher internal bug, and these
+    --     fields show which live input made the wrong tier fire.
+    local _, liveCls = UnitClassBase(unitID)
+    local liveRace = UnitRace(unitID)
+    local liveHon = UnitHonorLevel(unitID)
+    BattleGroundEnemies:JitterLog(
+      "ROUTE " .. unitID .. " -> " .. nm .. " (was " .. prevNm .. ") via " .. path
+        .. " [cls=" .. _fmtProbe(liveCls)
+        .. " race=" .. _fmtProbe(liveRace)
+        .. " hon=" .. _fmtProbe(liveHon)
+        .. " exists=" .. tostring(UnitExists(unitID) and 1 or 0) .. "]"
+    )
+  end
+
+  -- PETLEAK probe state (TEMP, jitter hunt — see probe in the matcher below).
+  -- Per-token 1s time gate + signature de-dupe so steady states log once.
+  -- (_fmtProbe is defined above, next to the ROUTE logger.)
+  local _petProbeAt = {}
+  local _petProbeLast = {}
+
   function BattleGroundEnemies:ClearPIDCaches()
     wipe(scanCycleCache)
     wipe(stickyPIDCache)
@@ -1930,6 +2018,33 @@ do
       return nil
     end
 
+    -- PETLEAK probe (TEMP, jitter hunt): when UnitIsPlayer can NOT vouch that
+    -- this unit is a player (nil on compound tokens post-12.0.7 — the guard
+    -- above only rejects explicit false), record what the unit looks like.
+    -- Theory: pets/summons (treants, ghouls) pointed at by raidNtarget /
+    -- nameplateNtarget slip past the guard, class-match to a player button
+    -- (tier-5), and paint their usually-full health onto it — the full-flash.
+    -- A READABLE (non-secret) UnitCreatureType is itself a "not an enemy
+    -- player" signal: player identities are secret-restricted mid-match.
+    -- 1s/token time gate + signature de-dupe keep volume tiny; secret returns
+    -- are stringified as "secret" without ever being evaluated.
+    if isPlayer ~= true and (unitID:match("target$") or unitID:match("^nameplate%d+$")) then
+      local now = GetTime()
+      if (_petProbeAt[unitID] or 0) + 1 < now then
+        _petProbeAt[unitID] = now
+        local sig = "isPlayer=" .. _fmtProbe(isPlayer)
+          .. " pet=" .. _fmtProbe(UnitIsOtherPlayersPet(unitID))
+          .. " ctrl=" .. _fmtProbe(UnitPlayerControlled(unitID))
+          .. " ctype=" .. _fmtProbe(UnitCreatureType(unitID))
+        if _petProbeLast[unitID] ~= sig then
+          _petProbeLast[unitID] = sig
+          if BattleGroundEnemies:IsInPvPInstance() then
+            BattleGroundEnemies:JitterLog("PETLEAK " .. unitID .. " " .. sig)
+          end
+        end
+      end
+    end
+
     -- Matcher per-call helpers captureLiveAttrs / recordCycleMatch /
     -- recordStickyMatch are now defined ONCE at do-block scope (just above the
     -- matcher) instead of being re-allocated as closures on every call
@@ -2029,7 +2144,7 @@ do
       else
         recordCycleMatch(arenaBtn, unitID, ignoreExistingArena)
         captureLiveAttrs(arenaBtn, unitID)
-        -- _logTierMatch(arenaBtn, "arena-fast-path")
+        _logTierMatch(unitID, arenaBtn, "arena-fast-path")
         return arenaBtn
       end
     end
@@ -2070,9 +2185,45 @@ do
               -- captureLiveAttrs deliberately omitted: UnitIsUnit can return
               -- secret booleans in 12.0.5 PvP and we've seen wrong-twin
               -- positives. Don't poison the matched button's stored attrs.
-              -- _logTierMatch(arenaBtn, "arena-cross-identity")
+              _logTierMatch(unitID, arenaBtn, "arena-cross-identity")
               return arenaBtn
             end
+          end
+        end
+      end
+    end
+
+    -- Held-nameplate fast path: a nameplateN token is PINNED to one unit for
+    -- the plate's entire lifetime — Blizzard's own NamePlateDriverMixin sets
+    -- the unit once on NAME_PLATE_UNIT_ADDED and only clears it on _REMOVED
+    -- (oUF uses the identical model), and both events are synchronous, so the
+    -- token cannot silently rebind between them. Therefore, if a button
+    -- already HOLDS this plate token (assigned by a confident earlier
+    -- resolve; both lifecycle events clear/reassign the hold), keep routing
+    -- to it instead of re-rolling the tier chain. Placed AFTER the arena
+    -- fast-path and arena-cross-identity tiers so arena-token identity —
+    -- the ONLY token that persists all match and carries objective icons —
+    -- always gets first claim on every plate lookup, exactly as before
+    -- this fast path existed. The hold only replaces the guessing tiers
+    -- BELOW it (name/sticky/tier 5-9), which is where twin starvation lived. Re-rolling every call made
+    -- same-class+same-race twins — separable only by the honor tier — drop to
+    -- "unresolvable" whenever that live read blinked, starving their health
+    -- AND range updates for up to ~2 minutes (jitter log, game 6: Hyibread /
+    -- Holythorns, both Tauren paladins, 93/95 routes via tier-8-honor,
+    -- 111s/99s write gaps = frozen full bar + no in-range highlight in
+    -- melee). Class/race contradiction check guards a missed REMOVED event.
+    if unitID:match("^nameplate%d+$") then
+      local plateList = self[playerType].PlayerList
+      if plateList then
+        for i = 1, #plateList do
+          local held = plateList[i]
+          if held.UnitIDs and held.UnitIDs.Nameplate == unitID then
+            if not self:ArenaMappingContradicted(held, unitID) then
+              recordCycleMatch(held, unitID, ignoreExistingArena)
+              _logTierMatch(unitID, held, "held-nameplate")
+              return held
+            end
+            break -- contradicted: fall through to a fresh tier resolve
           end
         end
       end
@@ -2095,7 +2246,7 @@ do
             scanCycleCache[unitID] = nil
             -- fall through to re-resolve via tiers below
           else
-            -- _logTierMatch(cached, "scan-cycle-cache")
+            _logTierMatch(unitID, cached, "scan-cycle-cache")
             return cached
           end
         else
@@ -2121,7 +2272,7 @@ do
       if nameButton then
         recordCycleMatch(nameButton, unitID, ignoreExistingArena)
         captureLiveAttrs(nameButton, unitID)
-        -- _logTierMatch(nameButton, "name-lookup")
+        _logTierMatch(unitID, nameButton, "name-lookup")
         return nameButton
       end
     end
@@ -2183,7 +2334,7 @@ do
         -- rather than a tier-5 unique-class. Capturing here would re-poison
         -- the button each tick. The original tier match (if it was tier-5)
         -- already captured authoritatively.
-        -- _logTierMatch(sticky.button, sticky.fallback and "sticky-cache(fallback)" or "sticky-cache")
+        _logTierMatch(unitID, sticky.button, sticky.fallback and "sticky-cache(fallback)" or "sticky-cache")
         return sticky.button
       else
         stickyPIDCache[unitID] = nil
@@ -2220,7 +2371,7 @@ do
         recordCycleMatch(match, unitID, ignoreExistingArena)
         recordStickyMatch(match, unitClassID, unitID)
         captureLiveAttrs(match, unitID)
-        -- _logTierMatch(match, "tier-5-class-unique")
+        _logTierMatch(unitID, match, "tier-5-class-unique")
         return match
       end
       hasMultipleCandidates = count > 1
@@ -2276,7 +2427,7 @@ do
           recordCycleMatch(match, unitID, ignoreExistingArena)
           recordStickyMatch(match, unitClassID, unitID)
           captureLiveAttrs(match, unitID)
-          -- _logTierMatch(match, "tier-6-race")
+          _logTierMatch(unitID, match, "tier-6-race")
           return match
         end
       end
@@ -2349,7 +2500,7 @@ do
           -- tier 5 (sole same-class candidate), tier 6 (authoritative
           -- scoreboard race uniquely identifies), and the arena fast-path
           -- are safe enough to capture from.
-          -- _logTierMatch(match, "tier-7-gender")
+          _logTierMatch(unitID, match, "tier-7-gender")
           return match
         end
       end
@@ -2392,7 +2543,7 @@ do
           recordCycleMatch(firstMatch, unitID, ignoreExistingArena)
           recordStickyMatch(firstMatch, unitClassID, unitID)
           -- captureLiveAttrs omitted: see tier-7 comment above.
-          -- _logTierMatch(firstMatch, "tier-8-honor")
+          _logTierMatch(unitID, firstMatch, "tier-8-honor")
           return firstMatch
         end
       end
@@ -2445,7 +2596,7 @@ do
           recordCycleMatch(match, unitID, ignoreExistingArena)
           recordStickyMatch(match, unitClassID, unitID)
           -- captureLiveAttrs omitted: see tier-7 comment above.
-          -- _logTierMatch(match, "tier-8.5-power")
+          _logTierMatch(unitID, match, "tier-8.5-power")
           return match
         end
       end
@@ -2513,7 +2664,7 @@ do
           recordCycleMatch(match, unitID, ignoreExistingArena)
           recordStickyMatch(match, unitClassID, unitID)
           -- captureLiveAttrs omitted: see tier-7 comment above.
-          -- _logTierMatch(match, "tier-9-guild")
+          _logTierMatch(unitID, match, "tier-9-guild")
           return match
         end
       end
@@ -2752,7 +2903,7 @@ do
             -- arena-cross-identity above. UnitIsUnit can return secret
             -- bools in 12.0.5 PvP. Don't poison stored attrs from a
             -- match that may itself be wrong.
-            -- _logTierMatch(peer, "arena-peer-elimination")
+            _logTierMatch(unitID, peer, "arena-peer-elimination")
             return peer
           end
           if ok and not sameIsSecret and same == false then
@@ -2932,7 +3083,7 @@ function BattleGroundEnemies:ScanTargets()
         if btn then
           self.Enemies:AddGroupTarget(btn, sourceUnit, targetUnitID)
           self.Enemies.UnitTargets[sourceUnit] = btn
-          btn:UNIT_HEALTH(targetUnitID)
+          btn:UNIT_HEALTH(targetUnitID, "scanRaid")
           btn:UNIT_POWER_FREQUENT(targetUnitID)
           btn:UpdateRangeViaLibRangeCheck(targetUnitID)
         else
@@ -2962,7 +3113,7 @@ function BattleGroundEnemies:ScanTargets()
         if btn then
           self.Enemies:AddGroupTarget(btn, sourceUnit, targetUnitID)
           self.Enemies.UnitTargets[sourceUnit] = btn
-          btn:UNIT_HEALTH(targetUnitID)
+          btn:UNIT_HEALTH(targetUnitID, "scanParty")
           btn:UNIT_POWER_FREQUENT(targetUnitID)
           btn:UpdateRangeViaLibRangeCheck(targetUnitID)
         else
@@ -3081,7 +3232,7 @@ function BattleGroundEnemies:ScanTargets()
     if UnitExists(unitID) then
       local btn = self:GetPlayerbuttonByUnitID(unitID, "Enemies")
       if btn then
-        btn:UNIT_HEALTH(unitID)
+        btn:UNIT_HEALTH(unitID, "scanArena")
         btn:UNIT_POWER_FREQUENT(unitID)
         btn:UpdateRangeViaLibRangeCheck(unitID)
         if btn.SpecClassPriority then
@@ -3112,7 +3263,7 @@ function BattleGroundEnemies:ScanTargets()
           end
           btn:UpdateEnemyUnitID("Nameplate", unitID)
         end
-        btn:UNIT_HEALTH(unitID)
+        btn:UNIT_HEALTH(unitID, "scanNP")
         btn:UNIT_POWER_FREQUENT(unitID)
         btn:UpdateRangeViaLibRangeCheck(unitID)
         if btn.SpecClassPriority then
@@ -3140,7 +3291,7 @@ function BattleGroundEnemies:ScanTargets()
       end
 
       if btn then
-        btn:UNIT_HEALTH(targetUnitID)
+        btn:UNIT_HEALTH(targetUnitID, "scanNPT")
         btn:UNIT_POWER_FREQUENT(targetUnitID)
         btn:UpdateRangeViaLibRangeCheck(targetUnitID)
         self.Enemies:AddNameplateTarget(btn, sourceUnit, targetUnitID)
@@ -3251,7 +3402,7 @@ function BattleGroundEnemies:ScanTargets()
     if btn then
       btn:UpdateEnemyUnitID("PetTarget", "pettarget")
       self.Enemies.PetTargetButton = btn
-      btn:UNIT_HEALTH("pettarget")
+      btn:UNIT_HEALTH("pettarget", "petT")
       btn:UNIT_POWER_FREQUENT("pettarget")
       btn:UpdateRangeViaLibRangeCheck("pettarget")
     end
@@ -3275,7 +3426,7 @@ function BattleGroundEnemies:ScanTargets()
     if btn then
       btn:UpdateEnemyUnitID("FocusTarget", "focustarget")
       self.Enemies.FocusTargetButton = btn
-      btn:UNIT_HEALTH("focustarget")
+      btn:UNIT_HEALTH("focustarget", "focusT")
       btn:UNIT_POWER_FREQUENT("focustarget")
       btn:UpdateRangeViaLibRangeCheck("focustarget")
     end
@@ -3305,7 +3456,7 @@ function BattleGroundEnemies:ScanTargets()
       end
 
       if btn then
-        btn:UNIT_HEALTH(targetUnitID)
+        btn:UNIT_HEALTH(targetUnitID, "scanArenaT")
         btn:UNIT_POWER_FREQUENT(targetUnitID)
         btn:UpdateRangeViaLibRangeCheck(targetUnitID)
         self.Enemies:AddArenaTarget(btn, sourceUnit, targetUnitID)
@@ -3426,7 +3577,7 @@ function BattleGroundEnemies:ScanTargets()
         end
 
         if btn then
-          btn:UNIT_HEALTH(targetUnitID)
+          btn:UNIT_HEALTH(targetUnitID, "scanRaidPetT")
           btn:UNIT_POWER_FREQUENT(targetUnitID)
           btn:UpdateRangeViaLibRangeCheck(targetUnitID)
           self.Enemies:AddGroupPetTarget(btn, sourceUnit, targetUnitID)
@@ -3456,7 +3607,7 @@ function BattleGroundEnemies:ScanTargets()
         end
 
         if btn then
-          btn:UNIT_HEALTH(targetUnitID)
+          btn:UNIT_HEALTH(targetUnitID, "scanPartyPetT")
           btn:UNIT_POWER_FREQUENT(targetUnitID)
           btn:UpdateRangeViaLibRangeCheck(targetUnitID)
           self.Enemies:AddGroupPetTarget(btn, sourceUnit, targetUnitID)
@@ -3515,7 +3666,7 @@ function BattleGroundEnemies:PLAYER_SOFT_ENEMY_CHANGED()
   end
   local btn = self:GetPlayerbuttonByUnitID("softenemy", "Enemies")
   if btn then
-    btn:UNIT_HEALTH("softenemy")
+    btn:UNIT_HEALTH("softenemy", "softenemy")
     btn:UNIT_POWER_FREQUENT("softenemy")
     btn:UpdateRangeViaLibRangeCheck("softenemy")
   end
@@ -4183,12 +4334,37 @@ function BattleGroundEnemies:UNIT_HEALTH(unitID) --gets health of nameplates, pl
   end
 
   if playerButton then --unit is a shown player
-    playerButton:UNIT_HEALTH(unitID)
+    playerButton:UNIT_HEALTH(unitID, "event")
   end
 end
 
 BattleGroundEnemies.UNIT_HEALTH_FREQUENT = BattleGroundEnemies.UNIT_HEALTH --used to be used only in tbc, now its only used in classic and wrath
-BattleGroundEnemies.UNIT_MAXHEALTH = BattleGroundEnemies.UNIT_HEALTH
+
+-- UNIT_MAXHEALTH gets its own handler (was aliased to UNIT_HEALTH): the
+-- health bar refreshes its min/max range ONLY when the max actually changed
+-- (CompactUnitFrame model — range set on UNIT_MAXHEALTH, SetValue per health
+-- write). Body mirrors BattleGroundEnemies:UNIT_HEALTH above; the per-button
+-- handler flags the bar's range dirty and then runs the normal health path.
+function BattleGroundEnemies:UNIT_MAXHEALTH(unitID)
+  local playerButton = self:GetPlayerbuttonByUnitID(unitID, "Enemies")
+
+  -- If not found (rejected friendly unit), check ally buttons by unitID
+  if not playerButton and UnitIsFriend("player", unitID) then
+    if self.Allies and self.Allies.Players then
+      for _, allyButton in pairs(self.Allies.Players) do
+        if allyButton.unitID == unitID then
+          playerButton = allyButton
+          break
+        end
+      end
+    end
+  end
+
+  if playerButton then --unit is a shown player
+    playerButton:UNIT_MAXHEALTH(unitID)
+  end
+end
+
 BattleGroundEnemies.UNIT_HEAL_PREDICTION = BattleGroundEnemies.UNIT_HEALTH
 BattleGroundEnemies.UNIT_ABSORB_AMOUNT_CHANGED = BattleGroundEnemies.UNIT_HEALTH
 BattleGroundEnemies.UNIT_HEAL_ABSORB_AMOUNT_CHANGED = BattleGroundEnemies.UNIT_HEALTH
@@ -4269,6 +4445,43 @@ function BattleGroundEnemies:Debug(...)
       keep[#keep + 1] = log[i]
     end
     self.db.global.debugLog = keep
+  end
+end
+
+-- ===========================================================================
+-- Health-jitter investigation log (TEMP, 2026-07-05). Silent — writes ONLY to
+-- SavedVariables (BattleGroundEnemiesDB.global.healthJitterLog), never to chat,
+-- so a live match isn't spammed. The user plays a game where the health-bar
+-- full-flash happens, /reloads (flushes SVs to disk), and the log is read off
+-- the WTF file. Captures the two candidate mechanisms:
+--   RECYCLE  — a button torn down + re-setup mid-match (healthBar:Reset() =
+--              the ONLY full-bar writer) — theory (a) button churn.
+--   FLIPS    — a button's health-read token changing rapidly (>= 2 changes in
+--              a 2s window; steady-state retarget/nameplate churn is quieter)
+--              — theory (b) wrong-unit reads alternating with real pushes.
+--   GRU/UBS  — ally-roster rebuild triggers (retry timer, spec-map refire),
+--              to correlate churn with its trigger.
+-- Only non-secret data is written: canonical button names (Players[] keys are
+-- non-secret by construction), literal unit tokens, timestamps. Remove the
+-- logger + call sites once the jitter mechanism is identified.
+-- ===========================================================================
+local JITTER_LOG_CAP = 20000
+function BattleGroundEnemies:JitterLog(msg)
+  if not (self.db and self.db.global) then
+    return
+  end
+  local log = self.db.global.healthJitterLog
+  if not log then
+    log = {}
+    self.db.global.healthJitterLog = log
+  end
+  log[#log + 1] = string.format("%s %.3f  %s", date("%H:%M:%S"), GetTime(), msg)
+  if #log >= JITTER_LOG_CAP * 2 then
+    local keep = {}
+    for i = #log - JITTER_LOG_CAP + 1, #log do
+      keep[#keep + 1] = log[i]
+    end
+    self.db.global.healthJitterLog = keep
   end
 end
 
@@ -4502,7 +4715,7 @@ function BattleGroundEnemies:UNIT_TARGET(unitID)
         local enemyButton = self:SafeGetPlayerButton(self.Enemies.Players, targetName)
         if enemyButton then
           -- Force an update since we have a valid unitID pointing to them right now
-          enemyButton:UNIT_HEALTH(targetUnitID)
+          enemyButton:UNIT_HEALTH(targetUnitID, "unitTargetName")
           enemyButton:UNIT_POWER_FREQUENT(targetUnitID)
         end
       end
@@ -5472,6 +5685,11 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
   -- ticks.)
   BattleGroundEnemies.Enemies:BeforePlayerSourceUpdate(self.consts.PlayerSources.Scoreboard)
 
+  -- Ally specs come from the scoreboard now (LibGroupInSpecT removed): rebuild a
+  -- non-secret CanonicalName -> talentSpec map each tick. The ally roster reads it
+  -- in AddGroupMember. Enemy rows still feed the enemy Scoreboard source as before.
+  wipe(BattleGroundEnemies.scoreboardSpecByName)
+
   local numScores = GetNumBattlefieldScores()
   for i = 1, numScores do
     local row = scoreRowPool[i]
@@ -5480,15 +5698,38 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
       scoreRowPool[i] = row
     end
     local score = parseBattlefieldScore(i, row)
-    -- Allies are driven exclusively by GROUP_ROSTER_UPDATE (raidN/partyN tokens);
-    -- Scoreboard is enemy-only here. parseBattlefieldScore returns nil (NOT `row`)
-    -- when GetScoreInfo has no data for a stale index, so a nil `score` is skipped.
-    if score and score.faction and score.name and score.classToken and score.faction == self.EnemyFaction then
-      BattleGroundEnemies.Enemies:AddPlayerToSource(self.consts.PlayerSources.Scoreboard, score)
+    -- parseBattlefieldScore returns nil (NOT `row`) when GetScoreInfo has no data
+    -- for a stale index, so a nil `score` is skipped.
+    if score and score.faction and score.name and score.classToken then
+      if score.faction == self.EnemyFaction then
+        BattleGroundEnemies.Enemies:AddPlayerToSource(self.consts.PlayerSources.Scoreboard, score)
+      elseif score.faction == self.AllyFaction then
+        -- Key = non-secret name; value = talentSpec (secret mid-match, stored as a
+        -- pure pass-through). Read back in AddGroupMember without any evaluation.
+        BattleGroundEnemies.scoreboardSpecByName[self:CanonicalName(score.name)] = score.talentSpec
+      end
     end
   end
 
   BattleGroundEnemies.Enemies:AfterPlayerSourceUpdate()
+
+  -- Land scoreboard specs on allies: when the map gains entries (specs become
+  -- readable over the first few score ticks), re-run the ally roster build -- the
+  -- same refresh the old LibGroupInSpecT callback fired. Count-gated on the
+  -- non-secret key count, so it fires a handful of times early then settles.
+  local allySpecCount = 0
+  for _ in pairs(BattleGroundEnemies.scoreboardSpecByName) do
+    allySpecCount = allySpecCount + 1
+  end
+  local grew = allySpecCount > (self._allySpecCount or 0)
+  self._allySpecCount = allySpecCount
+  if grew and self.GROUP_ROSTER_UPDATE then
+    -- Jitter log: if the spec-map count OSCILLATES (partial scoreboard returns
+    -- shrink it, full ones re-grow it), this refire runs all match and rebuilds
+    -- the ally roster every few seconds — candidate trigger for button churn.
+    self:JitterLog("UBS spec-map grew -> GRU refire (count=" .. allySpecCount .. ")")
+    self:GROUP_ROSTER_UPDATE()
+  end
 
   -- Re-scan orb/flag carriers after buttons are refreshed. Covers mid-match
   -- joiners (whose per-button PLAYER_ENTERING_WORLD fired before buttons
@@ -5633,6 +5874,9 @@ function BattleGroundEnemies:GROUP_ROSTER_UPDATE()
   end
   if buildAllies and actualAllies < numGroupMembers and not self.betweenRounds then
     if not self.allyRosterRetryTimer then
+      -- Jitter log: a retry loop that never satisfies actual==expected re-runs
+      -- GROUP_ROSTER_UPDATE every 1s for 30s — candidate trigger for churn.
+      self:JitterLog("GRU retry timer START (actual=" .. actualAllies .. " expected=" .. numGroupMembers .. ")")
       local retries = 0
       self.allyRosterRetryTimer = C_Timer.NewTicker(1, function()
         retries = retries + 1

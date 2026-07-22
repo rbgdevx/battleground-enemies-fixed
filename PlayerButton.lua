@@ -659,7 +659,11 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     self:DispatchEvent("UnitIdUpdate")
   end
 
-  function playerButton:UpdateEnemyUnitID(key, value)
+  -- residualReassign: set by the Remove*Target re-pick paths (Mainframe.lua).
+  -- Their `value` is recycled from an EARLIER tick's map entry, not verified
+  -- against this button right now — treat it like a residual pick and skip
+  -- the immediate health/power snapshot even though value == chain pick.
+  function playerButton:UpdateEnemyUnitID(key, value, residualReassign)
     if not self.PlayerIsEnemy then
       return
     end
@@ -683,41 +687,68 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       end
     end
 
-    -- Priority order: direct references first, then indirect
-    -- Direct: Arena, Target, Focus, SoftEnemy, Mouseover, Nameplate, PetTarget
-    -- Indirect: TargetTarget, FocusTarget, GroupTarget, GroupPetTarget, NameplateTarget, ArenaTarget
+    -- Priority order, docs-driven (SecretPredicatesDocumentation.lua +
+    -- event registration reality):
+    --   Tier 1  Arena      — direct, evented, persists all match, carries
+    --                        objective icons + secure click. Nothing outranks it.
+    --   Tier 2  Target/Focus — direct, evented, user-verified identity;
+    --                        volatile but detached instantly on change events.
+    --   Tier 3  Nameplate  — direct, evented lifecycle, PINNED to one unit
+    --                        for the plate's lifetime (Blizzard driver model).
+    --                        Outranks SoftEnemy/Mouseover: those are
+    --                        mouse-volatile, plates are not.
+    --   Tier 4  SoftEnemy/Mouseover — direct but most volatile of the
+    --                        direct family; mouseover gets no ongoing events.
+    --   Tier 5  compounds  — ALL through-unit tokens (…target). Docs: no push
+    --                        events ever fire for these (poll-only), identity
+    --                        is weakest-link-in-chain, comparisons always
+    --                        secret. Includes PetTarget ("pettarget" = the
+    --                        pet's target = a compound read), which previously
+    --                        sat above TargetTarget among the directs.
     local unitID = unitIDs.Arena
         or unitIDs.Target
         or unitIDs.Focus
+        or unitIDs.Nameplate
         or unitIDs.SoftEnemy
         or unitIDs.Mouseover
-        or unitIDs.Nameplate
-        or unitIDs.PetTarget
         or unitIDs.TargetTarget
         or unitIDs.FocusTarget
+        or unitIDs.PetTarget
         or unitIDs.GroupTarget
         or unitIDs.GroupPetTarget
         or unitIDs.NameplateTarget
         or unitIDs.ArenaTarget
     if unitID then
       unitIDs.HasAllyUnitID = false
-      -- Skip the health/power snapshot ONLY when the priority chain picked
-      -- a residual *dynamic shared token* (target/focus/mouseover/softenemy/
-      -- softfriend). Those can reassign to a different player at any time
-      -- (click, focus change, mouse move), so a stale entry on this button
-      -- snapshots the new owner's HP into our bar — the click-flip cross-
-      -- attach. Compound residuals (raidNtarget, nameplateN, etc.) are
-      -- tied to specific source units; snapshotting them is the only path
-      -- some buttons get HP updates when the matcher can't disambiguate
-      -- same-class twins (strict-rule path). Don't gate those.
+      -- Snapshot health/power ONLY when the priority chain picked the token
+      -- THIS call just assigned (value == unitID) — that token was verified
+      -- against this button's identity microseconds ago by the caller
+      -- (matcher-gated scan / event). Any RESIDUAL pick is skipped: a token
+      -- assigned on an earlier tick can point at a DIFFERENT player by now —
+      -- dynamic shared tokens (target/mouseover) reassign on any click, and
+      -- compound tokens (raidNtarget, nameplateNtarget, nameplateN) swing the
+      -- moment their source unit retargets / the plate slot recycles. Post-
+      -- 12.0.7 those stale reads SUCCEED instead of erroring, so a residual
+      -- snapshot painted the token's NEW owner's HP onto this bar — the
+      -- health full-flash (proven in the jitter log: BARWRITE src=? writes
+      -- landing on bars whose token had moved, e.g. Korhak taking Ferpect's
+      -- HP via a stale nameplate1target). The previous gate only skipped
+      -- dynamic shared tokens, trusting compound residuals as "tied to
+      -- specific source units" — true for the source end, not the target end.
+      -- Twin-disambiguation note (the old rationale for allowing compound
+      -- residuals): a residual only exists because the matcher DID
+      -- disambiguate at assignment; once it refuses, the scans remove the
+      -- assignment within a tick — so the lost "extra" update path was
+      -- already near-dead, and every matcher-verified writer (scans, pushes,
+      -- events) still feeds the bar at full rate.
       -- self.unitID and modules listening to UnitIdUpdate still propagate
       -- normally; only the immediate UNIT_HEALTH/UNIT_POWER_FREQUENT
-      -- snapshot inside UpdateAll is gated, and only for the risky tokens.
-      local DYNAMIC_TOKENS = BattleGroundEnemies.DYNAMIC_TOKENS
-      local skipSnapshot = false
-      if value ~= unitID and DYNAMIC_TOKENS and DYNAMIC_TOKENS[unitID] then
-        skipSnapshot = true
-      end
+      -- snapshot inside UpdateAll is gated.
+      -- residualReassign closes the last gap: a Remove*Target re-pick IS a
+      -- fresh assignment (value == unitID) but its value came from a stale
+      -- map entry — proven wrong-bar writer in the jitter log (e.g. Seleen's
+      -- bar taking another player's HP the moment a targeter dropped off).
+      local skipSnapshot = value ~= unitID or residualReassign == true
       self:UpdateUnitID(unitID, unitID .. "target", skipSnapshot)
     elseif unitIDs.Ally then
       unitIDs.HasAllyUnitID = true
@@ -1172,12 +1203,18 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     self:DispatchEvent("UpdateHealth", unitID, health, healthMissing, healthPercent, maxHealth)
   end
 
-  function playerButton:UNIT_HEALTH(unitID)
+  function playerButton:UNIT_HEALTH(unitID, jitterSource)
     -- Between solo shuffle rounds, ignore all health events — stale data
     -- (0 hp from the previous round) would overwrite our synthetic 100%.
     if BattleGroundEnemies.betweenRounds then
       return
     end
+
+    -- Jitter hunt (TEMP): remember which caller sent this write so the
+    -- BARWRITE log (HealthBar.lua) can attribute the bar update. Tagged call
+    -- sites pass a short label; untagged callers show as "?" — itself a
+    -- useful signal that some unwatched path is writing.
+    self._lastHealthSource = jitterSource or "?"
 
     -- DIAGNOSTIC (cross-attach hunt v57): only print SUSPECTED cross-attaches.
     -- For unitID=="target": fire only when this button is NOT the most
@@ -1238,6 +1275,48 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       queryID = self.unitID
     end
 
+    -- Nil-token write guard: if even the fallback produced no usable token,
+    -- there is nothing truthful to read — bail out instead of dispatching a
+    -- write built from nil reads. Fake players are exempt (test mode has no
+    -- real tokens; their health is synthesized further below).
+    if not self.PlayerDetails.isFakePlayer and (not queryID or not UnitExists(queryID)) then
+      return
+    end
+
+    -- Jitter log (TEMP): track which token each health read actually used.
+    -- "*" = the event token was unusable and we fell back to self.unitID (a
+    -- stale fallback reading a wrong unit is the (b) theory of the full-flash).
+    -- Only WINDOWS with >= 2 token changes in 2s are written (steady-state
+    -- retarget / nameplate churn is a single change and stays silent), so the
+    -- log captures thrash without flooding. Tokens are literal strings, names
+    -- canonical/non-secret — nothing secret is formatted.
+    do
+      local tok = (queryID or "nil") .. ((queryID ~= unitID) and "*" or "")
+      if tok ~= self._jitterLastTok then
+        self._jitterLastTok = tok
+        local now = GetTime()
+        if (now - (self._jitterWinStart or 0)) > 2 then
+          if (self._jitterFlips or 0) >= 2 and BattleGroundEnemies:IsInPvPInstance() then
+            local nm = self.PlayerDetails and self.PlayerDetails.PlayerName
+            if type(nm) ~= "string" or (issecretvalue and issecretvalue(nm)) then
+              nm = "?"
+            end
+            BattleGroundEnemies:JitterLog(
+              "FLIPS " .. nm .. " x" .. self._jitterFlips .. " [" .. (self._jitterPath or "") .. "]"
+            )
+          end
+          self._jitterWinStart = now
+          self._jitterFlips = 0
+          self._jitterPath = tok
+        else
+          self._jitterFlips = (self._jitterFlips or 0) + 1
+          if self._jitterPath and #self._jitterPath < 150 then
+            self._jitterPath = self._jitterPath .. ">" .. tok
+          end
+        end
+      end
+    end
+
     local health, healthMissing, healthPercent, maxHealth
     if self.PlayerDetails.isFakePlayer then
       maxHealth = self:FakeUnitHealthMax()
@@ -1255,6 +1334,14 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       maxHealth = UnitHealthMax(queryID)
       healthPercent = UnitHealthPercent(queryID, true, CurveConstants.ScaleTo100)
     else
+      -- usePredicted=true (explicit; also the API default): wiki guidance is
+      -- "there are generally only advantages" to predicted reads, and EVERY
+      -- health reader in this addon uses the same predicted basis (ally
+      -- branch above defaults to true, HealthBar's nil-refetch defaults to
+      -- true), so all writers to a bar share one consistent flavor. A brief
+      -- 12.0.7.25 experiment set these to false chasing the multi-writer
+      -- health jumping; reverted — the readers were already flavor-consistent,
+      -- so false only made bars trail the server during bursts.
       health = UnitHealth(queryID, true)
       healthMissing = UnitHealthMissing(queryID, true)
       maxHealth = UnitHealthMax(queryID)
@@ -1486,7 +1573,20 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
   end
 
   playerButton.UNIT_HEALTH_FREQUENT = playerButton.UNIT_HEALTH --TBC compability, IsTBCC
-  playerButton.UNIT_MAXHEALTH = playerButton.UNIT_HEALTH
+
+  -- Real handler (was an alias to UNIT_HEALTH): the max changed, so tell the
+  -- health bar its range basis is stale, then run the normal health path —
+  -- it re-reads health + max from the same token and dispatches UpdateHealth,
+  -- where the dirty flag makes SetMinMaxValues run with that fresh pair.
+  -- self:UNIT_HEALTH resolves at call time, so PerfHUD's profiling wrapper
+  -- around UNIT_HEALTH still counts the delegated work.
+  function playerButton:UNIT_MAXHEALTH(unitID)
+    if self.healthBar then
+      self.healthBar._rangeDirty = true
+    end
+    self:UNIT_HEALTH(unitID, "maxevent")
+  end
+
   playerButton.UNIT_HEAL_PREDICTION = playerButton.UNIT_HEALTH
   playerButton.UNIT_ABSORB_AMOUNT_CHANGED = playerButton.UNIT_HEALTH
   playerButton.UNIT_HEAL_ABSORB_AMOUNT_CHANGED = playerButton.UNIT_HEALTH
