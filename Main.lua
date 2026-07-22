@@ -1762,11 +1762,23 @@ do
     local liveRace = UnitRace(unitID)
     local liveHon = UnitHonorLevel(unitID)
     BattleGroundEnemies:JitterLog(
-      "ROUTE " .. unitID .. " -> " .. nm .. " (was " .. prevNm .. ") via " .. path
-        .. " [cls=" .. _fmtProbe(liveCls)
-        .. " race=" .. _fmtProbe(liveRace)
-        .. " hon=" .. _fmtProbe(liveHon)
-        .. " exists=" .. tostring(UnitExists(unitID) and 1 or 0) .. "]"
+      "ROUTE "
+        .. unitID
+        .. " -> "
+        .. nm
+        .. " (was "
+        .. prevNm
+        .. ") via "
+        .. path
+        .. " [cls="
+        .. _fmtProbe(liveCls)
+        .. " race="
+        .. _fmtProbe(liveRace)
+        .. " hon="
+        .. _fmtProbe(liveHon)
+        .. " exists="
+        .. tostring(UnitExists(unitID) and 1 or 0)
+        .. "]"
     )
   end
 
@@ -2034,10 +2046,14 @@ do
       local now = GetTime()
       if (_petProbeAt[unitID] or 0) + 1 < now then
         _petProbeAt[unitID] = now
-        local sig = "isPlayer=" .. _fmtProbe(isPlayer)
-          .. " pet=" .. _fmtProbe(UnitIsOtherPlayersPet(unitID))
-          .. " ctrl=" .. _fmtProbe(UnitPlayerControlled(unitID))
-          .. " ctype=" .. _fmtProbe(UnitCreatureType(unitID))
+        local sig = "isPlayer="
+          .. _fmtProbe(isPlayer)
+          .. " pet="
+          .. _fmtProbe(UnitIsOtherPlayersPet(unitID))
+          .. " ctrl="
+          .. _fmtProbe(UnitPlayerControlled(unitID))
+          .. " ctype="
+          .. _fmtProbe(UnitCreatureType(unitID))
         if _petProbeLast[unitID] ~= sig then
           _petProbeLast[unitID] = sig
           if BattleGroundEnemies:IsInPvPInstance() then
@@ -5852,8 +5868,7 @@ function BattleGroundEnemies:GROUP_ROSTER_UPDATE()
   if buildAllies then
     if IsInRaid() then
       for i = 1, numGroupMembers do -- the player itself only shows up here when he is in a raid
-        local name, rank, _, _, _, classToken, _, _, _, role, _, _ =
-          GetRaidRosterInfo(i)
+        local name, rank, _, _, _, classToken, _, _, _, role, _, _ = GetRaidRosterInfo(i)
 
         -- Canonicalize the GetRaidRosterInfo name so it can be compared with
         -- UserDetails.PlayerName (canonical post-refactor). For same-realm

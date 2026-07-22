@@ -386,7 +386,7 @@ local function attachToPlayerButton(playerButton)
             local locCount = C_LossOfControl
                 and C_LossOfControl.GetActiveLossOfControlDataCountByUnit
                 and C_LossOfControl.GetActiveLossOfControlDataCountByUnit(unitID)
-                or 0
+              or 0
             if locCount > 0 then
               return -- still CC'd per LoC, don't clear
             end
