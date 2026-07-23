@@ -2362,11 +2362,24 @@ function BattleGroundEnemies.Enemies:UPDATE_MOUSEOVER_UNIT()
   UpdateUnitIDForToken(self, "Mouseover", "mouseover")
 end
 
-function BattleGroundEnemies.Enemies:PLAYER_SOFT_INTERACT_CHANGED()
-  UpdateUnitIDForToken(self, "SoftEnemy", "softinteract")
+-- SoftEnemy election rides the soft-ENEMY event and token (was
+-- PLAYER_SOFT_INTERACT_CHANGED + "softinteract"): every writer and WoW push
+-- event uses "softenemy" (Main.lua PLAYER_SOFT_ENEMY_CHANGED handler,
+-- UNIT_HEALTH("softenemy") events), so under the elected-token write gate the
+-- old "softinteract" election could never match a write — and worse, it only
+-- refreshed at soft-INTERACT cadence while the soft-enemy unit swings on
+-- soft-ENEMY events, leaving a stale election the sweep would paint through.
+function BattleGroundEnemies.Enemies:PLAYER_SOFT_ENEMY_CHANGED()
+  UpdateUnitIDForToken(self, "SoftEnemy", "softenemy")
 end
 
 function BattleGroundEnemies.Enemies:PLAYER_TARGET_CHANGED()
+  -- The user's target changed, so "targettarget" now traverses a DIFFERENT
+  -- source unit — any cached resolution is meaningless. UNIT_TARGET already
+  -- invalidates unitID.."target" for its unit; this is the same hygiene for
+  -- the viewer's own target swap (without it, a stale sticky could re-attach
+  -- the old resolution, which the elected-token sweep would then paint).
+  BattleGroundEnemies:InvalidateStickyPID("targettarget")
   UpdateUnitIDForToken(self, "TargetTarget", "targettarget")
 end
 
@@ -2529,7 +2542,7 @@ BattleGroundEnemies.Enemies:RegisterEvent("PLAYER_FOCUS_CHANGED")
 BattleGroundEnemies.Enemies:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
 if BattleGroundEnemies.Enemies.RegisterEvent then
   pcall(function()
-    BattleGroundEnemies.Enemies:RegisterEvent("PLAYER_SOFT_INTERACT_CHANGED")
+    BattleGroundEnemies.Enemies:RegisterEvent("PLAYER_SOFT_ENEMY_CHANGED")
   end)
 end
 BattleGroundEnemies.Enemies:RegisterEvent("PLAYER_TARGET_CHANGED")
