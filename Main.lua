@@ -764,7 +764,18 @@ do
 
     for number, mainFrame in pairs({ self.Allies, self.Enemies }) do
       local remaining = count
-      if mainFrame == self.Allies then
+      if
+        mainFrame == self.Allies
+        and type(BattleGroundEnemies.UserButton) == "table"
+        and BattleGroundEnemies.UserButton.PlayerDetails
+      then
+        -- Reserve a slot for the user's own button ONLY when it actually
+        -- exists (AfterPlayerSourceUpdate appends the user as the last ally
+        -- under the same existence condition, Mainframe.lua ~480). Out in
+        -- the world there is no UserButton, so all slots are fakes --
+        -- unconditionally subtracting made the ally side run one body short
+        -- (slider-1), and custom point-brackets (e.g. a 10-10 profile) then
+        -- never matched the ally side in test mode.
         remaining = remaining - 1
       end
       mainFrame:BeforePlayerSourceUpdate(self.consts.PlayerSources.FakePlayers)
@@ -834,7 +845,21 @@ function BattleGroundEnemies:EnableTestMode()
   -- leftover cooldown pause from a prior paused session so swipes animate.
   self.states.testmodeAnimationEnabled = true
   self:ResumeAllCooldowns()
+  -- Test mode doubles as a bracket-debugging surface: let the "custom
+  -- profiles don't cover this size" hint re-fire on every toggle (its
+  -- throttle otherwise resets only on real BG/arena entry).
+  self.Allies._warnedNoCustomProfile = nil
+  self.Enemies._warnedNoCustomProfile = nil
   self:SetupTestmode()
+
+  -- Force a full settings apply so both sides re-select their bracket and
+  -- re-run CheckEnableState/Show against the FINAL test-mode counts. Without
+  -- this, a side whose NumPlayers goes 0 -> N without a profile CHANGE (e.g.
+  -- "use group members" while solo: the bracket is selected while the count
+  -- is still 0, then GROUP_ROSTER_UPDATE builds the roster and re-finds the
+  -- SAME profile) ends up enabled but never Show()n — mainframe:Enable gates
+  -- Show on NumPlayers > 0 and nothing re-runs it (panel finding S3).
+  self:ApplyAllSettings()
 
   self.Allies:OnTestmodeEnabled()
   self.Enemies:OnTestmodeEnabled()
@@ -1464,6 +1489,13 @@ function BattleGroundEnemies:TestModePlayerCountChanged(value)
   playerCountChangedTimer = CTimerNewTicker(0.2, function()
     if self:IsTestmodeActive() then
       self:CreateFakePlayers()
+      -- Re-select brackets on BOTH sides even when a side's BUILT count did
+      -- not change: SetPlayerCount only re-selects on a count CHANGE, and
+      -- with "use group members" the ally count is slider-independent, so a
+      -- slider drag would otherwise leave the ally bracket resolving a stale
+      -- slider value forever (panel finding 5).
+      self.Allies:SelectPlayerCountProfile(true)
+      self.Enemies:SelectPlayerCountProfile(true)
     end
     playerCountChangedTimer = nil
   end, 1)
