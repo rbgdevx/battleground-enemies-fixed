@@ -85,9 +85,8 @@ function BattleGroundEnemies:UpgradeProfile(profile, profileName)
       if not beSilent then
         BattleGroundEnemies:Information(
           "profile "
-          .. profileName
-          ..
-          " is not compatible with the current version of BattleGroundEnemies due to the fact that many options got merged into a single one its not possible to convert it. It will be reset to default settings"
+            .. profileName
+            .. " is not compatible with the current version of BattleGroundEnemies due to the fact that many options got merged into a single one its not possible to convert it. It will be reset to default settings"
         )
       end
 

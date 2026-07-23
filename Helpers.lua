@@ -4,11 +4,11 @@ local Data = select(2, ...)
 Data.Helpers = {}
 
 local tAppendAll = tAppendAll
-    or function(table, addedArray)
-      for i, element in ipairs(addedArray) do
-        tinsert(table, element)
-      end
+  or function(table, addedArray)
+    for i, element in ipairs(addedArray) do
+      tinsert(table, element)
     end
+  end
 
 --[[
     Generates all permutations of the given input array.
