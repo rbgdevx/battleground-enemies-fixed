@@ -658,9 +658,27 @@ local function CreateMainFrame(playerType)
     self.playerTypeConfig = BattleGroundEnemies.db.profile[self.PlayerType]
     local maxNumPlayers
 
-    -- In test mode, always use NumPlayers, not instance info
+    -- In test mode, resolve the bracket from the test-mode SLIDER, not
+    -- instance info and not the built-button count: the two sides build
+    -- different body counts (allies reserve a slot for the user's own
+    -- button, which doesn't exist out in the world), so keying off
+    -- NumPlayers made the ALLY side resolve slider-1 while enemies resolved
+    -- the slider -- custom point-brackets (e.g. 10-10) then matched enemies
+    -- but never allies. Exception: with "use group members" the ally side
+    -- shows the REAL group, so bracket what's actually on screen (15 real
+    -- bodies under a 10-10 layout would be wrong); fall back to the slider
+    -- only while the group hasn't built yet. NOTE: read the addon-global
+    -- BattleGroundEnemies.Testmode table -- self.Testmode is the mainframe's
+    -- own unrelated field and would silently resolve nil here.
     if BattleGroundEnemies:IsTestmodeActive() then
-      maxNumPlayers = self.NumPlayers or 10
+      local useBuiltGroup = self.PlayerType == BattleGroundEnemies.consts.PlayerTypes.Allies
+        and BattleGroundEnemies.db.profile.Testmode_UseTeammates
+        and (self.NumPlayers or 0) > 0
+      if useBuiltGroup then
+        maxNumPlayers = self.NumPlayers
+      else
+        maxNumPlayers = BattleGroundEnemies.Testmode.PlayerCountTestmode or 10
+      end
     elseif BattleGroundEnemies.states.real.isInArena then
       -- Arena: same map can host different brackets (2v2, 3v3), so GetInstanceInfo()
       -- returns the map capacity, not the bracket size. Use actual player count instead.
