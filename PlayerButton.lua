@@ -1241,18 +1241,12 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     self:DispatchEvent("UpdateHealth", unitID, health, healthMissing, healthPercent, maxHealth)
   end
 
-  function playerButton:UNIT_HEALTH(unitID, jitterSource)
+  function playerButton:UNIT_HEALTH(unitID)
     -- Between solo shuffle rounds, ignore all health events — stale data
     -- (0 hp from the previous round) would overwrite our synthetic 100%.
     if BattleGroundEnemies.betweenRounds then
       return
     end
-
-    -- Jitter hunt (TEMP): remember which caller sent this write so the
-    -- BARWRITE log (HealthBar.lua) can attribute the bar update. Tagged call
-    -- sites pass a short label; untagged callers show as "?" — itself a
-    -- useful signal that some unwatched path is writing.
-    self._lastHealthSource = jitterSource or "?"
 
     -- DIAGNOSTIC (cross-attach hunt v57): only print SUSPECTED cross-attaches.
     -- For unitID=="target": fire only when this button is NOT the most
@@ -1319,40 +1313,6 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     -- real tokens; their health is synthesized further below).
     if not self.PlayerDetails.isFakePlayer and (not queryID or not UnitExists(queryID)) then
       return
-    end
-
-    -- Jitter log (TEMP): track which token each health read actually used.
-    -- "*" = the event token was unusable and we fell back to self.unitID (a
-    -- stale fallback reading a wrong unit is the (b) theory of the full-flash).
-    -- Only WINDOWS with >= 2 token changes in 2s are written (steady-state
-    -- retarget / nameplate churn is a single change and stays silent), so the
-    -- log captures thrash without flooding. Tokens are literal strings, names
-    -- canonical/non-secret — nothing secret is formatted.
-    do
-      local tok = (queryID or "nil") .. ((queryID ~= unitID) and "*" or "")
-      if tok ~= self._jitterLastTok then
-        self._jitterLastTok = tok
-        local now = GetTime()
-        if (now - (self._jitterWinStart or 0)) > 2 then
-          if (self._jitterFlips or 0) >= 2 and BattleGroundEnemies:IsInPvPInstance() then
-            local nm = self.PlayerDetails and self.PlayerDetails.PlayerName
-            if type(nm) ~= "string" or (issecretvalue and issecretvalue(nm)) then
-              nm = "?"
-            end
-            BattleGroundEnemies:JitterLog(
-              "FLIPS " .. nm .. " x" .. self._jitterFlips .. " [" .. (self._jitterPath or "") .. "]"
-            )
-          end
-          self._jitterWinStart = now
-          self._jitterFlips = 0
-          self._jitterPath = tok
-        else
-          self._jitterFlips = (self._jitterFlips or 0) + 1
-          if self._jitterPath and #self._jitterPath < 150 then
-            self._jitterPath = self._jitterPath .. ">" .. tok
-          end
-        end
-      end
     end
 
     local health, healthMissing, healthPercent, maxHealth
@@ -1623,7 +1583,7 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     if self.healthBar then
       self.healthBar._rangeDirty = true
     end
-    self:UNIT_HEALTH(unitID, "maxevent")
+    self:UNIT_HEALTH(unitID)
   end
 
   playerButton.UNIT_HEAL_PREDICTION = playerButton.UNIT_HEALTH

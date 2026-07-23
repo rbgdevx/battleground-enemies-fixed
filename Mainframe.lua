@@ -901,19 +901,6 @@ local function CreateMainFrame(playerType)
   end
 
   function mainframe:SetupButtonForNewPlayer(playerDetails)
-    -- Jitter log: every setup wipes the health bar to FULL (module Reset loop
-    -- below) — the only full-bar writer. Frequent mid-match entries here for the
-    -- SAME names = button churn, the (a) theory of the full-flash. Canonical
-    -- PlayerName is non-secret by construction (Players[] dict key); guard
-    -- anyway so a secret can never reach string.format.
-    if BattleGroundEnemies:IsInPvPInstance() then
-      local nm = playerDetails and playerDetails.PlayerName
-      if type(nm) ~= "string" or (issecretvalue and issecretvalue(nm)) then
-        nm = "?"
-      end
-      BattleGroundEnemies:JitterLog("RECYCLE " .. self.PlayerType .. " <- " .. nm)
-    end
-
     local playerButton = self.InactivePlayerButtons[#self.InactivePlayerButtons]
     if playerButton then --recycle a previous used button
       table_remove(self.InactivePlayerButtons, #self.InactivePlayerButtons)
