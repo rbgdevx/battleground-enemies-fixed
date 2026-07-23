@@ -4,6 +4,25 @@ local Data = select(2, ...)
 ---@class BattleGroundEnemies
 local BattleGroundEnemies = BattleGroundEnemies
 
+-- Priority order for the active-unitID election in UpdateEnemyUnitID.
+-- MUST match the tier order documented in TOKEN_TIERS.md: direct tokens
+-- (evented) first, compound/through-unit tokens (poll-only) last.
+local UNITID_PRIORITY_KEYS = {
+  "Arena",
+  "Target",
+  "Focus",
+  "Nameplate",
+  "SoftEnemy",
+  "Mouseover",
+  "TargetTarget",
+  "FocusTarget",
+  "PetTarget",
+  "GroupTarget",
+  "GroupPetTarget",
+  "NameplateTarget",
+  "ArenaTarget",
+}
+
 local FAKE_TRINKET = true
 local FAKE_TRINKET_DURATION = 120 -- DPS / Tank
 local FAKE_TRINKET_HEALER_DURATION = 90 -- Healer (30s reduction)
@@ -698,19 +717,23 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     --                        secret. Includes PetTarget ("pettarget" = the
     --                        pet's target = a compound read), which previously
     --                        sat above TargetTarget among the directs.
-    local unitID = unitIDs.Arena
-      or unitIDs.Target
-      or unitIDs.Focus
-      or unitIDs.Nameplate
-      or unitIDs.SoftEnemy
-      or unitIDs.Mouseover
-      or unitIDs.TargetTarget
-      or unitIDs.FocusTarget
-      or unitIDs.PetTarget
-      or unitIDs.GroupTarget
-      or unitIDs.GroupPetTarget
-      or unitIDs.NameplateTarget
-      or unitIDs.ArenaTarget
+    -- Election liveness: elect the first candidate that EXISTS, not merely
+    -- the first non-nil map entry. Previously a persisting map entry holding
+    -- a dead token (e.g. TargetTarget = "targettarget" while the target has
+    -- no target) won the chain, then UpdateUnitID's UnitExists early-return
+    -- silently KEPT the previous self.unitID — a stale election that could
+    -- name a different player. With the elected-token write gate, a stale
+    -- election would both starve the bar (live writes ~= election) and admit
+    -- wrong writes, so liveness here is a prerequisite. Cleared slots hold
+    -- `false` (not nil) — the truthiness check skips them before UnitExists.
+    local unitID
+    for i = 1, #UNITID_PRIORITY_KEYS do
+      local candidate = unitIDs[UNITID_PRIORITY_KEYS[i]]
+      if candidate and UnitExists(candidate) then
+        unitID = candidate
+        break
+      end
+    end
     if unitID then
       unitIDs.HasAllyUnitID = false
       -- Snapshot health/power ONLY when the priority chain picked the token
@@ -1188,6 +1211,32 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       end
     end
 
+    -- ELECTED-TOKEN WRITE GATE (health): a bar write only lands when it came
+    -- through this button's elected token (self.unitID — the priority chain in
+    -- UpdateEnemyUnitID). Root cause on record (TOKEN_TIERS.md): compound
+    -- through-unit reads deliver divergent health for the same unit, and up to
+    -- ~10 writers alternating per bar produced the frame-to-frame value
+    -- jumping. Placement is deliberate:
+    --   * AFTER the dead/alive check above — death detection keeps its full
+    --     multi-token coverage (any live token can still flag a death, and
+    --     that same write then passes via the isDead exemption so the bar
+    --     zeroes immediately);
+    --   * unitID == nil passes — the two synthetic full-health writers
+    --     (ResetAllDeadStates between shuffle rounds, ObjectiveAndRespawn
+    --     OnCooldownDone on respawn) send nil by design; real enemy writes
+    --     can never arrive here with nil (nil-token guard in UNIT_HEALTH);
+    --   * enemies only, fake players exempt (test mode writes are synthetic);
+    --   * plain literal string compare — token strings are never secret.
+    if
+      unitID ~= nil
+      and self.PlayerIsEnemy
+      and not self.isDead
+      and not (self.PlayerDetails and self.PlayerDetails.isFakePlayer)
+      and unitID ~= self.unitID
+    then
+      return
+    end
+
     -- Dispatch to HealthBar module (it checks isDead and shows 0 if dead)
     self:DispatchEvent("UpdateHealth", unitID, health, healthMissing, healthPercent, maxHealth)
   end
@@ -1555,6 +1604,19 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     if not queryID or not UnitExists(queryID) then
       queryID = self.unitID
     end
+
+    -- ELECTED-TOKEN WRITE GATE (power) — mirror of the health gate in
+    -- UpdateHealth (see the full rationale there). Enemies only, fakes
+    -- exempt; when both queryID and self.unitID are nil (test mode) the
+    -- compare is nil ~= nil = false and the dispatch proceeds as today.
+    if
+      self.PlayerIsEnemy
+      and not (self.PlayerDetails and self.PlayerDetails.isFakePlayer)
+      and queryID ~= self.unitID
+    then
+      return
+    end
+
     self:DispatchEvent("UpdatePower", queryID, powerToken)
   end
 
