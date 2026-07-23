@@ -246,13 +246,48 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
   ---@field MyFocus BackdropTemplate
   ---@field healthBar StatusBar
   ---@field Power StatusBar
+  -- Template is PER-SIDE (both are Blizzard secure templates; they share the
+  -- same internal click executor, OnActionButtonClick):
+  --
+  --   ENEMIES -> SecureActionButtonTemplate. SecureUnitButton_OnClick (the
+  --   unit template's handler) intercepts clicks for users of WoW's native
+  --   Click Castings and calls C_ClickBindings.ExecuteBinding(unit, ...) with
+  --   the frame's secure "unit" attribute — which is deliberately FALSE for
+  --   non-carrier enemies (volatile tokens; clicks use macrotext instead), so
+  --   every click errored ("bad argument #1 to 'ExecuteBinding'") and the
+  --   handler's expectBinding rule also silently swallowed clicks on carrier
+  --   frames for those users. The action template's handler has NO click-
+  --   bindings path; clicks run our type1/type2/macrotext attributes
+  --   identically for everyone. Enemy click-cast bindings lose nothing —
+  --   without a unit token they never worked.
+  --
+  --   ALLIES -> SecureUnitButtonTemplate (unchanged). Ally buttons carry a
+  --   real raidN/partyN unit, so ExecuteBinding WORKS there — click-cast
+  --   healers actively use cast-on-click on BGE ally frames; the unit
+  --   template must stay or that breaks.
+  --
+  -- NOTE: templates can only be chosen at CreateFrame — never swapped later.
+  -- Do not set volatile enemy tokens into the "unit" attribute to "improve"
+  -- this; that exact change (May 2026) broke in-combat click targeting via
+  -- combat-lockdown-frozen stale tokens and was reverted (d1f0089).
+  local isEnemyButton = mainframe.PlayerType == BattleGroundEnemies.consts.PlayerTypes.Enemies
   local playerButton = CreateFrame(
     "Button",
     "BattleGroundEnemies" .. mainframe.PlayerType .. "frame" .. num,
     mainframe,
-    "SecureUnitButtonTemplate"
+    isEnemyButton and "SecureActionButtonTemplate" or "SecureUnitButtonTemplate"
   )
   playerButton:RegisterForClicks("AnyUp")
+  if isEnemyButton then
+    -- SecureActionButton_OnClick consults the useOnKeyDown attribute (falling
+    -- back to the ActionButtonUseKeyDown CVAR) to decide whether the down- or
+    -- up-click performs the action. Our clicks are registered "AnyUp" by
+    -- default, so pin the attribute to match — otherwise a user with the
+    -- key-down CVar enabled would have every up-click silently ignored.
+    -- SetBindings keeps this in sync with the ActionButtonUseKeyDown profile
+    -- setting from then on (same combat-queued path as RegisterForClicks).
+    playerButton:SetAttribute("useOnKeyDown", false)
+  end
   playerButton:SetPropagateMouseMotion(true) --to send the mouse wheel event to the other frame behind it (the mainframe)
   playerButton:Hide()
 
@@ -1042,6 +1077,16 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
         macrotext2 = false,
         macrotext3 = false,
       }
+
+      -- Enemy buttons use SecureActionButtonTemplate (see CreatePlayerButton):
+      -- keep its useOnKeyDown attribute in lockstep with the same profile bool
+      -- that drives RegisterForClicks below, so the click that performs the
+      -- action is always the click edge we're registered for. Participates in
+      -- the normal change-detection + combat-queued SetAttribute flow.
+      if self.PlayerIsEnemy then
+        newAttributes.useOnKeyDown = BattleGroundEnemies.db.profile[self.PlayerType].ActionButtonUseKeyDown and true
+          or false
+      end
 
       if ClickCastFrames[self] then
         ClickCastFrames[self] = nil
