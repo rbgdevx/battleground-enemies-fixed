@@ -73,7 +73,12 @@ function BattleGroundEnemies:CreateAceGUIImportExportFrame(mode)
         end
         MergeTable(BattleGroundEnemies.db.profile, data)
 
-        BattleGroundEnemies:NotifyChange()
+        -- An import replaces the live profile wholesale — the same
+        -- state-drift class (ghost buttons, stale layouts, half-applied
+        -- bracket tables) as toggling a side or the custom-profiles switch,
+        -- which both already force a reload. Cold-start so the imported
+        -- profile applies cleanly everywhere.
+        ReloadUI()
       end
       frame:Hide()
     end)

@@ -2186,7 +2186,7 @@ function BattleGroundEnemies:SetupOptions()
         type = "group",
         name = L.MoreProfileOptions,
         childGroups = "tab",
-        order = 7,
+        order = 8, -- after the Profiles tab (order 7)
         args = {
           ImportButton = {
             type = "execute",
@@ -2289,7 +2289,7 @@ function BattleGroundEnemies:SetupOptions()
 
   --add profile tab to the options
   self.options.args.profiles = LibStub("AceDBOptions-3.0"):GetOptionsTable(self.db)
-  self.options.args.profiles.order = -1
+  self.options.args.profiles.order = 7 -- before More Profile Options (order 8)
   self.options.args.profiles.disabled = InCombatLockdown
 end
 
