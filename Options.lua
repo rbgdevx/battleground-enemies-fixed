@@ -975,9 +975,17 @@ local function addEnemyAndAllySettings(self, mainFrame)
         get = function(option)
           return Data.GetOption(location, option)
         end,
+        -- Same reload treatment as the Enable toggle above: switching between
+        -- the standard and custom bracket tables swaps which profile drives
+        -- the live frames — the same state-drift class (ghost buttons, stale
+        -- layouts) as toggling a side on a live panel. A UI reload gives a
+        -- clean cold start every time.
+        confirm = function()
+          return L.ReloadRequired
+        end,
         set = function(option, ...)
           Data.SetOption(location, option, ...)
-          BattleGroundEnemies:NotifyChange()
+          ReloadUI()
         end,
         order = 2,
         width = "double",
@@ -1809,16 +1817,6 @@ function BattleGroundEnemies:SetupOptions()
             func = self.ToggleTestmodeOnUpdate,
             order = 3,
           },
-          Testmode_UseTeammates = {
-            type = "toggle",
-            name = L.Testmode_UseTeammates,
-            desc = L.Testmode_UseTeammates_Desc,
-            disabled = function()
-              return self.states.testmodeActive
-            end,
-            width = "full",
-            order = 4,
-          },
           -- Testmode_MapId = {
           -- 	type = "select",
           -- 	name = "select testmode map",
@@ -2188,7 +2186,7 @@ function BattleGroundEnemies:SetupOptions()
         type = "group",
         name = L.MoreProfileOptions,
         childGroups = "tab",
-        order = 7,
+        order = 8, -- after the Profiles tab (order 7)
         args = {
           ImportButton = {
             type = "execute",
@@ -2291,7 +2289,7 @@ function BattleGroundEnemies:SetupOptions()
 
   --add profile tab to the options
   self.options.args.profiles = LibStub("AceDBOptions-3.0"):GetOptionsTable(self.db)
-  self.options.args.profiles.order = -1
+  self.options.args.profiles.order = 7 -- before More Profile Options (order 8)
   self.options.args.profiles.disabled = InCombatLockdown
 end
 
