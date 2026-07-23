@@ -975,9 +975,17 @@ local function addEnemyAndAllySettings(self, mainFrame)
         get = function(option)
           return Data.GetOption(location, option)
         end,
+        -- Same reload treatment as the Enable toggle above: switching between
+        -- the standard and custom bracket tables swaps which profile drives
+        -- the live frames — the same state-drift class (ghost buttons, stale
+        -- layouts) as toggling a side on a live panel. A UI reload gives a
+        -- clean cold start every time.
+        confirm = function()
+          return L.ReloadRequired
+        end,
         set = function(option, ...)
           Data.SetOption(location, option, ...)
-          BattleGroundEnemies:NotifyChange()
+          ReloadUI()
         end,
         order = 2,
         width = "double",
