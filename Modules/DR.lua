@@ -25,26 +25,26 @@ local categoryKeyToInfo = {} -- populated at load time
 
 -- Hardcoded fallback data in case API calls fail at load time
 local fallbackCategoryData = {
-  { key = "root",      name = "Root",          enum = 0 },
-  { key = "taunt",     name = "Taunt",         enum = 1 },
-  { key = "stun",      name = "Stun",          enum = 2 },
+  { key = "root", name = "Root", enum = 0 },
+  { key = "taunt", name = "Taunt", enum = 1 },
+  { key = "stun", name = "Stun", enum = 2 },
   { key = "knockback", name = "AoE Knockback", enum = 3 },
-  { key = "incap",     name = "Incapacitate",  enum = 4 },
-  { key = "disorient", name = "Disorient",     enum = 5 },
-  { key = "silence",   name = "Silence",       enum = 6 },
-  { key = "disarm",    name = "Disarm",        enum = 7 },
+  { key = "incap", name = "Incapacitate", enum = 4 },
+  { key = "disorient", name = "Disorient", enum = 5 },
+  { key = "silence", name = "Silence", enum = 6 },
+  { key = "disarm", name = "Disarm", enum = 7 },
 }
 
 if hasSpellDiminishEnums then
   local enumTable = {
-    { enum = Enum.SpellDiminishCategory.Root,         key = "root" },
-    { enum = Enum.SpellDiminishCategory.Taunt,        key = "taunt" },
-    { enum = Enum.SpellDiminishCategory.Stun,         key = "stun" },
+    { enum = Enum.SpellDiminishCategory.Root, key = "root" },
+    { enum = Enum.SpellDiminishCategory.Taunt, key = "taunt" },
+    { enum = Enum.SpellDiminishCategory.Stun, key = "stun" },
     { enum = Enum.SpellDiminishCategory.AoEKnockback, key = "knockback" },
     { enum = Enum.SpellDiminishCategory.Incapacitate, key = "incap" },
-    { enum = Enum.SpellDiminishCategory.Disorient,    key = "disorient" },
-    { enum = Enum.SpellDiminishCategory.Silence,      key = "silence" },
-    { enum = Enum.SpellDiminishCategory.Disarm,       key = "disarm" },
+    { enum = Enum.SpellDiminishCategory.Disorient, key = "disorient" },
+    { enum = Enum.SpellDiminishCategory.Silence, key = "silence" },
+    { enum = Enum.SpellDiminishCategory.Disarm, key = "disarm" },
   }
   for _, entry in ipairs(enumTable) do
     categoryEnumToKey[entry.enum] = entry.key
@@ -83,13 +83,13 @@ end
 -- PACIFYSILENCE locType = Cyclone (cannot attack or cast) = Disorient DR
 -- CYCLONE is NOT a valid locType — Cyclone returns PACIFYSILENCE
 local locTypeToDRCategory = {
-  STUN = "incap",              -- breaks on damage (Sap, Gouge)
-  STUN_MECHANIC = "stun",      -- hard stun (Kidney Shot, Cheap Shot)
-  FEAR = "incap",              -- horror (Mortal Coil)
+  STUN = "incap", -- breaks on damage (Sap, Gouge)
+  STUN_MECHANIC = "stun", -- hard stun (Kidney Shot, Cheap Shot)
+  FEAR = "incap", -- horror (Mortal Coil)
   FEAR_MECHANIC = "disorient", -- actual fear (Warlock Fear, Psychic Scream)
   CHARM = "disorient",
   PACIFYSILENCE = "disorient", -- Cyclone, Hex
-  CONFUSE = "incap",           -- best-guess: Polymorph=incap, Blind=disorient (ambiguous)
+  CONFUSE = "incap", -- best-guess: Polymorph=incap, Blind=disorient (ambiguous)
   ROOT = "root",
   SILENCE = "silence",
   DISARM = "disarm",

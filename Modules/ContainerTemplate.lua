@@ -39,7 +39,7 @@ function BattleGroundEnemies:NewContainer(playerButton, createChildF, setupChild
     local offsetX, offsetY
 
     local point, offsetDirectionX, offsetDirectionY =
-        Data.Helpers.getContainerAnchorPointForConfig(growRightwards, growDownwards)
+      Data.Helpers.getContainerAnchorPointForConfig(growRightwards, growDownwards)
 
     local column = 1
     local row = 1

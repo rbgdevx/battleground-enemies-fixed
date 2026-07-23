@@ -412,6 +412,29 @@ local function GetButtonForCarrier(name)
   return BattleGroundEnemies.Enemies.Players[key] or BattleGroundEnemies.Allies.Players[key]
 end
 
+-- Arena slot for a shared-objective carrier (Eye of the Storm's neutral flag,
+-- Deephaul Ravine's crystal). These maps have ONE objective either team can
+-- carry, so the pickup message names the carrier but no faction. Both maps key
+-- arena slots by the carrier's ACTUAL faction, and OPPOSITE to WSG/TP:
+--   Alliance carrier → arena1,  Horde carrier → arena2
+-- Verified in-game via framestack for both EotS and Deephaul. The mapping is a
+-- fixed property of the MAP, not of the viewer: arena1 is Alliance and arena2
+-- is Horde no matter which faction you join as. We read the carrier's true
+-- faction off their button — EnemyFaction/AllyFaction are absolute 0=Horde /
+-- 1=Alliance values (not enemy/ally-relative), so this resolves the same slot
+-- regardless of your side. Returns nil if the carrier has no button yet.
+-- (Hardcoding slot 1 bound the secure click to the wrong / non-existent arenaN,
+-- leaving the enemy carrier frame unclickable until a reload or death-res
+-- happened to re-derive the right slot — the long-standing Deephaul/EotS bug.)
+local function SharedObjectiveArenaSlot(name)
+  local btn = GetButtonForCarrier(name)
+  if not btn then
+    return nil
+  end
+  local carrierFaction = btn.PlayerIsEnemy and BattleGroundEnemies.EnemyFaction or BattleGroundEnemies.AllyFaction
+  return (carrierFaction == 0) and 2 or 1 -- Horde→arena2, Alliance→arena1
+end
+
 -- Bind a chat-named carrier to an arena slot via the existing
 -- ArenaOpponentShown event infrastructure, so the icon-spell mapping in
 -- frame:ArenaOpponentShown picks the right texture and other modules
@@ -622,33 +645,38 @@ local function HandleObjectiveChatMessage(msg)
   end
 
   -- Deephaul Ravine crystal pickup: "NAME has taken the crystal!"
-  -- Single shared crystal (either team can carry, like Eye of the Storm), so
-  -- there's no flag-name → arena-slot mapping to consult — just bind to slot
-  -- 1. Both Data.BattlegroundspezificBuffs[2345][0] and [1] point at the same
-  -- spell (434339 Deephaul Crystal), so the slot choice is cosmetic.
+  -- Single shared crystal (either team can carry), so the message names no
+  -- faction — derive the arena slot from the carrier's own faction via
+  -- SharedObjectiveArenaSlot (Alliance→arena1, Horde→arena2). Both
+  -- Data.BattlegroundspezificBuffs[2345][0] and [1] point at the same spell
+  -- (434339 Deephaul Crystal), so the icon is identical either slot; the slot
+  -- only has to match the game's arenaN assignment so the secure click lands.
   -- Capture is handled by the existing "captured the" reset branch below;
   -- Deephaul Ravine's deposit message is "NAME has captured the flag!" which
   -- already matches that filter.
   local crystalCarrier = msg:match("^(.-) has taken the crystal!")
   if crystalCarrier then
-    if BindChatCarrierToArenaSlot(crystalCarrier, 1) then
-      chatFlagCarriers[crystalCarrier] = 1
+    local slot = SharedObjectiveArenaSlot(crystalCarrier)
+    if slot and BindChatCarrierToArenaSlot(crystalCarrier, slot) then
+      chatFlagCarriers[crystalCarrier] = slot
     end
     return
   end
 
   -- Eye of the Storm flag pickup: "NAME has taken the flag!" (verified in-game).
-  -- EotS uses ONE neutral flag (Netherstorm Flag) and the message names the
-  -- player, so — like the Deephaul crystal — bind to slot 1; the icon spell is
-  -- Data.BattlegroundspezificBuffs[112/397][0] (34976, Netherstorm Flag).
-  -- Distinct from "has taken the crystal" and the colored orb message, and from
-  -- "has captured the flag" (handled by the "captured the" reset below).
-  -- Drop/return surfaces as "The flag has been reset" (un-gated for EotS below)
-  -- or the binding-agnostic arena-token "cleared".
+  -- EotS uses ONE neutral flag (Netherstorm Flag) either team can carry, so —
+  -- like the Deephaul crystal — derive the slot from the carrier's faction
+  -- (Alliance→arena1, Horde→arena2, confirmed in-game via framestack). The icon
+  -- spell is Data.BattlegroundspezificBuffs[112/397][0] (34976, Netherstorm
+  -- Flag). Distinct from "has taken the crystal" and the colored orb message,
+  -- and from "has captured the flag" (handled by the "captured the" reset
+  -- below). Drop/return surfaces as "The flag has been reset" (un-gated for
+  -- EotS below) or the binding-agnostic arena-token "cleared".
   local eotsFlagCarrier = msg:match("^(.-) has taken the flag")
   if eotsFlagCarrier then
-    if BindChatCarrierToArenaSlot(eotsFlagCarrier, 1) then
-      chatFlagCarriers[eotsFlagCarrier] = 1
+    local slot = SharedObjectiveArenaSlot(eotsFlagCarrier)
+    if slot and BindChatCarrierToArenaSlot(eotsFlagCarrier, slot) then
+      chatFlagCarriers[eotsFlagCarrier] = slot
     end
     return
   end

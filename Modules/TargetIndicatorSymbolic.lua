@@ -73,7 +73,7 @@ local symbolicTargetIndicator = BattleGroundEnemies:NewButtonModule({
 
 function symbolicTargetIndicator:AttachToPlayerButton(playerButton)
   playerButton.TargetIndicatorSymbolic =
-      CreateFrame("frame", nil, playerButton, BackdropTemplateMixin and "BackdropTemplate")
+    CreateFrame("frame", nil, playerButton, BackdropTemplateMixin and "BackdropTemplate")
   playerButton.TargetIndicatorSymbolic:SetFrameStrata("TOOLTIP")
   playerButton.TargetIndicatorSymbolic:SetSize(playerButton:GetWidth() > 0 and playerButton:GetWidth() or 200, 20)
   playerButton.TargetIndicatorSymbolic.Symbols = {}
@@ -104,9 +104,9 @@ function symbolicTargetIndicator:AttachToPlayerButton(playerButton)
       local indicator = self.Symbols[i]
       if not indicator then
         indicator =
-            CreateFrame("frame", nil, playerButton.TargetIndicatorSymbolic, BackdropTemplateMixin and "BackdropTemplate")
+          CreateFrame("frame", nil, playerButton.TargetIndicatorSymbolic, BackdropTemplateMixin and "BackdropTemplate")
         indicator:SetBackdrop({
-          bgFile = "Interface/Buttons/WHITE8X8",   --drawlayer "BACKGROUND"
+          bgFile = "Interface/Buttons/WHITE8X8", --drawlayer "BACKGROUND"
           edgeFile = "Interface/Buttons/WHITE8X8", --drawlayer "BORDER"
           edgeSize = 1,
         })

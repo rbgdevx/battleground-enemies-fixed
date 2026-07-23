@@ -16,7 +16,7 @@ local defaultSettings = {
       RelativeFrame = "Name",
       RelativePoint = "CENTER",
       OffsetX = 0,
-      OffsetY = -4,
+      OffsetY = -5,
     },
   },
   UseButtonWidthAsWidth = true,
@@ -123,9 +123,7 @@ function BattleGroundEnemies:GetNameSpecNameYAdjust(playerCountConfig)
   if reserved == 0 then
     return 0
   end
-  local specConfig = playerCountConfig
-      and playerCountConfig.ButtonModules
-      and playerCountConfig.ButtonModules.SpecName
+  local specConfig = playerCountConfig and playerCountConfig.ButtonModules and playerCountConfig.ButtonModules.SpecName
   local points = specConfig and specConfig.Points
   local specOffsetY = (points and points[1] and points[1].OffsetY) or 0
   -- -1 empirical correction: the "Ag" sample includes descender space most spec
@@ -143,13 +141,17 @@ function specName:AttachToPlayerButton(playerButton)
       return
     end
 
-    -- PlayerSpecName is the scoreboard talentSpec (C_PvP.GetScoreInfo), already
-    -- mapped to this button by the identity matcher. Mid-match it is a
-    -- SecretInActivePvPMatch value, so render it 100% as-is: only type() (safe
-    -- on a secret) decides empty-vs-present, and SetText (InsecureSecretArguments)
+    -- PlayerSpecNameScoreboard is the LIVE scoreboard talentSpec
+    -- (C_PvP.GetScoreInfo) exactly as delivered THIS match, already mapped to
+    -- this button by the identity matcher. NOT PlayerSpecName — that field gets
+    -- overwritten by the harvest seeder with the player's last-seen spec from a
+    -- PREVIOUS game (needed for role/icon logic, which can't use a secret), and
+    -- rendering it here showed stale specs. Mid-match the value is
+    -- SecretInActivePvPMatch, so render it 100% as-is: only type() (safe on a
+    -- secret) decides empty-vs-present, and SetText (InsecureSecretArguments)
     -- draws it. No comparison / slicing / formatting — any of those would taint.
-    -- nil or false (no spec known) just clears the text.
-    local spec = playerButton.PlayerDetails.PlayerSpecName
+    -- nil or false (no scoreboard spec yet) just clears the text.
+    local spec = playerButton.PlayerDetails.PlayerSpecNameScoreboard
     local specType = type(spec)
     if specType == "nil" or specType == "boolean" then
       self.fs:SetText("")

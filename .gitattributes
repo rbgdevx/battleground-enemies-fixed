@@ -1,0 +1,18 @@
+# Cross-platform line-ending policy: every text file is committed AND checked
+# out as LF on ALL platforms. This file overrides each machine's local
+# core.autocrlf, so macOS and Windows working trees stay byte-identical and
+# switching machines never produces line-ending diffs. (WoW reads LF fine;
+# bash scripts REQUIRE LF; stylua.toml line_endings = "Unix" matches.)
+* text=auto eol=lf
+
+# Explicit for the important types (belt and suspenders)
+*.lua text eol=lf
+*.toc text eol=lf
+*.xml text eol=lf
+*.md text eol=lf
+*.sh text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+
+# Binary assets — never converted
+*.tga binary

@@ -1,0 +1,3 @@
+# Vendored/third-party — never reformat
+libs/
+.libraries/

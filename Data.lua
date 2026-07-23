@@ -13,7 +13,7 @@ local L = Data.L
 
 local GetClassInfo = GetClassInfo
 local GetNumSpecializationsForClassID = C_SpecializationInfo and C_SpecializationInfo.GetNumSpecializationsForClassID
-    or GetNumSpecializationsForClassID
+  or GetNumSpecializationsForClassID
 local GetSpecializationInfoForClassID = GetSpecializationInfoForClassID
 -- local GetSpellName = C_Spell and C_Spell.GetSpellName or GetSpellName
 -- local C_Spell = C_Spell
@@ -178,13 +178,13 @@ Data.RandomDebuffType = {} -- for testmode
 do
   local i = 1
   local DebuffTypeColor = DebuffTypeColor
-      or {
-        ["Magic"] = { r = 0.20, g = 0.60, b = 1.00 },
-        ["Curse"] = { r = 0.60, g = 0.00, b = 1.00 },
-        ["Disease"] = { r = 0.60, g = 0.40, b = 0 },
-        ["Poison"] = { r = 0.00, g = 0.60, b = 0 },
-        ["none"] = { r = 0.80, g = 0, b = 0 },
-      }
+    or {
+      ["Magic"] = { r = 0.20, g = 0.60, b = 1.00 },
+      ["Curse"] = { r = 0.60, g = 0.00, b = 1.00 },
+      ["Disease"] = { r = 0.60, g = 0.40, b = 0 },
+      ["Poison"] = { r = 0.00, g = 0.60, b = 0 },
+      ["none"] = { r = 0.80, g = 0, b = 0 },
+    }
   for engName, color in pairs(DebuffTypeColor) do
     Data.RandomDebuffType[i] = engName
     i = i + 1
@@ -247,42 +247,42 @@ Data.VerticalDirections = {
 Data.SpellPriorities = {}
 
 Data.BattlegroundspezificBuffs =
-{                   --key = mapID, value = table with key = faction(0 for horde, 1 for alliance) value spellId of the flag, minecart
-  [1339] = {        -- Warsong Gulch, used to be mapID 443 before BFA
-    [0] = 156621,   -- Alliance Flag
-    [1] = 156618,   -- Horde Flag
-  },
-  [1460] = {        -- Warsong Gulch, used in Classic, TBCC
-    [0] = 301091,   -- Alliance Flag
-    [1] = 301089,   -- Horde Flag
-  },
-  [112] = {         -- Eye of the Storm, used to be mapID 482 before BFA
-    [0] = 34976,    -- Netherstorm Flag
-    [1] = 34976,    -- Netherstorm Flag
-  },
-  [1956] = {        -- Eye of the Storm, TBCC
-    [0] = 34976,    -- Netherstorm Flag
-    [1] = 34976,    -- Netherstorm Flag
-  },
-  [397] = {         -- Eye of the Storm (mapID RBG only? Not sure why there are two map IDs for Eye of the Storm), used to be mapID 813 before BFA
-    [0] = 34976,    -- Netherstorm Flag
-    [1] = 34976,    -- Netherstorm Flag
-  },
-  [206] = {         -- Twin Peaks, used to be mapID 626 before BFA
-    [0] = 156621,   -- Alliance Flag
-    [1] = 156618,   -- Horde Flag
-  },
-  [2345] = {        -- Deephaul Ravine added in Patch 11.0.2
-    [0] = 434339,   -- Deephaul Crystal
-    [1] = 434339,   -- Deephaul Crystal
-  },
-  [417] = {         -- Temple of Kotmogu, used to be mapID 856 before BFA
-    [0] = 121164,   -- Orb of Power, Blue
-    [1] = 121175,   -- Orb of Power, Purple
-    [2] = 121176,   -- Orb of Power, Green
-    [3] = 121177,   -- Orb of Power, Orange
-  },
-}
+  { --key = mapID, value = table with key = faction(0 for horde, 1 for alliance) value spellId of the flag, minecart
+    [1339] = { -- Warsong Gulch, used to be mapID 443 before BFA
+      [0] = 156621, -- Alliance Flag
+      [1] = 156618, -- Horde Flag
+    },
+    [1460] = { -- Warsong Gulch, used in Classic, TBCC
+      [0] = 301091, -- Alliance Flag
+      [1] = 301089, -- Horde Flag
+    },
+    [112] = { -- Eye of the Storm, used to be mapID 482 before BFA
+      [0] = 34976, -- Netherstorm Flag
+      [1] = 34976, -- Netherstorm Flag
+    },
+    [1956] = { -- Eye of the Storm, TBCC
+      [0] = 34976, -- Netherstorm Flag
+      [1] = 34976, -- Netherstorm Flag
+    },
+    [397] = { -- Eye of the Storm (mapID RBG only? Not sure why there are two map IDs for Eye of the Storm), used to be mapID 813 before BFA
+      [0] = 34976, -- Netherstorm Flag
+      [1] = 34976, -- Netherstorm Flag
+    },
+    [206] = { -- Twin Peaks, used to be mapID 626 before BFA
+      [0] = 156621, -- Alliance Flag
+      [1] = 156618, -- Horde Flag
+    },
+    [2345] = { -- Deephaul Ravine added in Patch 11.0.2
+      [0] = 434339, -- Deephaul Crystal
+      [1] = 434339, -- Deephaul Crystal
+    },
+    [417] = { -- Temple of Kotmogu, used to be mapID 856 before BFA
+      [0] = 121164, -- Orb of Power, Blue
+      [1] = 121175, -- Orb of Power, Purple
+      [2] = 121176, -- Orb of Power, Green
+      [3] = 121177, -- Orb of Power, Orange
+    },
+  }
 
 -- Data.BattlegroundspezificDebuffs = { --key = mapID, value = table with key = number and value = debuff name
 --   [1339] = {        -- Warsong Gulch, used to be mapID 443 before BFA
@@ -332,10 +332,10 @@ else
 end
 
 Data.TrinketData = {
-  [195710] = { cd = 180 },                      -- 1: Honorable Medallion, 3. min. CD, detected by Combatlog
+  [195710] = { cd = 180 }, -- 1: Honorable Medallion, 3. min. CD, detected by Combatlog
   [42292] = { cd = trinketCD, itemID = 37865 }, -- 2: Medallion of the Alliance, Medallion of the Horde used in Classic, TBC, and probably some other Expansions  2 min. CD, detected by Combatlog, should show as Medaillon; used in TBC etc
-  [208683] = { cd = 120 },                      -- 2: Gladiator's Medallion, 2 min. CD, detected by Combatlog
-  [336126] = { cd = 120 },                      -- 2: Gladiator's Medallion, 2 min. CD, Shadowlands Update
+  [208683] = { cd = 120 }, -- 2: Gladiator's Medallion, 2 min. CD, detected by Combatlog
+  [336126] = { cd = 120 }, -- 2: Gladiator's Medallion, 2 min. CD, Shadowlands Update
   --	[195901] = {cd = 60, fileID = GetSpellTexture(214027)			},		-- 3: Adaptation, 1 min. CD, detected by Aura 195901
   --	[214027] = {cd = 60												},		-- 3: Adaptation, 1 min. CD, detected by Aura 195901, for the Arena_cooldownupdate
   --	[336135] = {cd = 60												},		-- 3: Adaptation, 1 min. CD, Shadowlands Update
@@ -483,7 +483,7 @@ Data.TrinketData = {
 
 Data.Classes = {}
 Data.RolesToSpec = { HEALER = {}, TANK = {}, DAMAGER = {} } --for Testmode only
-Data.ClassList = {}                                         -- For TBCC Testmode only
+Data.ClassList = {} -- For TBCC Testmode only
 
 do
   local specIdToRessource = {
@@ -492,53 +492,53 @@ do
     [251] = "RUNIC_POWER", --Frost
     [252] = "RUNIC_POWER", --Unholy
     --Demon Hunter
-    [577] = "FURY",        --Havoc
-    [581] = "PAIN",        --Vengeance
+    [577] = "FURY", --Havoc
+    [581] = "PAIN", --Vengeance
     --Druid
     [102] = "LUNAR_POWER", --Balance
-    [103] = "ENERGY",      --Feral Combat
-    [104] = "RAGE",        --Guardian
-    [105] = "MANA",        --Restoration
+    [103] = "ENERGY", --Feral Combat
+    [104] = "RAGE", --Guardian
+    [105] = "MANA", --Restoration
     --Evoker (primary power bar is Mana; Essence pips are a separate UI element)
-    [1467] = "MANA",       --Devastation
-    [1468] = "MANA",       --Preservation
-    [1473] = "MANA",       --Augmentation
+    [1467] = "MANA", --Devastation
+    [1468] = "MANA", --Preservation
+    [1473] = "MANA", --Augmentation
     --Hunter
-    [253] = "FOCUS",       --Beast Mastery
-    [254] = "FOCUS",       --Marksmanship
-    [255] = "FOCUS",       --Survival
+    [253] = "FOCUS", --Beast Mastery
+    [254] = "FOCUS", --Marksmanship
+    [255] = "FOCUS", --Survival
     --Mage
-    [62] = "MANA",         --Arcane
-    [63] = "MANA",         --Fire
-    [64] = "MANA",         --Frost
+    [62] = "MANA", --Arcane
+    [63] = "MANA", --Fire
+    [64] = "MANA", --Frost
     --Monk
-    [268] = "ENERGY",      --Brewmaster
-    [269] = "ENERGY",      --Windwalker
-    [270] = "MANA",        --Mistweaver
+    [268] = "ENERGY", --Brewmaster
+    [269] = "ENERGY", --Windwalker
+    [270] = "MANA", --Mistweaver
     --Paladin
-    [65] = "MANA",         --Holy
-    [66] = "MANA",         --Protection
-    [70] = "MANA",         --Retribution
+    [65] = "MANA", --Holy
+    [66] = "MANA", --Protection
+    [70] = "MANA", --Retribution
     --Priest
-    [256] = "MANA",        --Discipline
-    [257] = "MANA",        --Holy
-    [258] = "INSANITY",    --Shadow
+    [256] = "MANA", --Discipline
+    [257] = "MANA", --Holy
+    [258] = "INSANITY", --Shadow
     --Rogue
-    [259] = "ENERGY",      --Assassination
-    [260] = "ENERGY",      --Outlaw
-    [261] = "ENERGY",      --Subtlety
+    [259] = "ENERGY", --Assassination
+    [260] = "ENERGY", --Outlaw
+    [261] = "ENERGY", --Subtlety
     --Shaman,
-    [262] = "MAELSTROM",   --Elemental
-    [263] = "MAELSTROM",   --Enhancement
-    [264] = "MANA",        --Restoration
+    [262] = "MAELSTROM", --Elemental
+    [263] = "MAELSTROM", --Enhancement
+    [264] = "MANA", --Restoration
     --Warlock
-    [265] = "MANA",        --Affliction
-    [266] = "MANA",        --Demonology
-    [267] = "MANA",        --Destruction
+    [265] = "MANA", --Affliction
+    [266] = "MANA", --Demonology
+    [267] = "MANA", --Destruction
     --Warrior
-    [71] = "RAGE",         --Arms
-    [72] = "RAGE",         --Fury
-    [73] = "RAGE",         --Protection
+    [71] = "RAGE", --Arms
+    [72] = "RAGE", --Fury
+    [73] = "RAGE", --Protection
   }
 
   local ClassRessources = { --used for TBCC
@@ -560,19 +560,19 @@ do
   for classID = 1, GetNumClasses() do --example classes[EnglishClass][SpecName].
     local _, classToken = GetClassInfo(classID)
     if classToken then
-      Data.Classes[classToken] = { Ressource = ClassRessources[classToken] }                         -- for Classic, TBCC Wrath, and any other expansions without specs and some brawls
+      Data.Classes[classToken] = { Ressource = ClassRessources[classToken] } -- for Classic, TBCC Wrath, and any other expansions without specs and some brawls
 
-      if GetNumSpecializationsForClassID and GetSpecializationInfoByID and GetSpecialization then    --HasSpeccs
+      if GetNumSpecializationsForClassID and GetSpecializationInfoByID and GetSpecialization then --HasSpeccs
         for i = 1, GetNumSpecializationsForClassID(classID) do
           local specID, maleSpecName, _, icon, role = GetSpecializationInfoForClassID(classID, i, 2) -- male version
 
           Data.Classes[classToken][maleSpecName] =
-          { roleID = role, specID = specID, specIcon = icon, Ressource = specIdToRessource[specID] }
+            { roleID = role, specID = specID, specIcon = icon, Ressource = specIdToRessource[specID] }
           table.insert(Data.RolesToSpec[role], { classToken = classToken, specName = maleSpecName }) --for testmode
 
           --if specName == "Танцующий с ветром" then specName = "Танцующая с ветром" end -- fix for russian bug, fix added on 2017.08.27
           local _, specName = GetSpecializationInfoForClassID(classID, i, 3) -- female version
-          if not Data.Classes[classToken][specName] then                                         --there is a female version of that specName
+          if not Data.Classes[classToken][specName] then --there is a female version of that specName
             Data.Classes[classToken][specName] = Data.Classes[classToken][maleSpecName]
           end
         end
