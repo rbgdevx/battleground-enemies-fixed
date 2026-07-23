@@ -465,21 +465,20 @@ local function CreateMainFrame(playerType)
       local numGroupMembers = #groupMembers
       local addWholeGroup = false
       if BattleGroundEnemies:IsTestmodeActive() then
-        if BattleGroundEnemies.db.profile.Testmode_UseTeammates then
-          addWholeGroup = true
-        else
-          -- Show the fake allies REGARDLESS of UserButton. UserButton is the
-          -- user's own frame, which only exists in an actual match -- gating the
-          -- fakes on it left test-mode ally frames empty out of game. Add the
-          -- fakes always; add the real user only when their button exists. This is
-          -- inside IsTestmodeActive(), so it can't render ghost frames outside a BG.
-          local fakeAllies = self.PlayerSources[BattleGroundEnemies.consts.PlayerSources.FakePlayers]
-          for i = 1, #fakeAllies do
-            table.insert(newPlayers, fakeAllies[i])
-          end
-          if type(BattleGroundEnemies.UserButton) == "table" and BattleGroundEnemies.UserButton.PlayerDetails then
-            table.insert(newPlayers, groupMembers[numGroupMembers]) --user is always last
-          end
+        -- Test mode always previews FAKE allies ("use group members for
+        -- testing" was removed 2026-07-23: an imported profile carrying it
+        -- silently blanked ally frames under point-brackets while solo, and
+        -- the two preview models kept diverging -- fakes-only keeps test
+        -- mode deterministic). Fakes are added REGARDLESS of UserButton;
+        -- the real user is appended only when their button exists (it only
+        -- does in an actual match). Inside IsTestmodeActive(), so it can't
+        -- render ghost frames outside a BG.
+        local fakeAllies = self.PlayerSources[BattleGroundEnemies.consts.PlayerSources.FakePlayers]
+        for i = 1, #fakeAllies do
+          table.insert(newPlayers, fakeAllies[i])
+        end
+        if type(BattleGroundEnemies.UserButton) == "table" and BattleGroundEnemies.UserButton.PlayerDetails then
+          table.insert(newPlayers, groupMembers[numGroupMembers]) --user is always last
         end
       else
         addWholeGroup = true
@@ -664,21 +663,11 @@ local function CreateMainFrame(playerType)
     -- button, which doesn't exist out in the world), so keying off
     -- NumPlayers made the ALLY side resolve slider-1 while enemies resolved
     -- the slider -- custom point-brackets (e.g. 10-10) then matched enemies
-    -- but never allies. Exception: with "use group members" the ally side
-    -- shows the REAL group, so bracket what's actually on screen (15 real
-    -- bodies under a 10-10 layout would be wrong); fall back to the slider
-    -- only while the group hasn't built yet. NOTE: read the addon-global
+    -- but never allies. NOTE: read the addon-global
     -- BattleGroundEnemies.Testmode table -- self.Testmode is the mainframe's
     -- own unrelated field and would silently resolve nil here.
     if BattleGroundEnemies:IsTestmodeActive() then
-      local useBuiltGroup = self.PlayerType == BattleGroundEnemies.consts.PlayerTypes.Allies
-        and BattleGroundEnemies.db.profile.Testmode_UseTeammates
-        and (self.NumPlayers or 0) > 0
-      if useBuiltGroup then
-        maxNumPlayers = self.NumPlayers
-      else
-        maxNumPlayers = BattleGroundEnemies.Testmode.PlayerCountTestmode or 10
-      end
+      maxNumPlayers = BattleGroundEnemies.Testmode.PlayerCountTestmode or 10
     elseif BattleGroundEnemies.states.real.isInArena then
       -- Arena: same map can host different brackets (2v2, 3v3), so GetInstanceInfo()
       -- returns the map capacity, not the bracket size. Use actual player count instead.

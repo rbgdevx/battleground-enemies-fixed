@@ -1809,16 +1809,6 @@ function BattleGroundEnemies:SetupOptions()
             func = self.ToggleTestmodeOnUpdate,
             order = 3,
           },
-          Testmode_UseTeammates = {
-            type = "toggle",
-            name = L.Testmode_UseTeammates,
-            desc = L.Testmode_UseTeammates_Desc,
-            disabled = function()
-              return self.states.testmodeActive
-            end,
-            width = "full",
-            order = 4,
-          },
           -- Testmode_MapId = {
           -- 	type = "select",
           -- 	name = "select testmode map",
