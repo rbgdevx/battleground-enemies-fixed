@@ -15,34 +15,6 @@ local type = type
 local CreateFrame = CreateFrame
 local GetArenaOpponentSpec = GetArenaOpponentSpec
 local GetSpecializationInfoByID = GetSpecializationInfoByID
--- Secret-safe GetUnitName (mirrors Main.lua). Enemy name/realm are SECRET in
--- instanced PvP and Blizzard's stock GetUnitName does an unguarded `server ~= ""`
--- on them, emitting taint that pcall cannot suppress. Guard with issecretvalue:
--- when name/realm is secret, return the bare name (callers issecretvalue-check
--- before using it as a key, and SetText accepts secrets).
-local GetUnitName = function(unit, showServerName)
-  local name, server = UnitName(unit)
-  if not name then
-    return nil
-  end
-  if issecretvalue and (issecretvalue(name) or issecretvalue(server)) then
-    return name
-  end
-  if server and server ~= "" then
-    if showServerName then
-      return name .. "-" .. server
-    else
-      local relationship = UnitRealmRelationship(unit)
-      if relationship == LE_REALM_RELATION_VIRTUAL then
-        return name
-      else
-        return name .. FOREIGN_SERVER_LABEL
-      end
-    end
-  else
-    return name
-  end
-end
 local InCombatLockdown = InCombatLockdown
 local UnitGUID = UnitGUID
 local UnitRace = UnitRace
@@ -1779,13 +1751,8 @@ BattleGroundEnemies.Allies.tokenToButton = {}
 
 -- Resolve any incoming unitID to an ally button, or nil if not one of ours.
 -- Fast path: direct token lookup (covers party/raid/player event tokens).
--- Fallback A: UnitIsUnit iteration for arbitrary tokens (target, focus,
--- nameplateN, mouseover, etc). Bounded at ≤40 iterations in a BG, ≤5 in
--- arena. UnitIsUnit is SecretWhenUnitComparisonRestricted — in 12.0.5 PvP
--- it returns a SECRET BOOLEAN for compound tokens like raid1target (testing
--- it in a boolean context would taint, crashing the addon). We pre-filter
--- via issecretvalue and silently skip such pairs.
--- Fallback B: name match via GetUnitName (also pcall + secret-guarded).
+-- Fallback: exact canonical UnitName match through the shared 12.1 helper
+-- for arbitrary player tokens (target, focus, nameplateN, mouseover, etc.).
 -- Never touches the enemy matcher.
 function BattleGroundEnemies.Allies:GetAllyButtonByUnitID(unitID)
   if not unitID then
@@ -1806,25 +1773,9 @@ function BattleGroundEnemies.Allies:GetAllyButtonByUnitID(unitID)
   if direct then
     return direct
   end
-  for token, btn in pairs(self.tokenToButton) do
-    local ok, same = pcall(UnitIsUnit, unitID, token)
-    -- MUST check issecretvalue(same) BEFORE any boolean test on `same`.
-    -- Touching a secret boolean in a truthy check taints the entire call
-    -- stack. issecretvalue is designed to accept secret values without
-    -- tainting — it's the only safe probe we have.
-    if ok and not (issecretvalue and issecretvalue(same)) and same then
-      return btn
-    end
-  end
-  -- Name fallback — ally names may be non-secret (GetUnitName guarded).
-  -- Canonicalize: GetUnitName returns short "Name" for same-realm, but
-  -- Players[] is keyed by full "Name-Realm" since the canonicalization
-  -- refactor (Main.lua CanonicalName helper). Without this canonicalize,
-  -- same-realm allies would silently miss the name fallback and fall
-  -- through to the no-match return.
-  local ok, name = pcall(GetUnitName, unitID, true)
-  if ok and type(name) == "string" and not (issecretvalue and issecretvalue(name)) then
-    local btn = self.Players[BattleGroundEnemies:CanonicalName(name)]
+  local name = BattleGroundEnemies:GetCanonicalUnitName(unitID)
+  if name then
+    local btn = self.Players[name]
     if btn then
       return btn
     end
