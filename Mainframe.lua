@@ -1241,7 +1241,7 @@ local function CreateMainFrame(playerType)
       -- LIVE spec exactly as the source delivered it (scoreboard talentSpec for
       -- real players, GetSpecializationInfoByID for test-mode fakes). Secret
       -- mid-match; pure pass-through. The harvest seeder below may overwrite
-      -- PlayerSpecName (which feeds LOGIC: role/icon/tooltip) with the stale
+      -- PlayerSpecName (which feeds role/icon logic) with the stale
       -- last-seen spec — this field is NEVER touched by harvest, so display-only
       -- consumers (Spec Name module) always render the CURRENT match's spec.
       PlayerSpecNameScoreboard = spec,

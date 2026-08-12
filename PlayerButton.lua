@@ -1675,9 +1675,8 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
 
     -- #1B: only run the resolver chain when the target unit actually exists.
     -- Both lookups below (exact enemy matcher and Allies:GetAllyButtonByUnitID)
-    -- already return nil for a non-existent unit — the matcher guards on
-    -- UnitExists at its top, and the ally path can only match via UnitIsUnit /
-    -- GetUnitName, which both fail for a unit that isn't there. So this is a
+    -- already return nil for a non-existent unit because both exact-name paths
+    -- guard on UnitExists before reading UnitName. So this is a
     -- pure short-circuit (skips wasted matcher entries on idle buttons) with
     -- zero behaviour change: newTargetPlayerButton stays nil exactly as before,
     -- so the "clear old target" path below still runs unchanged.
