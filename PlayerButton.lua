@@ -569,8 +569,23 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       return
     end
 
+    local previousUnitID = self.unitID
     self.unitID = unitID
     self.TargetUnitID = targetUnitID
+    if self.SpecClassPriority then
+      -- Bind only exact matcher-verified direct tokens here. Compound target
+      -- chains are reconciled separately after their scan has settled.
+      local isCompoundEnemyToken = self.SpecClassPriority:IsCompoundLiveCCUnit(unitID)
+      if not isCompoundEnemyToken and (not skipSnapshot or previousUnitID ~= unitID) then
+        -- A residual direct token (Arena -> Target, Target -> Focus, etc.) can
+        -- be validated exactly now that UnitName is available; do not wait for
+        -- another event that may never arrive. skipSnapshot still protects the
+        -- health/power read below, independently of secure CC identity.
+        self.SpecClassPriority:SyncLiveCCUnit(unitID, true)
+      elseif isCompoundEnemyToken and previousUnitID ~= unitID then
+        self.SpecClassPriority:SetLiveCCUnit(nil)
+      end
+    end
     self:UpdateRaidTargetIcon()
 
     -- Only call UpdateAll if unit actually exists (UpdateAll checks UnitExists anyway).
@@ -661,6 +676,9 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       return
     end
     self.unitID = nil
+    if self.SpecClassPriority then
+      self.SpecClassPriority:SetLiveCCUnit(nil)
+    end
     -- Don't reset healthBar / healthBarText here. They each already do the
     -- right thing on nil/missing values: healthBar:UpdateHealth returns
     -- early without clobbering ([HealthBar.lua] "don't clobber the bar —

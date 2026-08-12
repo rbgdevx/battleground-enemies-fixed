@@ -955,8 +955,6 @@ BattleGroundEnemies.ArenaIDToPlayerButton = {} --key = arenaID: arenaX, value = 
 BattleGroundEnemies:RegisterEvent("PLAYER_LOGIN") --Fired on reload UI and on initial loading screen
 
 BattleGroundEnemies.GeneralEvents = {
-  "LOSS_OF_CONTROL_ADDED",
-  "LOSS_OF_CONTROL_UPDATE",
   "UNIT_HEALTH_FREQUENT",
   "UPDATE_MOUSEOVER_UNIT",
   "PLAYER_TARGET_CHANGED",
@@ -977,7 +975,6 @@ BattleGroundEnemies.GeneralEvents = {
   "PVP_MATCH_STATE_CHANGED",
   "UNIT_SPELL_DIMINISH_CATEGORY_STATE_UPDATED",
   "RAID_TARGET_UPDATE",
-  "UNIT_AURA", -- real-time CC detection for allies and enemies
 }
 
 BattleGroundEnemies.RetailEvents = {
@@ -1686,7 +1683,7 @@ function BattleGroundEnemies:ScanTargets()
   end
 
   -- Periodic scan for ally targets (raid1target, etc.), arena units, and nameplates.
-  -- Pulls health/power/CC data for units that don't push events to us.
+  -- Pulls health/power data for units that don't push events to us.
   --
   -- Range checking is done for ALL unit types here, matching the working v12.0.0.2.
   -- UnitInRange + CheckInteractDistance handles indirect refs (raidXtarget etc.) fine.
@@ -1867,9 +1864,6 @@ function BattleGroundEnemies:ScanTargets()
         btn:UNIT_HEALTH(unitID)
         btn:UNIT_POWER_FREQUENT(unitID)
         btn:UpdateRangeViaLibRangeCheck(unitID)
-        if btn.SpecClassPriority then
-          btn.SpecClassPriority:UpdateLossOfControl(unitID)
-        end
       end
     end
   end
@@ -1898,9 +1892,6 @@ function BattleGroundEnemies:ScanTargets()
         btn:UNIT_HEALTH(unitID)
         btn:UNIT_POWER_FREQUENT(unitID)
         btn:UpdateRangeViaLibRangeCheck(unitID)
-        if btn.SpecClassPriority then
-          btn.SpecClassPriority:UpdateLossOfControl(unitID)
-        end
       end
     end
   end
@@ -2431,7 +2422,7 @@ function BattleGroundEnemies:PLAYER_FOCUS_CHANGED()
 end
 
 function BattleGroundEnemies:UPDATE_MOUSEOVER_UNIT()
-  -- Snapshot read of health/power/auras using the mouseover token.
+  -- Snapshot read of health/power using the mouseover token.
   -- Sibling handler at BattleGroundEnemies.Enemies:UPDATE_MOUSEOVER_UNIT
   -- in Mainframe.lua handles the persistent Mouseover UnitID attachment.
   -- Don't consolidate — these handlers update different abstractions.

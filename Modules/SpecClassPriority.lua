@@ -175,10 +175,8 @@ local function attachToPlayerButton(playerButton)
   if frame.Cooldown.SetUseAuraDisplayTime then
     frame.Cooldown:SetUseAuraDisplayTime(true)
   end
-  -- No OnCooldownDone handler — matches MiniCC's approach. CC cleanup is
-  -- driven by UNIT_AURA events (which fire when the aura is removed) and
-  -- the polling ticker as a safety net. OnCooldownDone can fire prematurely
-  -- with DurationObjects and race with SetCooldownFromDurationObject.
+  -- Real CC is rendered by the secure AuraContainer below. This ordinary
+  -- cooldown remains for fake test-mode CC and interrupts.
 
   frame:HookScript("OnLeave", function(self)
     if GameTooltip:IsOwned(self) then
@@ -227,9 +225,8 @@ local function attachToPlayerButton(playerButton)
       return
     end
     -- Blizzard_AuraContainer is a game-loaded 12.1 foundation whose public
-    -- templates are explicitly exposed for external addons. Keep the older
-    -- interface entry loadable by leaving the legacy path alone when those
-    -- globals do not exist.
+    -- templates are explicitly exposed for external addons. If those globals
+    -- do not exist, keep the addon loadable and omit only live CC display.
     if not AuraContainerSortMethod or not AuraContainerSortDirection then
       return
     end
@@ -271,6 +268,99 @@ local function attachToPlayerButton(playerButton)
     })
 
     self.LiveCCContainer = container
+  end
+
+  function frame:IsCompoundLiveCCUnit(unitID)
+    return playerButton.PlayerIsEnemy
+      and type(unitID) == "string"
+      and unitID ~= "target"
+      and unitID ~= "focus"
+      and unitID ~= "mouseover"
+      and unitID ~= "softenemy"
+      and not unitID:match("^arena%d+$")
+      and not unitID:match("^nameplate%d+$")
+  end
+
+  function frame:SetLiveCCUnit(unitID, forceRefresh)
+    local container = self.LiveCCContainer
+    if not container then
+      return
+    end
+
+    local isFakePlayer = playerButton.PlayerDetails and playerButton.PlayerDetails.isFakePlayer
+    local shouldEnable = self.Enabled
+      and self.config
+      and self.config.showHighestPriority
+      and not isFakePlayer
+      and not BattleGroundEnemies.betweenRounds
+      and type(unitID) == "string"
+      and unitID ~= ""
+    local nextUnit = shouldEnable and unitID or "none"
+
+    if nextUnit == "none" then
+      self.LiveCCVerifiedUnit = nil
+    end
+
+    if self.LiveCCUnit ~= nextUnit or self.LiveCCEnabled ~= shouldEnable then
+      -- Clear the previous slot before changing tokens so a recycled row never
+      -- flashes its former player's aura while the new unit is parsed.
+      container:SetEnabled(false)
+      container:SetUnit(nextUnit)
+      self.LiveCCUnit = nextUnit
+      self.LiveCCEnabled = shouldEnable
+      if shouldEnable then
+        container:SetEnabled(true)
+      end
+    elseif shouldEnable and forceRefresh then
+      -- Unit-token text can stay constant while its arena/target occupant
+      -- changes. Force the secure container to re-read that token in place.
+      container:UpdateAllAuras()
+    end
+  end
+
+  -- Revalidate the elected token against this row's exact canonical name
+  -- before allowing the secure container to read it.
+  function frame:SyncLiveCCUnit(unitID, forceRefresh)
+    local isFakePlayer = playerButton.PlayerDetails and playerButton.PlayerDetails.isFakePlayer
+    if
+      not self.LiveCCContainer
+      or not self.Enabled
+      or not self.config
+      or not self.config.showHighestPriority
+      or isFakePlayer
+      or BattleGroundEnemies.betweenRounds
+    then
+      self:SetLiveCCUnit(nil)
+      return false
+    end
+
+    local expectedName = playerButton.PlayerDetails and playerButton.PlayerDetails.PlayerName
+    local exactName = BattleGroundEnemies:GetCanonicalUnitName(unitID)
+    local expectedNameIsUsable = type(expectedName) == "string"
+      and expectedName ~= ""
+      and not (issecretvalue and issecretvalue(expectedName))
+
+    if exactName and expectedNameIsUsable then
+      if exactName == expectedName then
+        self.LiveCCVerifiedUnit = unitID
+      else
+        self.LiveCCVerifiedUnit = nil
+      end
+    else
+      self.LiveCCVerifiedUnit = nil
+    end
+
+    if self.LiveCCVerifiedUnit == unitID then
+      self:SetLiveCCUnit(unitID, forceRefresh)
+      return true
+    end
+
+    self:SetLiveCCUnit(nil)
+    return false
+  end
+
+  function frame:Disable()
+    self:SetLiveCCUnit(nil)
   end
 
   function frame:MakeSureWeAreOnTop()
@@ -341,6 +431,7 @@ local function attachToPlayerButton(playerButton)
   end
 
   function frame:Reset()
+    self:SetLiveCCUnit(nil)
     self:ResetPriorityData()
   end
 
@@ -504,6 +595,11 @@ local function attachToPlayerButton(playerButton)
       self:ResetPriorityData()
     end
     self:EnsureLiveCCContainer()
+    if self:IsCompoundLiveCCUnit(playerButton.unitID) then
+      self:SetLiveCCUnit(nil)
+    else
+      self:SyncLiveCCUnit(playerButton.unitID, false)
+    end
     self:MakeSureWeAreOnTop()
   end
   return frame

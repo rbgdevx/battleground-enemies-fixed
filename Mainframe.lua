@@ -1019,6 +1019,10 @@ local function CreateMainFrame(playerType)
       playerButton:IsNoLongerTarging(targetEnemyButton)
     end
 
+    if playerButton.SpecClassPriority then
+      playerButton.SpecClassPriority:SetLiveCCUnit(nil)
+    end
+
     if InCombatLockdown() then
       playerButton.pendingHide = true
       BattleGroundEnemies:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -1978,6 +1982,10 @@ function BattleGroundEnemies.Allies:UpdateAllUnitIDs()
           if cached and allyButton.Trinket then
             allyButton.Trinket:DisplayTrinket(cached.spellId, cached.itemID)
           end
+        elseif allyButton.SpecClassPriority then
+          -- A missing roster token must not leave the prior party/raid slot
+          -- bound; indices can already belong to a different ally after churn.
+          allyButton.SpecClassPriority:SetLiveCCUnit(nil)
         end
         -- If unit is nil, we simply skip to the next iteration
       else
