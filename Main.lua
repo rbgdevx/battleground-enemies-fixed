@@ -2889,6 +2889,45 @@ do
   end
 end
 
+-- 12.1 safety cutover: replace the public matcher with exact UnitName identity.
+-- The pseudo-PID implementation above remains temporarily for the following
+-- cleanup commit, but no caller can enter it after this definition replaces
+-- the method. Missing/unavailable names deliberately produce no match.
+function BattleGroundEnemies:GetPlayerbuttonByUnitID(unitID, playerType, ignoreExistingArena)
+  if type(unitID) ~= "string" or not UnitExists(unitID) then
+    return nil
+  end
+  if playerType == "Allies" or UnitIsPlayer(unitID) == false then
+    return nil
+  end
+  if not IsEnemyUnit(unitID) then
+    return nil
+  end
+
+  local playerName = self:GetCanonicalUnitName(unitID)
+  if not playerName then
+    return nil
+  end
+  if self.Allies and self.Allies.Players and self.Allies.Players[playerName] then
+    return nil
+  end
+  return self.Enemies and self.Enemies.Players and self.Enemies.Players[playerName] or nil
+end
+
+-- Safety barriers for legacy pseudo-identity helpers that remain only until the
+-- cleanup branch. Arena contradiction is now exact-name-only; live fingerprint
+-- capture is obsolete and intentionally inert.
+function BattleGroundEnemies:ArenaMappingContradicted(btn, unitID)
+  local storedName = btn and btn.PlayerDetails and btn.PlayerDetails.PlayerName
+  local liveName = self:GetCanonicalUnitName(unitID)
+  if not storedName or not liveName or (issecretvalue and issecretvalue(storedName)) then
+    return false
+  end
+  return self:CanonicalName(storedName) ~= liveName
+end
+
+function BattleGroundEnemies:CaptureUnitAttrs() end
+
 -- ============================================================================
 -- DIAGNOSTIC: same-class-twin health-misroute hunt (2026-05-01)
 --   Prints ONLY when the matcher attaches a unit token to a button whose
@@ -4049,6 +4088,60 @@ function BattleGroundEnemies:PLAYER_FOCUS_CHANGED()
     self:HandleAllyFocusChanged(btn)
   else
     self:HandleAllyFocusChanged(nil) -- Clear ally highlight
+    self:HandleFocusChanged(btn)
+  end
+end
+
+-- 12.1 target/focus cutover. These final definitions replace the legacy
+-- click-stash/UnitIsUnit paths above so hostile identity is resolved only by
+-- the same exact canonical UnitName key as every other token consumer.
+local function GetTrackedPlayerByUnitName(self, unitID)
+  local playerName = self:GetCanonicalUnitName(unitID)
+  if not playerName then
+    return nil, false
+  end
+
+  local allyButton = self.Allies and self.Allies.Players and self.Allies.Players[playerName]
+  if allyButton then
+    return allyButton, true
+  end
+  return self.Enemies and self.Enemies.Players and self.Enemies.Players[playerName] or nil, false
+end
+
+function BattleGroundEnemies:PLAYER_TARGET_CHANGED_Deferred()
+  self:ClearScanCycleCache()
+  self:InvalidateStickyPID("target")
+  self._lastClickedEnemyTarget = nil
+  self._lastClickedEnemyTargetTime = nil
+
+  local btn, isAlly = GetTrackedPlayerByUnitName(self, "target")
+  if not btn then
+    self:HandleTargetChanged(nil)
+    self:HandleAllyTargetChanged(nil)
+  elseif isAlly then
+    self:HandleTargetChanged(nil)
+    self:HandleAllyTargetChanged(btn)
+  else
+    self:HandleAllyTargetChanged(nil)
+    self:HandleTargetChanged(btn)
+  end
+end
+
+function BattleGroundEnemies:PLAYER_FOCUS_CHANGED()
+  self:ClearScanCycleCache()
+  self:InvalidateStickyPID("focus")
+  self._lastClickedEnemyFocus = nil
+  self._lastClickedEnemyFocusTime = nil
+
+  local btn, isAlly = GetTrackedPlayerByUnitName(self, "focus")
+  if not btn then
+    self:HandleFocusChanged(nil)
+    self:HandleAllyFocusChanged(nil)
+  elseif isAlly then
+    self:HandleFocusChanged(nil)
+    self:HandleAllyFocusChanged(btn)
+  else
+    self:HandleAllyFocusChanged(nil)
     self:HandleFocusChanged(btn)
   end
 end
