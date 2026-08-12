@@ -43,6 +43,7 @@ read_globals = {
   "ACCEPT", "ACTION_BUTTON_USE_KEY_DOWN", "ARENA", "AbbreviateNumbers",
   "AceGUIEditBoxInsertLink", "AceGUIMultiLineEditBoxInsertLink", "AceGUIWidgetLSMlists",
   "Ambiguate", "AnchorUtil", "ArenaEnemyFrames", "ArenaEnemyFramesContainer",
+  "AuraContainerSortDirection", "AuraContainerSortMethod",
   "ArenaEnemyFrames_CheckEffectiveEnableState", "ArenaEnemyFrames_Disable", "BATTLEFIELDS",
   "BOOKTYPE_SPELL", "BackdropTemplateMixin", "BetterDate", "BigDebuffs",
   "ButtonFrameTemplate_HidePortrait", "CANCEL", "CLASS_ICON_TCOORDS", "CLASS_SORT_ORDER",

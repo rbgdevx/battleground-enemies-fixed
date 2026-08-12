@@ -222,6 +222,57 @@ local function attachToPlayerButton(playerButton)
 
   frame:Hide()
 
+  function frame:EnsureLiveCCContainer()
+    if self.LiveCCContainer or (playerButton.PlayerDetails and playerButton.PlayerDetails.isFakePlayer) then
+      return
+    end
+    -- Blizzard_AuraContainer is a game-loaded 12.1 foundation whose public
+    -- templates are explicitly exposed for external addons. Keep the older
+    -- interface entry loadable by leaving the legacy path alone when those
+    -- globals do not exist.
+    if not AuraContainerSortMethod or not AuraContainerSortDirection then
+      return
+    end
+
+    local container = CreateFrame("AuraContainer", nil, self, "CustomAuraContainerTemplate")
+    container:SetAllPoints()
+    container:SetEnabled(false)
+    container:SetUnit("none")
+
+    local width, height = self:GetSize()
+    local cooldownSettings = self.config.Cooldown
+    container:AddAuraSlot("CC", "HARMFUL|CROWD_CONTROL", {
+      sortMethod = AuraContainerSortMethod.AuraInstanceIDOnly,
+      sortDirection = AuraContainerSortDirection.Normal,
+      initializeFrame = function(auraButton)
+        auraButton:SetAllPoints()
+        auraButton:SetMouseClickEnabled(false)
+        auraButton:SetMouseMotionEnabled(false)
+
+        local icon = auraButton:CreateTexture(nil, "ARTWORK")
+        icon:SetAllPoints()
+        if width > 0 and height > 0 then
+          BattleGroundEnemies.CropImage(icon, width, height)
+        end
+        auraButton:SetIcon(icon)
+
+        -- This cooldown belongs exclusively to the restricted aura button.
+        -- Do not add it to AllCooldowns or touch it after this initializer.
+        local cooldown = CreateFrame("Cooldown", nil, auraButton)
+        cooldown:SetAllPoints()
+        cooldown:SetSwipeTexture("Interface/Buttons/WHITE8X8")
+        if cooldown.SetUseAuraDisplayTime then
+          cooldown:SetUseAuraDisplayTime(true)
+        end
+        BattleGroundEnemies.AttachCooldownSettings(cooldown)
+        cooldown:ApplyCooldownSettings(cooldownSettings, true, { 0, 0, 0, 0.5 })
+        auraButton:SetDurationCooldown(cooldown)
+      end,
+    })
+
+    self.LiveCCContainer = container
+  end
+
   function frame:MakeSureWeAreOnTop()
     if true then
       return
@@ -452,6 +503,7 @@ local function attachToPlayerButton(playerButton)
     if not moduleSettings.showHighestPriority then
       self:ResetPriorityData()
     end
+    self:EnsureLiveCCContainer()
     self:MakeSureWeAreOnTop()
   end
   return frame
