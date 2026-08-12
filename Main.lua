@@ -3086,6 +3086,13 @@ function BattleGroundEnemies:UpdateArenaPlayers()
           fallbackButton = fallbackButton or btn
         end
       end
+      -- Blizzard's CompactArenaFrame falls back to the live opponent count
+      -- when an arena has no prep-specialization roster. In that state BGE's
+      -- scoreboard row has no structural PlayerArenaUnitID yet, so attach it
+      -- by the same exact UnitName join used everywhere else in 12.1.
+      if not desiredByArenaID[unitID] and not fallbackButton and i <= numArenaOpponents then
+        fallbackButton = self:GetPlayerbuttonByUnitID(unitID, "Enemies")
+      end
       desiredByArenaID[unitID] = desiredByArenaID[unitID] or fallbackButton
     end
 
