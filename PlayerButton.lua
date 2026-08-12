@@ -291,12 +291,8 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
   playerButton:SetPropagateMouseMotion(true) --to send the mouse wheel event to the other frame behind it (the mainframe)
   playerButton:Hide()
 
-  -- Stash the just-clicked enemy button so PLAYER_TARGET_CHANGED /
-  -- PLAYER_FOCUS_CHANGED can resolve "target" / "focus" deterministically.
-  -- UnitName is SecretWhenUnitIdentityRestricted in PvP for hostile units,
-  -- so two same-class+race enemies can't be distinguished via fingerprint.
-  -- The click itself is the source of truth — record the exact button here
-  -- and the event handler consumes it within a short time window.
+  -- Retain the existing click-intent stash for now. Exact UnitName resolution
+  -- owns identity in 12.1; removal of this older bookkeeping is deferred.
   playerButton:SetScript("PostClick", function(self, mouseButton)
     if not self.PlayerIsEnemy or not self.config then
       return
@@ -310,6 +306,7 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       BattleGroundEnemies._lastClickedEnemyFocusTime = GetTime()
     end
   end)
+
   -- setmetatable(playerButton, self)
   -- self.__index = self
 
@@ -434,16 +431,6 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
 
     self:UpdateRaidTargetIcon()
     self:UpdateRangeViaLibRangeCheck(unitID)
-    -- UpdateGuild call removed — it called GetGuildInfo(unitID) and blindly
-    -- stamped the result onto self.PlayerDetails.GuildName regardless of
-    -- whether the matcher's resolution was confident. When the matcher
-    -- returned the wrong same-class twin (tier 7-9 or fallback), this
-    -- poisoned the wrong button with the actual unit's guild — making
-    -- tier-9 disambiguation later "confirm" the wrong match.
-    -- Guild is still captured safely via captureLiveAttrs in the matcher's
-    -- tier-5/6/arena/name paths (high-confidence resolves only) and via
-    -- the harvest seeder at button creation. The function itself is kept
-    -- below in case a known-safe caller wants to invoke it explicitly.
     self:UpdateTarget()
     self:DispatchEvent("PeriodicUpdate", unitID)
   end
@@ -573,18 +560,6 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     end
     self.Trinket:DisplayTrinket(FAKE_TRINKET_SPELL)
     self.Trinket:StartFakeCooldown(duration)
-  end
-
-  function playerButton:UpdateGuild(unitID)
-    if not self.PlayerDetails then
-      return
-    end
-
-    local guildName, _, _, guildRealm = GetGuildInfo(unitID)
-    if guildName then
-      self.PlayerDetails.GuildName = guildName
-      self.PlayerDetails.GuildRealm = guildRealm
-    end
   end
 
   function playerButton:UpdateUnitID(unitID, targetUnitID, skipSnapshot)
@@ -786,10 +761,9 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       -- HP via a stale nameplate1target). The previous gate only skipped
       -- dynamic shared tokens, trusting compound residuals as "tied to
       -- specific source units" — true for the source end, not the target end.
-      -- Twin-disambiguation note (the old rationale for allowing compound
-      -- residuals): a residual only exists because the matcher DID
-      -- disambiguate at assignment; once it refuses, the scans remove the
-      -- assignment within a tick — so the lost "extra" update path was
+      -- A residual only exists because the exact matcher verified the token at
+      -- assignment; once it refuses, the scans remove the assignment within a
+      -- tick — so the lost "extra" update path was
       -- already near-dead, and every matcher-verified writer (scans, pushes,
       -- events) still feeds the bar at full rate.
       -- self.unitID and modules listening to UnitIdUpdate still propagate
@@ -803,7 +777,7 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       self:UpdateUnitID(unitID, unitID .. "target", skipSnapshot)
     elseif unitIDs.Ally then
       unitIDs.HasAllyUnitID = true
-      -- Direct token map — no PID matching.
+      -- Direct ally token map.
       local allyButton = BattleGroundEnemies.Allies:GetAllyButtonByUnitID(unitIDs.Ally)
       if allyButton and allyButton == self then
         self:UpdateUnitID(unitIDs.Ally, unitIDs.Ally .. "target")
@@ -1291,44 +1265,6 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       return
     end
 
-    -- DIAGNOSTIC (cross-attach hunt v57): only print SUSPECTED cross-attaches.
-    -- For unitID=="target": fire only when this button is NOT the most
-    -- recently clicked enemy (stash is set synchronously in PostClick, so it
-    -- reflects the user's intent immediately — currentTarget would lag a
-    -- frame via the deferred handler and give false negatives).
-    -- Same idea for "focus" via _lastClickedEnemyFocus.
-    -- Identity-free: button name is from scoreboard (NeverSecret); no
-    -- secret values touched.
-    -- if self.PlayerIsEnemy and unitID and BattleGroundEnemies.DYNAMIC_TOKENS
-    --     and BattleGroundEnemies.DYNAMIC_TOKENS[unitID] then
-    --   local suspected = false
-    --   local now = GetTime()
-    --   if unitID == "target" then
-    --     local stash = BattleGroundEnemies._lastClickedEnemyTarget
-    --     local stashTime = BattleGroundEnemies._lastClickedEnemyTargetTime or 0
-    --     if stash and stash ~= self and (now - stashTime) < 1.0 then
-    --       suspected = true
-    --     end
-    --   elseif unitID == "focus" then
-    --     local stash = BattleGroundEnemies._lastClickedEnemyFocus
-    --     local stashTime = BattleGroundEnemies._lastClickedEnemyFocusTime or 0
-    --     if stash and stash ~= self and (now - stashTime) < 1.0 then
-    --       suspected = true
-    --     end
-    --   end
-    --   if suspected then
-    --     -- Diagnostic: re-enable to debug a future cross-attach. Identity-
-    --     -- free (button name from scoreboard, no secret values).
-    --     -- local btnName = (self.PlayerDetails and self.PlayerDetails.PlayerName) or "<unnamed>"
-    --     -- local stack = debugstack(2, 4, 0) or ""
-    --     -- stack = stack:gsub("Interface/AddOns/BattleGroundEnemiesFixed/", "")
-    --     -- print(string.format(
-    --     --   "|cffffaa00[BGEF xattach]|r %s UNIT_HEALTH(%s)\n%s",
-    --     --   btnName, tostring(unitID), stack
-    --     -- ))
-    --   end
-    -- end
-
     local isAlly = not self.PlayerIsEnemy
     if not isAlly and not self.isShown then
       return
@@ -1719,7 +1655,7 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     local newTargetPlayerButton
 
     -- #1B: only run the resolver chain when the target unit actually exists.
-    -- Both lookups below (enemy PID matcher AND Allies:GetAllyButtonByUnitID)
+    -- Both lookups below (exact enemy matcher and Allies:GetAllyButtonByUnitID)
     -- already return nil for a non-existent unit — the matcher guards on
     -- UnitExists at its top, and the ally path can only match via UnitIsUnit /
     -- GetUnitName, which both fail for a unit that isn't there. So this is a
@@ -1727,8 +1663,7 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     -- zero behaviour change: newTargetPlayerButton stays nil exactly as before,
     -- so the "clear old target" path below still runs unchanged.
     if self.TargetUnitID and UnitExists(self.TargetUnitID) then
-      -- Try enemies first (PID matcher), then allies (direct token/UnitIsUnit
-      -- resolution — no PID). Target can be on either team.
+      -- Try enemies first, then allies. Target can be on either team.
       newTargetPlayerButton = BattleGroundEnemies:GetPlayerbuttonByUnitID(self.TargetUnitID, "Enemies")
       if not newTargetPlayerButton then
         newTargetPlayerButton = BattleGroundEnemies.Allies:GetAllyButtonByUnitID(self.TargetUnitID)

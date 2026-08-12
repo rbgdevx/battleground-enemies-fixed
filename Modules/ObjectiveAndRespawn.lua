@@ -420,23 +420,6 @@ local function BindChatCarrierToArenaSlot(name, arenaIndex)
   local arenaToken = "arena" .. arenaIndex
   local prevButton = BattleGroundEnemies.ArenaIDToPlayerButton[arenaToken]
 
-  -- DIAG (TEMP, 2026-05-01): same-class-twin health-misroute hunt. Only
-  -- fires on the suspicious case — chat says NameX but Players[NameX]
-  -- returned a button whose stored PlayerName is something else (would
-  -- indicate Players-dict corruption). Successful binds (chatName matches
-  -- button name) are silent. Pair with the matcher-wrapper print in
-  -- Main.lua. Remove BOTH together once root cause is identified.
-  -- local newName = newButton.PlayerDetails and newButton.PlayerDetails.PlayerName
-  -- local canonicalChat = BattleGroundEnemies:CanonicalName(name)
-  -- if newName and canonicalChat and newName ~= canonicalChat then
-  --   local prevName = prevButton and prevButton.PlayerDetails and prevButton.PlayerDetails.PlayerName
-  --   -- Diagnostic: re-enable to debug Players[] dict corruption.
-  --   print(string.format(
-  --     "|cffff5555[BGE diag]|r chat-bind WRONG-BUTTON: chatName=%s (canonical=%s) arena=%d -> button[%s] (prev=%s)",
-  --     tostring(name), tostring(canonicalChat), arenaIndex, tostring(newName), tostring(prevName)
-  --   ))
-  -- end
-
   if prevButton == newButton then
     -- Already bound. Re-dispatch to refresh icon state in case the
     -- button's frame just initialized.
@@ -1349,7 +1332,7 @@ objectiveEventFrame:SetScript("OnEvent", function(self, event, ...)
         -- neither chat table, so clear whatever button currently owns this slot
         -- via the slot map. Death-proof (no dead-guard — this handler is only
         -- IsInPvPInstance-gated) and slot-keyed, so it's correct even for a
-        -- same-class twin: the icon's lifetime equals the slot's lifetime. We
+        -- any roster churn: the icon's lifetime equals the slot's lifetime. We
         -- Reset the objective frame DIRECTLY (not only via DispatchEvent) so the
         -- visual clear can't be swallowed by BattleGroundEnemies.betweenRounds
         -- (DispatchEvent early-returns in that window).
@@ -1607,8 +1590,7 @@ function objectiveAndRespawn:AttachToPlayerButton(playerButton)
 
     -- Set the icon based on THIS button's bound arena slot rather than
     -- iterating all slots via CheckAllOrbs/CheckAllFlags. The previous
-    -- implementation re-derived bindings via the old matcher every time
-    -- ArenaOpponentShown fired, which could select the wrong same-class twin.
+    -- implementation re-derived identity every time ArenaOpponentShown fired.
     -- The slot-to-spell mapping is the same as the
     -- iteration paths use; we just look up only our own slot.
     --
@@ -1711,7 +1693,7 @@ function objectiveAndRespawn:AttachToPlayerButton(playerButton)
       -- Gate on `not next(chatFlagCarriers)` like every other CheckAll call site
       -- (627/650/692/970/974): when chat is authoritative the ungated ticker
       -- would re-run the live-token resolver during the post-drop token-lag window and
-      -- re-Show the icon (possibly on the wrong same-class twin) before the
+      -- re-Show the icon on a stale owner before the
       -- authoritative "cleared" hides it — the hide->show->hide flicker (finding
       -- 8). Chat-tracked maps clear via the chat handler; this ticker only
       -- covers the chat-silent fallback.
@@ -1760,8 +1742,8 @@ function objectiveAndRespawn:AttachToPlayerButton(playerButton)
     -- one widget update. The module-level objectiveEventFrame:OnEvent
     -- already handles these widgets ONCE with proper deferral and
     -- chat-tracker gating. Skip here when chat is authoritative — an
-    -- ungated CheckAllOrbs/Flags would re-resolve and override any
-    -- chat-set binding on a same-class twin. When chat is silent,
+    -- ungated CheckAllOrbs/Flags would re-resolve and override an exact
+    -- chat-set binding. When chat is silent,
     -- defer to the global handler's fallback path; this per-button
     -- redundant call is no longer needed.
     --

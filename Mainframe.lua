@@ -853,7 +853,7 @@ local function CreateMainFrame(playerType)
   end
 
   function mainframe:GetPlayerbuttonByUnitID(unitID, requestedPlayerType)
-    -- Delegate to the robust GUID/PID matcher in Main.lua
+    -- Delegate to the exact-name matcher in Main.lua.
     return BattleGroundEnemies:GetPlayerbuttonByUnitID(unitID, requestedPlayerType)
   end
 
@@ -1275,47 +1275,32 @@ local function CreateMainFrame(playerType)
       PlayerLevel = false,
       isFakePlayer = false, --to set a base value, might be overwritten by mixin
       PlayerArenaUnitID = nil, --to set a base value, might be overwritten by mixin
-      GuildName = nil, -- cached from unit info
-      GuildRealm = nil, -- cached from unit info
       realmName = realmName, -- from scoreboard
     }
     if additionalData then
       Mixin(playerDetails, additionalData)
     end
 
-    -- GUIDs are effectively always secret in 12.0.5 PvP now, so the old
-    -- PlayerGUIDs fast-path can never be populated with a usable key —
-    -- removed. Ditto for the GUID-match stage in identity lookup below.
-
     -- Find existing button for this scoreboard entry. Each button can be
     -- claimed (status=1) at most once per tick — all matching paths honor
-    -- the status check so exact name, arena-slot continuity, and the remaining
-    -- non-arena legacy fallback cannot collide on one button.
+    -- the status check so exact name and arena-slot continuity cannot collide
+    -- on one button.
     --
     -- Stage 1: exact canonical-name lookup.
     -- Stage 2: structural arena-slot continuity for arena roster rows.
-    -- Stage 3: legacy class/race fallback for non-arena sources only.
-    --
-    -- GUIDs are effectively always secret in 12.0.5 PvP now, so the GUID
-    -- stage that used to sit between these two has been removed — it was
-    -- silently dead code.
+    -- Non-arena rows only reuse a button through exact canonical identity.
     local playerButton
-    local strongMatch = false
-    -- local matchStage = "new" -- diagnostic: tracks which stage produced the match
     if name then
       -- Canonicalize lookup key: Players[] stores under "Name-Realm" form
       -- (CanonicalName at storage above). PVPScoreInfo.name is short for
-      -- same-realm — must canonicalize before lookup or we silently miss
-      -- and fall through to class-fallback, mis-claiming buttons.
+      -- same-realm, so it must be canonicalized before lookup.
       local btn = self.Players[playerName]
-      -- Must check status so the SAME button doesn't get claimed twice in
-      -- one tick (once via name, once via class fallback). Without this,
+      -- Must check status so the same button doesn't get claimed twice in
+      -- one tick. Without this,
       -- two rows that resolve to the same button mutate each other's data
       -- and the "loser" row's player never materializes anywhere.
       if btn and btn.status ~= 1 then
         playerButton = btn
-        strongMatch = not arenaSlot or playerName ~= arenaSlot
-        -- matchStage = "stage1-name"
       end
     end
     if not playerButton and arenaSlot and self.PlayerList then
@@ -1332,33 +1317,6 @@ local function CreateMainFrame(playerType)
         end
       end
     end
-    if not playerButton and not arenaSlot and classToken and self.PlayerList then
-      local upperClass = string.upper(classToken)
-      local raceKey = race or ""
-      -- Consume-first-unclaimed. Same-class-same-race rows are processed
-      -- in order; each row claims the first unclaimed button that matches
-      -- (greedy). Identity of individual buttons among same-class peers
-      -- can drift across ticks if row order shifts, but the total count
-      -- stays correct — no duplicates, no hijacking, no ghost buttons.
-      for i = 1, #self.PlayerList do
-        local btn = self.PlayerList[i]
-        if
-          btn.status ~= 1
-          and btn.PlayerDetails
-          and btn.PlayerDetails.PlayerClass == upperClass
-          and (btn.PlayerDetails.PlayerRace or "") == raceKey
-        then
-          playerButton = btn
-          -- matchStage = "stage2-fingerprint"
-          -- Not a strong match — live-captured attrs (gender, honor,
-          -- guild) should not be preserved across this swap since we're
-          -- attaching a potentially different player's scoreboard row
-          -- onto this button.
-          break
-        end
-      end
-    end
-
     -- Preserve fields we set on the button after its initial creation —
     -- these are NOT provided by the scoreboard, so a wholesale PlayerDetails
     -- swap would wipe them. Specifically this was the "click works once"
@@ -1381,49 +1339,9 @@ local function CreateMainFrame(playerType)
       end
     end
 
-    -- Preserve live-captured non-secret attrs across the details swap —
-    -- ONLY on strong identity match. Weak (ambiguous fingerprint) matches
-    -- might be carrying another player's data forward.
-    -- Source tags travel with the value so captureLiveAttrs in
-    -- GetPlayerbuttonByUnitID can still distinguish "harvest seed" vs
-    -- "live captured" after a CreateOrUpdatePlayerDetails swap.
-    if strongMatch and playerButton and playerButton.PlayerDetails then
-      local pd = playerButton.PlayerDetails
-      if pd.gender and not (issecretvalue and issecretvalue(pd.gender)) and not playerDetails.gender then
-        playerDetails.gender = pd.gender
-        playerDetails._genderSource = pd._genderSource
-      end
-      if
-        pd.honorLevel
-        and not (issecretvalue and issecretvalue(pd.honorLevel))
-        and (not playerDetails.honorLevel or (issecretvalue and issecretvalue(playerDetails.honorLevel)))
-      then
-        playerDetails.honorLevel = pd.honorLevel
-        playerDetails._honorLevelSource = pd._honorLevelSource
-      end
-      -- GuildName: `false` (confirmed guildless) is a real value, not
-      -- "no value". Use explicit `~= nil` instead of truthy check so we
-      -- correctly preserve a captured-guildless state across the swap.
-      if
-        pd.GuildName ~= nil
-        and not (issecretvalue and issecretvalue(pd.GuildName))
-        and playerDetails.GuildName == nil
-      then
-        playerDetails.GuildName = pd.GuildName
-        playerDetails._GuildNameSource = pd._GuildNameSource
-      end
-      if pd.lastPowerType and not playerDetails.lastPowerType then
-        playerDetails.lastPowerType = pd.lastPowerType
-        playerDetails._lastPowerTypeSource = pd._lastPowerTypeSource
-      end
-    end
-
-    -- Harvest seed: fill any field still nil/false/secret from
-    -- db.global.PlayerHistory. Runs AFTER live-captured preservation so
-    -- live values take priority over harvest. Source-tag with
-    -- _<field>Source = "harvest" so captureLiveAttrs in GetPlayerbuttonByUnitID
-    -- can promote to "live" on the first non-fallback unit-token resolve.
-    -- For PlayerSpecName / PlayerRole this is the ONLY mid-match source —
+    -- Stored history supplies spec and derived role when the live scoreboard
+    -- fields are secret. For PlayerSpecName / PlayerRole this is the only
+    -- mid-match source —
     -- talentSpec/roleAssigned are SecretInActivePvPMatch on the scoreboard.
     do
       local history = BattleGroundEnemies.db
@@ -1431,35 +1349,6 @@ local function CreateMainFrame(playerType)
         and BattleGroundEnemies.db.global.PlayerHistory
         and BattleGroundEnemies.db.global.PlayerHistory[playerDetails.PlayerName]
       if history then
-        -- Normal seed: empty = nil OR false (placeholder) OR secret.
-        local function seed(field, value, sourceField)
-          if value == nil then
-            return
-          end
-          local cur = playerDetails[field]
-          if cur == nil or cur == false or (issecretvalue and issecretvalue(cur)) then
-            playerDetails[field] = value
-            playerDetails[sourceField] = "harvest"
-          end
-        end
-        -- GuildName seed: `false` means CONFIRMED GUILDLESS (real value),
-        -- NOT a placeholder. Empty = ONLY nil OR secret. Don't overwrite
-        -- a live-captured `false` with potentially-stale harvest data.
-        local function seedGuild(value)
-          if value == nil then
-            return
-          end
-          local cur = playerDetails.GuildName
-          if cur == nil or (issecretvalue and issecretvalue(cur)) then
-            playerDetails.GuildName = value
-            playerDetails._GuildNameSource = "harvest"
-          end
-        end
-        seed("gender", history.gender, "_genderSource")
-        seed("honorLevel", history.honorLevel, "_honorLevelSource")
-        seedGuild(history.GuildName)
-        seed("lastPowerType", history.lastPowerType, "_lastPowerTypeSource")
-
         -- Spec seeding also recomputes PlayerRole via spec→roleID, since
         -- the original PlayerRole calculation above ran with spec=secret.
         local specStillEmpty = playerDetails.PlayerSpecName == nil
@@ -1552,7 +1441,6 @@ local function CreateMainFrame(playerType)
       end
 
       playerButton.status = 1 --1 means found, already existing
-      playerDetails = playerButton.PlayerDetails
 
       -- if BattleGroundEnemies.LogButtonEvent then
       --   BattleGroundEnemies:LogButtonEvent("MATCH", self.PlayerType, playerButton, matchStage)
@@ -1882,7 +1770,7 @@ BattleGroundEnemies.Allies = CreateMainFrame(BattleGroundEnemies.consts.PlayerTy
 
 -- Direct unit-token → ally button map. Rebuilt by UpdateAllUnitIDs after
 -- GROUP_ROSTER_UPDATE. Allies are driven exclusively by stable raidN/partyN/
--- player tokens — no PID matching, no scoreboard, no cross-side contamination.
+-- player tokens without scoreboard or cross-side identity inference.
 BattleGroundEnemies.Allies.tokenToButton = {}
 
 -- Resolve any incoming unitID to an ally button, or nil if not one of ours.
@@ -1894,7 +1782,7 @@ BattleGroundEnemies.Allies.tokenToButton = {}
 -- it in a boolean context would taint, crashing the addon). We pre-filter
 -- via issecretvalue and silently skip such pairs.
 -- Fallback B: name match via GetUnitName (also pcall + secret-guarded).
--- No PID, no fingerprinting. Never touches the enemy matcher.
+-- Never touches the enemy matcher.
 function BattleGroundEnemies.Allies:GetAllyButtonByUnitID(unitID)
   if not unitID then
     return nil
@@ -2235,13 +2123,10 @@ end
 
 function BattleGroundEnemies.Enemies:NAME_PLATE_UNIT_ADDED(unitID)
   -- Only process enemy nameplates — friendly nameplates must be ignored
-  -- or they can PID-match to enemy buttons and cause false in-range.
+  -- or they can collide with an enemy-side exact-name lookup.
   if not BattleGroundEnemies.IsEnemyUnit(unitID) then
     return
   end
-  -- Clear stale sticky cache for this nameplate (may have been recycled from a different enemy)
-  BattleGroundEnemies:InvalidateStickyPID(unitID)
-  BattleGroundEnemies:InvalidateStickyPID(unitID .. "target")
 
   -- Track highest nameplate index for ScanTargets optimization
   local idx = unitID and tonumber(unitID:match("nameplate(%d+)"))
@@ -2252,13 +2137,12 @@ function BattleGroundEnemies.Enemies:NAME_PLATE_UNIT_ADDED(unitID)
   if enemyButton then
     enemyButton:UpdateEnemyUnitID("Nameplate", unitID)
   else
-    -- Match failed (unit data may not be ready yet, or PID failed in combat).
+    -- Match failed because unit/name data may not be ready yet.
     -- Retry after a short delay — ScanTargets will also catch it at 0.25s,
     -- but this gets us there faster.
     local enemies = self
     C_Timer.After(0.1, function()
       if UnitExists(unitID) and BattleGroundEnemies.IsEnemyUnit(unitID) then
-        BattleGroundEnemies:ClearScanCycleCache()
         local btn = enemies:GetPlayerbuttonByUnitID(unitID, "Enemies")
         if btn then
           btn:UpdateEnemyUnitID("Nameplate", unitID)
@@ -2269,11 +2153,6 @@ function BattleGroundEnemies.Enemies:NAME_PLATE_UNIT_ADDED(unitID)
 end
 
 function BattleGroundEnemies.Enemies:NAME_PLATE_UNIT_REMOVED(unitID)
-  -- Invalidate sticky PID cache for this nameplate token (and its compound tokens).
-  -- Without this, recycled nameplates would incorrectly map to the old enemy's button.
-  BattleGroundEnemies:InvalidateStickyPID(unitID)
-  BattleGroundEnemies:InvalidateStickyPID(unitID .. "target")
-
   -- Can't use GetPlayerbuttonByUnitID here because the unit may already be invalid
   -- (UnitExists returns false after nameplate removal). Instead, scan buttons directly
   -- to find which one has this nameplate stored.
@@ -2315,14 +2194,8 @@ local function UpdateUnitIDForToken(self, tokenKey, unitID)
 end
 
 function BattleGroundEnemies.Enemies:PLAYER_FOCUS_CHANGED()
-  -- Focus token attachment removed — was duplicating the work of
-  -- BattleGroundEnemies:PLAYER_FOCUS_CHANGED in Main.lua, which uses the
-  -- click stash to map "focus" to the correct button. This handler used
-  -- the matcher (no stash), so on same-class twins it could attach the
-  -- Focus token to the wrong button before the stash-based handler
-  -- corrected it — same wrong-frame flash bug we just fixed for target.
-  -- FocusTarget (your focus's target — a different token) is unique to
-  -- this handler, so it stays.
+  -- Main.lua owns the focus row itself. This container only owns the distinct
+  -- focus-target token.
   UpdateUnitIDForToken(self, "FocusTarget", "focustarget")
 end
 
@@ -2330,9 +2203,8 @@ function BattleGroundEnemies.Enemies:UPDATE_MOUSEOVER_UNIT()
   -- Persistently attach the Mouseover UnitID to the matched button (and
   -- detach it from any prior button). Sibling handler at
   -- BattleGroundEnemies:UPDATE_MOUSEOVER_UNIT in Main.lua does a one-shot
-  -- snapshot read of health/power via UpdateAll. Both run on the same
-  -- event; the matcher call here hits scanCycleCache (already populated
-  -- by the sibling). Don't consolidate — different abstractions.
+  -- snapshot read of health/power via UpdateAll. Don't consolidate — these
+  -- handlers update different abstractions.
   UpdateUnitIDForToken(self, "Mouseover", "mouseover")
 end
 
@@ -2348,12 +2220,6 @@ function BattleGroundEnemies.Enemies:PLAYER_SOFT_ENEMY_CHANGED()
 end
 
 function BattleGroundEnemies.Enemies:PLAYER_TARGET_CHANGED()
-  -- The user's target changed, so "targettarget" now traverses a DIFFERENT
-  -- source unit — any cached resolution is meaningless. UNIT_TARGET already
-  -- invalidates unitID.."target" for its unit; this is the same hygiene for
-  -- the viewer's own target swap (without it, a stale sticky could re-attach
-  -- the old resolution, which the elected-token sweep would then paint).
-  BattleGroundEnemies:InvalidateStickyPID("targettarget")
   UpdateUnitIDForToken(self, "TargetTarget", "targettarget")
 end
 
@@ -2435,10 +2301,6 @@ function BattleGroundEnemies.Enemies:RemoveGroupPetTarget(button, sourceUnit)
 end
 
 function BattleGroundEnemies.Enemies:UNIT_TARGET(unitID)
-  -- Invalidate sticky PID cache for the compound token that just changed.
-  -- e.g. raid3 fires UNIT_TARGET → "raid3target" now points to someone else.
-  BattleGroundEnemies:InvalidateStickyPID(unitID .. "target")
-
   -- Single-token handlers (your own unit changed target)
   if unitID == "target" then
     UpdateUnitIDForToken(self, "TargetTarget", "targettarget")
