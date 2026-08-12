@@ -4789,25 +4789,49 @@ function BattleGroundEnemies:UpdateArenaPlayers()
   end
 
   if #BattleGroundEnemies.Enemies.CurrentPlayerOrder > 0 or #BattleGroundEnemies.Allies.CurrentPlayerOrder > 0 then --this ensures that we checked for enemies and the flag carrier will be shown (if its an enemy)
-    for i = 1, GetNumArenaOpponents() do
+    local desiredByArenaID = {}
+    local numArenaOpponents = GetNumArenaOpponents()
+    for i = 1, 15 do
       local unitID = "arena" .. i
-      -- Try PID matching first (works when GUID/name aren't secret)
-      local playerButton = BattleGroundEnemies:GetPlayerbuttonByUnitID(unitID, "Enemies")
-
-      -- Fallback: find the button directly by its PlayerArenaUnitID.
-      -- In 12.0 combat, GUID and names are secret so PID matching fails.
-      -- CreateArenaEnemies already tagged each button with PlayerArenaUnitID.
-      if not playerButton then
-        for _, btn in pairs(BattleGroundEnemies.Enemies.Players) do
-          if btn.PlayerDetails and btn.PlayerDetails.PlayerArenaUnitID == unitID then
-            playerButton = btn
-            break
-          end
+      for _, btn in ipairs(BattleGroundEnemies.Enemies.PlayerList) do
+        if btn.PlayerDetails and btn.PlayerDetails.PlayerArenaUnitID == unitID then
+          desiredByArenaID[unitID] = btn
+          break
         end
       end
+    end
 
+    -- Capture the complete desired slot map before clearing stale bindings.
+    -- In Solo Shuffle two existing buttons can swap arenaN slots in one source
+    -- rebuild; clearing the first old binding also clears its mirrored
+    -- PlayerArenaUnitID, so resolving and mutating one slot at a time would
+    -- make the second button disappear from this pass.
+    for i = 1, 15 do
+      local unitID = "arena" .. i
+      local previousButton = self.ArenaIDToPlayerButton[unitID]
+      if previousButton and previousButton ~= desiredByArenaID[unitID] then
+        self.ArenaIDToPlayerButton[unitID] = nil
+        previousButton:UpdateEnemyUnitID("Arena", false)
+        previousButton:DispatchEvent("ArenaOpponentHidden")
+      end
+    end
+
+    for i = 1, 15 do
+      local unitID = "arena" .. i
+      local playerButton = desiredByArenaID[unitID]
       if playerButton then
-        playerButton:ArenaOpponentShown(unitID)
+        -- A stale binding cleared above may have erased this structural mirror
+        -- while the button moved to a different slot. Restore the source-of-
+        -- truth slot before rebuilding the secure binding.
+        playerButton.PlayerDetails.PlayerArenaUnitID = unitID
+        if i <= numArenaOpponents then
+          playerButton:ArenaOpponentShown(unitID)
+        elseif playerButton.SetBindings then
+          -- Prep specialization data can build structural slots before the
+          -- arena units exist. Keep the secure arenaN click attribute prepared
+          -- without pretending that the unit is currently visible/live.
+          playerButton:SetBindings()
+        end
       end
     end
   elseif self.Enemies:ShouldBeEnabled() then
@@ -5074,6 +5098,12 @@ function BattleGroundEnemies:PVP_MATCH_STATE_CHANGED()
 
   if state == Enum.PvPMatchState.Engaged then
     self.betweenRounds = false
+    -- UNIT_NAME_UPDATE is not documented to fire when the PvP name exception
+    -- becomes available. Reconcile arenaN slots explicitly at gates-open so
+    -- startup placeholders become exact Name-Realm rows immediately.
+    if self.states.real.isInArena then
+      self:CheckForArenaEnemies()
+    end
     -- Refresh raid target icons — updates during the lobby were
     -- swallowed by the DispatchEvent block, so icons may be stale
     -- (e.g. a player swapped sides but kept their old marker).

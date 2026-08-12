@@ -1112,10 +1112,8 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       if setupUsualAttributes then
         -- /targetexact <PlayerName> click path. PlayerName is the scoreboard
         -- name (PVPScoreInfo.name = NeverSecret) for BG enemies, so the concat
-        -- never taints; for arena it's the revealed name, or the "arenaN"
-        -- placeholder until ChangeName fires (a sub-second window where a click
-        -- is a no-op, then PlayerDetailsChanged -> SetBindings re-runs with the
-        -- real name). The macro is set once and survives combat — no per-token
+        -- never taints. Arena enemies use their PlayerArenaUnitID secure token
+        -- instead. The macro is set once and survives combat — no per-token
         -- rebind needed, which is the whole point.
         newAttributes.type1 = "macro" -- type1 = LEFT-Click
         newAttributes.type2 = "macro" -- type2 = Right-Click
