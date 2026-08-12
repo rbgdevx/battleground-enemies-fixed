@@ -146,11 +146,9 @@ local function CheckAllOrbs()
   isCheckingOrbs = true
 
   local ok, err = pcall(function()
-    -- No "clear stale" sweep here: ARENA_OPPONENT_UPDATE with
-    -- unitEvent=="cleared" is the authoritative signal for arena-token
-    -- invalidation (see Main.lua:1268). Using UnitExists as our own
-    -- invalidation check produces false positives (e.g., user dies, all
-    -- arena tokens report nonexistent, we wrongly wipe the carrier icon).
+    -- This sweep only attaches currently queryable slots. It does not infer
+    -- removal from UnitExists returning false; the explicit event/chat paths
+    -- below own the addon's existing teardown policy.
 
     -- Show orbs on players who have them.
     --
@@ -192,11 +190,9 @@ local function CheckAllFlags()
   isCheckingFlags = true
 
   local ok, err = pcall(function()
-    -- No "clear stale" sweep here: ARENA_OPPONENT_UPDATE with
-    -- unitEvent=="cleared" is the authoritative signal for arena-token
-    -- invalidation (see Main.lua:1268). Using UnitExists as our own
-    -- invalidation check produces false positives (e.g., user dies, all
-    -- arena tokens report nonexistent, we wrongly wipe the carrier icon).
+    -- This sweep only attaches currently queryable slots. It does not infer
+    -- removal from UnitExists returning false; the explicit event/chat paths
+    -- below own the addon's existing teardown policy.
 
     -- Show flags on players who have them.
     --
@@ -969,9 +965,9 @@ local function StacksOnChat(event, message)
   end
 end
 
--- Orbs only: arena "cleared" is authoritative removal (a dropped orb resets to
--- base). Flags deliberately ignore arena churn — it can't tell drop-then-return
--- from drop-then-repick (see the retired handler in bgwc predictions/flags.lua).
+-- Orbs only: under the addon's existing slot policy, arena "cleared" resets the
+-- clock to base. Flags deliberately ignore arena churn because it cannot tell
+-- drop-then-return from drop-then-repick.
 local function StacksOnArenaCleared(idx)
   if not stackCfg or stackCfg.mode ~= "orb" or idx > STACK_NUM_SLOTS then
     return
@@ -1292,20 +1288,12 @@ objectiveEventFrame:SetScript("OnEvent", function(self, event, ...)
       end
     end)
   elseif event == "ARENA_OPPONENT_UPDATE" then
-    -- Fires when arena units appear/disappear. Two responsibilities:
-    --   1. On a slot CLEAR (carrier died / orb back on ground / flag dropped /
-    --      cap / return), tear the slot down — binding-agnostically, even while
-    --      the viewer is dead. This is the authoritative removal signal and is
-    --      the only path for silent removals (e.g. Kotmogu orb drops emit no
-    --      chat). Done IMMEDIATELY (no defer); cleared state is unambiguous.
-    --   2. Run CheckAllOrbs/Flags as the chat-silent fallback (deferred 0.1s for
-    --      the same race-avoidance reason as the other widget paths).
-    --
-    -- Trigger ONLY on "cleared". "cleared" is authoritative removal.
-    -- "unseen"/"destroyed" are lost-visibility — the carrier may still be alive
-    -- (viewer died, or carrier left render range), so tearing down on them would
-    -- wipe a still-live carrier's binding (R2). The oracle hides only on
-    -- "cleared" (core/events.lua); we mirror that here.
+    -- Every arena-slot update schedules the map-specific live sweep below.
+    -- Under the addon's existing policy, "cleared" also tears down the slot
+    -- binding immediately; other reasons do not tear it down here. Blizzard's
+    -- arena UI removes its frame on "cleared", retains it on "unseen", and
+    -- treats "destroyed" like "seen". That establishes UI-slot behavior, not
+    -- the gameplay cause of the update or objective-possession truth.
     local unitToken, updateReason = ...
     if unitToken and updateReason == "cleared" then
       local arenaIndex = tonumber(string.match(unitToken, "^arena(%d+)$"))
@@ -1328,12 +1316,11 @@ objectiveEventFrame:SetScript("OnEvent", function(self, event, ...)
         end
         PersistChatCarriers()
 
-        -- Binding-AGNOSTIC teardown: a live-token-bound carrier is in
+        -- Binding-agnostic teardown under the existing "cleared" policy: a
+        -- live-token-bound carrier is in
         -- neither chat table, so clear whatever button currently owns this slot
-        -- via the slot map. Death-proof (no dead-guard — this handler is only
-        -- IsInPvPInstance-gated) and slot-keyed, so it's correct even for a
-        -- any roster churn: the icon's lifetime equals the slot's lifetime. We
-        -- Reset the objective frame DIRECTLY (not only via DispatchEvent) so the
+        -- via the slot map. Reset the objective frame directly (not only via
+        -- DispatchEvent) so the
         -- visual clear can't be swallowed by BattleGroundEnemies.betweenRounds
         -- (DispatchEvent early-returns in that window).
         local btn = BattleGroundEnemies.ArenaIDToPlayerButton[unitToken]
@@ -1518,11 +1505,9 @@ function objectiveAndRespawn:AttachToPlayerButton(playerButton)
   end
 
   function frame:UnitRevived()
-    -- Mirror the UnitDied carrier-protection: in an objective BG, a still-bound
-    -- carrier's objective icon must survive a revive — its removal is handled by
-    -- the authoritative "cleared", not by Reset. (Objective-BG scoped so it can't
-    -- touch the normal revive/Reset in arenas / non-objective BGs.) If the slot
-    -- binding is already gone, the carrier really dropped, so Reset runs.
+    -- Preserve an objective icon while this button still owns its carrier slot.
+    -- The explicit slot/chat teardown paths clear that ownership. Scope this to
+    -- objective BGs so normal arena/non-objective revive handling is unchanged.
     local states = BattleGroundEnemies:GetActiveStates()
     local arenaToken = playerButton.UnitIDs and playerButton.UnitIDs.Arena
     if
@@ -1539,10 +1524,9 @@ function objectiveAndRespawn:AttachToPlayerButton(playerButton)
   function frame:UnitDied()
     -- Don't clobber a live objective icon with the death/respawn placeholder
     -- (findings 18/21): the objective icon and the ghost icon share frame.Icon.
-    -- If this button still owns an arena slot, it is a bound carrier — its
-    -- removal is handled by the authoritative "cleared" (ArenaOpponentHidden),
-    -- NOT by a respawn paint over the objective texture. Oracle parity: a
-    -- carrier's death is removed by "cleared", never shown as a respawn timer.
+    -- If this button still owns an arena slot, preserve the objective texture
+    -- until the explicit slot/chat teardown path runs instead of painting the
+    -- respawn visual over it.
     -- FIX B: compare against `playerButton` (the enclosing upvalue), NOT `self`.
     -- Inside `function frame:UnitDied()` self is the ObjectiveAndRespawn child
     -- frame, but ArenaIDToPlayerButton stores the player BUTTON (assigned at
@@ -1692,11 +1676,10 @@ function objectiveAndRespawn:AttachToPlayerButton(playerButton)
       -- Start ticker for frequent updates (widget events unreliable).
       -- Gate on `not next(chatFlagCarriers)` like every other CheckAll call site
       -- (627/650/692/970/974): when chat is authoritative the ungated ticker
-      -- would re-run the live-token resolver during the post-drop token-lag window and
-      -- re-Show the icon on a stale owner before the
-      -- authoritative "cleared" hides it — the hide->show->hide flicker (finding
-      -- 8). Chat-tracked maps clear via the chat handler; this ticker only
-      -- covers the chat-silent fallback.
+      -- would re-run the live-token resolver during the post-drop token-lag
+      -- window and re-show the icon on a stale owner before the slot teardown.
+      -- Chat-tracked maps clear via the chat handler; this ticker only covers
+      -- the chat-silent fallback.
       if not self.FlagTicker then
         self.FlagTicker = C_Timer.NewTicker(1, function()
           if not next(chatFlagCarriers) then

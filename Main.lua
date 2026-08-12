@@ -1569,21 +1569,11 @@ function BattleGroundEnemies:ARENA_OPPONENT_UPDATE(unitID, unitEvent)
   if unitEvent == "cleared" then --"unseen", "cleared" or "destroyed"
     local playerButton = self.ArenaIDToPlayerButton[unitID]
     if playerButton then
-      -- "cleared" is the AUTHORITATIVE removal signal (drop / cap / return /
-      -- carrier death). Per Blizzard's arena-unit semantics, viewer-death and
-      -- mere loss-of-visibility surface as "unseen" (UnitExists -> false, the
-      -- frame is KEPT), NEVER as "cleared" — so hiding here can never wipe a
-      -- still-live carrier. Hide UNCONDITIONALLY, even while the viewer is
-      -- dead and binding-agnostically. This mirrors the
-      -- ObjectiveFrames oracle (core/events.lua HandleCarrierVisibility hides
-      -- on "cleared" with zero dead-check). UpdateEnemyUnitID -> SetBindings
-      -- self-defers under combat lockdown, so this is combat-safe.
-      --
-      -- (The old dead-guard early-return here was the disappear-while-dead
-      -- leak for carriers: it suppressed real removals to protect a
-      -- case Blizzard never produces. A still-held carrier whose icon was lost
-      -- to a /reload-while-dead is re-established by the persist-and-replay
-      -- path in Modules/ObjectiveAndRespawn.lua, not by suppressing this hide.)
+      -- Keep the addon's existing slot policy: "cleared" tears down the
+      -- arenaN mapping regardless of viewer state. Blizzard's arena UI also
+      -- removes its slot on "cleared", but that event does not by itself prove
+      -- why an objective slot changed or whether an orb was dropped.
+      -- UpdateEnemyUnitID -> SetBindings defers protected writes in combat.
       self.ArenaIDToPlayerButton[unitID] = nil
       playerButton:UpdateEnemyUnitID("Arena", false)
       playerButton:DispatchEvent("ArenaOpponentHidden")
@@ -3511,10 +3501,10 @@ function BattleGroundEnemies:HarvestPlayerHistory()
     self._reassertingScoreboard = false
   end
 
-  -- Build a name→button map once so we can pull GuildName captured by
-  -- captureLiveAttrs during the match. PVPScoreInfo has no guild field;
-  -- the only source for an enemy's guild is a unit-token resolve, which
-  -- captureLiveAttrs has already done by the time we're here.
+  -- Retain the legacy auxiliary-history merge without putting those fields
+  -- back into exact identity matching. A same-name button can contribute a
+  -- value only if some independent path already supplied it; otherwise the
+  -- existing saved entry and GetPlayerInfoByGUID fallbacks below remain.
   local nameToButton = {}
   for _, mf in ipairs({ self.Enemies, self.Allies }) do
     if mf and mf.Players then
@@ -3534,9 +3524,8 @@ function BattleGroundEnemies:HarvestPlayerHistory()
     -- are exactly "Player-{realmID}-{characterHex}" (2 hyphens, 3 parts).
     -- Bot GUIDs are "Player-3021-2-8402-{hex}" (4 hyphens, 5 parts) where
     -- the 3021-2-8402 segment identifies the bot server. The strict
-    -- 3-part pattern catches both — let bots pollute PlayerHistory and
-    -- the disambiguation tiers would think bots are known players in
-    -- real BGs (bot names are often reused across matches).
+    -- 3-part pattern excludes them so reused bot names do not pollute
+    -- PlayerHistory.
     -- guid is *usually* non-secret in PostRound/Complete (past
     -- SecretInActivePvPMatch), but solo shuffle has produced cases where
     -- it remains secret — calling :match() on a secret string taints
@@ -3553,18 +3542,14 @@ function BattleGroundEnemies:HarvestPlayerHistory()
       if key and not self._harvestedThisMatch[key] then
         local existing = db.PlayerHistory[key] or {}
 
-        -- Pull non-scoreboard fields. Three sources by preference:
-        --   1) Same-name button's PlayerDetails (captureLiveAttrs already
-        --      populated these via UnitSexBase/GetGuildInfo/UnitPowerType
-        --      mid-match, all in the modern enum where applicable).
+        -- Retain non-scoreboard fields from three sources by preference:
+        --   1) Same-name button's PlayerDetails, if another path supplied them.
         --   2) GetPlayerInfoByGUID for sex/realm if button source missed.
         --   3) Existing harvest entry as last fallback.
         -- IMPORTANT: GetPlayerInfoByGUID returns the LEGACY sex enum
         -- (1=None, 2=Male, 3=Female), NOT the modern UnitSex enum
-        -- (0=Male, 1=Female, 2=None, 3=Both, 4=Neutral). The matcher's
-        -- tier 7 compares against UnitSexBase returns (modern enum), so
-        -- we must convert before storing — otherwise harvest-seeded
-        -- gender never matches live unit reads.
+        -- (0=Male, 1=Female, 2=None, 3=Both, 4=Neutral). Convert before
+        -- storing so the retained PlayerHistory schema stays consistent.
         local LEGACY_TO_MODERN_SEX = { [1] = 2, [2] = 0, [3] = 1 }
         local sex, realm, guild, powerType
         local btn = nameToButton[key]
@@ -3640,9 +3625,9 @@ end
 -- UnitGUID, GetPlayerInfoByGUID), so this is safe to run any time we're in
 -- a PvP instance.
 --
--- IMPORTANT: every value stored here MUST match the type/format that
--- HarvestPlayerHistory writes from PVPScoreInfo, because the matcher's tier
--- comparators read PlayerHistory entries assuming scoreboard-shaped data.
+-- Keep every value stored here in the same type/format that
+-- HarvestPlayerHistory writes from PVPScoreInfo so retained SavedVariables
+-- stay internally consistent.
 -- Conversions:
 --   GuildName: GetGuildInfo nil → store as `false` (matches scoreboard
 --              "confirmed guildless" three-state semantics).
