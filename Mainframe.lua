@@ -1303,15 +1303,19 @@ local function CreateMainFrame(playerType)
     if playerButton and playerButton.PlayerDetails then
       local pd = playerButton.PlayerDetails
       -- BG objective tokens are not present in scoreboard rows, so preserve
-      -- that mirror there. True-arena rows always provide their structural
-      -- slot; carrying a missing old slot across a Shuffle transition would
-      -- attach the next occupant to stale secure state.
+      -- that mirror there. A live true-arena row without prep-specialization
+      -- data can also arrive through the scoreboard; preserve its exact slot
+      -- only while UnitName confirms that arenaN still names this same row.
+      local oldArenaSlot = pd.PlayerArenaUnitID
+      local exactArenaSlotStillOwnsRow = BattleGroundEnemies.states.real.isInArena
+        and oldArenaSlot
+        and BattleGroundEnemies:GetCanonicalUnitName(oldArenaSlot) == playerDetails.PlayerName
       if
-        pd.PlayerArenaUnitID
+        oldArenaSlot
         and not playerDetails.PlayerArenaUnitID
-        and not BattleGroundEnemies.states.real.isInArena
+        and (not BattleGroundEnemies.states.real.isInArena or exactArenaSlotStillOwnsRow)
       then
-        playerDetails.PlayerArenaUnitID = pd.PlayerArenaUnitID
+        playerDetails.PlayerArenaUnitID = oldArenaSlot
       end
     end
 
