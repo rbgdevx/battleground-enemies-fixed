@@ -4793,12 +4793,21 @@ function BattleGroundEnemies:UpdateArenaPlayers()
     local numArenaOpponents = GetNumArenaOpponents()
     for i = 1, 15 do
       local unitID = "arena" .. i
+      local fallbackButton
       for _, btn in ipairs(BattleGroundEnemies.Enemies.PlayerList) do
         if btn.PlayerDetails and btn.PlayerDetails.PlayerArenaUnitID == unitID then
-          desiredByArenaID[unitID] = btn
-          break
+          if btn.status == 1 then
+            -- A combat-deferred source update can temporarily leave both the
+            -- newly claimed row and a stale unclaimed duplicate in PlayerList.
+            -- Prefer the row claimed by this rebuild; normal completed passes
+            -- reset every active button to status 2 and use the fallback below.
+            desiredByArenaID[unitID] = btn
+            break
+          end
+          fallbackButton = fallbackButton or btn
         end
       end
+      desiredByArenaID[unitID] = desiredByArenaID[unitID] or fallbackButton
     end
 
     -- Capture the complete desired slot map before clearing stale bindings.
