@@ -2217,6 +2217,7 @@ function BattleGroundEnemies:ScanTargets()
     for i = 1, #sweepList do
       local btn = sweepList[i]
       local uid = btn.unitID
+      local compoundCC = btn.SpecClassPriority and btn.SpecClassPriority:IsCompoundLiveCCUnit(uid)
       if
         uid
         and not (btn.PlayerDetails and btn.PlayerDetails.isFakePlayer)
@@ -2225,6 +2226,15 @@ function BattleGroundEnemies:ScanTargets()
       then
         btn:UNIT_HEALTH(uid)
         btn:UNIT_POWER_FREQUENT(uid)
+        if compoundCC then
+          -- A compound token string can stay the same while its endpoint
+          -- changes. Refresh once after every target source has settled.
+          btn.SpecClassPriority:SyncLiveCCUnit(uid, true)
+        end
+      elseif compoundCC then
+        -- Roster shrink can strand an old raidNtarget/raidpetNtarget outside
+        -- the loops above. Clear a binding whose elected token no longer exists.
+        btn.SpecClassPriority:SetLiveCCUnit(nil)
       end
     end
   end
@@ -2941,7 +2951,14 @@ function BattleGroundEnemies:PlayerDead()
   for _, mf in ipairs(mainframes) do
     if mf and mf.PlayerList then
       for i = 1, #mf.PlayerList do
-        mf.PlayerList[i]:UpdateRange(false, true)
+        local playerButton = mf.PlayerList[i]
+        playerButton:UpdateRange(false, true)
+        local unitID = playerButton.unitID
+        if playerButton.SpecClassPriority and playerButton.SpecClassPriority:IsCompoundLiveCCUnit(unitID) then
+          -- ScanTargets pauses while the viewer is dead, so these compound
+          -- endpoints cannot be revalidated until scanning resumes.
+          playerButton.SpecClassPriority:SetLiveCCUnit(nil)
+        end
       end
     end
   end
@@ -3441,6 +3458,33 @@ end
 function BattleGroundEnemies:PVP_MATCH_STATE_CHANGED()
   local state = C_PvP.GetActiveMatchState()
 
+  local function setLiveCCForAllRows(enabled)
+    local mainframes = { self.Enemies, self.Allies }
+    for i = 1, #mainframes do
+      local mainframe = mainframes[i]
+      if mainframe and mainframe.PlayerList then
+        for j = 1, #mainframe.PlayerList do
+          local playerButton = mainframe.PlayerList[j]
+          local module = playerButton.SpecClassPriority
+          if module then
+            if not enabled then
+              module:SetLiveCCUnit(nil)
+            else
+              local unitID = playerButton.unitID
+              local playerName = unitID and self:GetCanonicalUnitName(unitID)
+              local exactButton = playerName and mainframe.Players and mainframe.Players[playerName]
+              if exactButton == playerButton then
+                module:SyncLiveCCUnit(unitID, true)
+              else
+                module:SetLiveCCUnit(nil)
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+
   if state == Enum.PvPMatchState.Complete or state == Enum.PvPMatchState.Inactive then
     -- Clear cached trinket spells so stale data doesn't bleed into the next match.
     self._ccSpellCache = nil
@@ -3458,6 +3502,10 @@ function BattleGroundEnemies:PVP_MATCH_STATE_CHANGED()
 
   if state == Enum.PvPMatchState.Engaged then
     self.betweenRounds = false
+    -- Resume only rows whose current unit token still resolves to this exact
+    -- player. Arena slot changes reconcile asynchronously after this event;
+    -- mismatched rows stay unbound until that structural pass completes.
+    setLiveCCForAllRows(true)
     -- UNIT_NAME_UPDATE is not documented to fire when the PvP name exception
     -- becomes available. Reconcile arenaN slots explicitly at gates-open so
     -- startup placeholders become exact Name-Realm rows immediately.
@@ -3492,6 +3540,7 @@ function BattleGroundEnemies:PVP_MATCH_STATE_CHANGED()
 
       self:ResetAllDeadStates()
       self.betweenRounds = true
+      setLiveCCForAllRows(false)
     else
       -- Match Complete (NOT PostRound — solo shuffle continues between
       -- rounds). Harvest above has already run, so all post-match data

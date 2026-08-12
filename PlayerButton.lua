@@ -562,7 +562,7 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     self.Trinket:StartFakeCooldown(duration)
   end
 
-  function playerButton:UpdateUnitID(unitID, targetUnitID, skipSnapshot)
+  function playerButton:UpdateUnitID(unitID, targetUnitID, skipSnapshot, residualElection)
     -- For allies: always set unitID even if unit doesn't exist yet (party/raid units may be loading)
     -- For enemies: only proceed if unit exists (requires active target/nameplate/arena token)
     if self.PlayerIsEnemy and not UnitExists(unitID) then
@@ -582,7 +582,7 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
         -- another event that may never arrive. skipSnapshot still protects the
         -- health/power read below, independently of secure CC identity.
         self.SpecClassPriority:SyncLiveCCUnit(unitID, true)
-      elseif isCompoundEnemyToken and previousUnitID ~= unitID then
+      elseif isCompoundEnemyToken and (previousUnitID ~= unitID or residualElection) then
         self.SpecClassPriority:SetLiveCCUnit(nil)
       end
     end
@@ -792,7 +792,8 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       -- map entry — proven wrong-bar writer in the jitter log (e.g. Seleen's
       -- bar taking another player's HP the moment a targeter dropped off).
       local skipSnapshot = value ~= unitID or residualReassign == true
-      self:UpdateUnitID(unitID, unitID .. "target", skipSnapshot)
+      local residualElection = residualReassign == true and value == unitID
+      self:UpdateUnitID(unitID, unitID .. "target", skipSnapshot, residualElection)
     elseif unitIDs.Ally then
       unitIDs.HasAllyUnitID = true
       -- Direct ally token map.
