@@ -1414,7 +1414,11 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
 
       RequestCrowdControlSpell(unitID)
     end
-    self:DispatchEvent("ArenaOpponentShown")
+    -- Allies keep their stable party/raid secure token, so
+    -- UpdateEnemyUnitID intentionally does not mirror arenaN onto them. Pass
+    -- the carrier slot through the module event as well so objective display
+    -- can still resolve its slot/icon without changing ally click behavior.
+    self:DispatchEvent("ArenaOpponentShown", unitID)
   end
 
   -- Shows/Hides targeting indicators for a button
