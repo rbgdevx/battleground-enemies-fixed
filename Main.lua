@@ -154,6 +154,43 @@ function BattleGroundEnemies:CanonicalName(name)
   return name .. "-" .. realm
 end
 
+-- Exact player identity for live unit tokens in 12.1 PvP. UnitName uses the
+-- SecretWhenUnitNameIdentityRestricted predicate, which exempts player units
+-- in PvP; UnitFullName, UnitNameUnmodified, and UnitGUID still use the stricter
+-- identity predicate and must not be used as substitutes here.
+--
+-- Return nil unless both UnitName results are ordinary strings. This keeps
+-- startup/unavailable/non-player tokens out of table lookups without ever
+-- comparing or concatenating a secret value. The result always uses the same
+-- canonical Name-Realm form as Players[] and PlayerHistory.
+function BattleGroundEnemies:GetCanonicalUnitName(unitID)
+  if type(unitID) ~= "string" then
+    return nil
+  end
+  if not UnitExists(unitID) then
+    return nil
+  end
+
+  -- Compound tokens can return nil from UnitIsPlayer even when UnitName can
+  -- resolve their player endpoint, so reject only an explicit non-player.
+  if UnitIsPlayer(unitID) == false then
+    return nil
+  end
+
+  local name, server = UnitName(unitID)
+  if issecretvalue and (issecretvalue(name) or issecretvalue(server)) then
+    return nil
+  end
+  if type(name) ~= "string" or name == "" then
+    return nil
+  end
+
+  if type(server) == "string" and server ~= "" then
+    return self:CanonicalName(name .. "-" .. server)
+  end
+  return self:CanonicalName(name)
+end
+
 -- Track scoreboard faction filter so we can re-assert after the user (or
 -- Blizzard's own PVPMatch UI) clicks a faction tab. factionEnum -1 = both
 -- teams, 0 = Horde, 1 = Alliance. BGEF needs -1 to see both teams' rows.
@@ -2181,20 +2218,15 @@ do
       end
     end
 
-    -- GUID fast-path removed: GUIDs are effectively always secret in
-    -- 12.0.5 PvP. UnitGUID returns a secret value that's unusable as a
-    -- table key, and the PlayerGUIDs table can never be populated with
-    -- a real key (CreateOrUpdatePlayerDetails stopped doing that).
-    -- Fall straight through to name-based lookup.
-
-    local okName, unitName = pcall(GetUnitName, unitID, true)
-    if okName and unitName and not (issecretvalue and issecretvalue(unitName)) then
-      -- Canonicalize: GetUnitName returns "Name" for same-realm units,
-      -- but Players[] stores under "Name-Realm" form (CanonicalName at
-      -- storage). Without this, same-realm enemies fall through this
-      -- name tier and end up matched via the lower PID/fallback tiers,
-      -- which can attribute the token to a wrong same-class twin.
-      local nameButton = self[playerType].Players[BattleGroundEnemies:CanonicalName(unitName)]
+    -- Name lookup uses the raw 12.1 UnitName contract through one canonical,
+    -- secret-safe helper. This branch deliberately keeps every older fallback
+    -- intact; the exact-only cutover is isolated in the next stacked branch.
+    local unitName = self:GetCanonicalUnitName(unitID)
+    if unitName then
+      -- 12.1 makes UnitName readable for player units in PvP. Both this key
+      -- and Players[] use CanonicalName, so same-realm and cross-realm players
+      -- resolve through one exact lookup.
+      local nameButton = self[playerType].Players[unitName]
       if nameButton then
         recordCycleMatch(nameButton, unitID, ignoreExistingArena)
         captureLiveAttrs(nameButton, unitID)
