@@ -4,7 +4,6 @@ local Data = select(2, ...)
 local BattleGroundEnemies = BattleGroundEnemies
 local L = Data.L
 local CreateFrame = CreateFrame
-local GameTooltip = GameTooltip
 local GetSpellTexture = C_Spell and C_Spell.GetSpellTexture or GetSpellTexture
 local GetClassAtlas = GetClassAtlas
 
@@ -110,42 +109,6 @@ local function attachToPlayerButton(playerButton)
   end
   -- Real CC is rendered by the secure AuraContainer below. This ordinary
   -- cooldown remains for fake test-mode CC and interrupts.
-
-  frame:HookScript("OnLeave", function(self)
-    if GameTooltip:IsOwned(self) then
-      GameTooltip:Hide()
-    end
-  end)
-
-  frame:HookScript("OnEnter", function(self)
-    BattleGroundEnemies:ShowTooltip(self, function()
-      if frame.DisplayedAura and frame.DisplayedAura.spellId then
-        GameTooltip:SetSpellByID(frame.DisplayedAura.spellId)
-      elseif not frame.DisplayedAura then
-        local playerDetails = playerButton.PlayerDetails
-        if not playerDetails.PlayerClass then
-          return
-        end
-        local numClasses = GetNumClasses()
-        local localizedClass
-        for i = 1, numClasses do -- we could also just save the localized class name it into the button itself, but since its only used for this tooltip no need for that
-          local className, classFile, _ = GetClassInfo(i)
-          if classFile and classFile == playerDetails.PlayerClass then
-            localizedClass = className
-          end
-        end
-        if not localizedClass then
-          return
-        end
-
-        if playerDetails.PlayerSpecName then
-          GameTooltip:SetText(localizedClass .. " " .. playerDetails.PlayerSpecName)
-        else
-          return GameTooltip:SetText(localizedClass)
-        end
-      end
-    end)
-  end)
 
   frame:SetScript("OnSizeChanged", function(self, width, height)
     self:CropImage()

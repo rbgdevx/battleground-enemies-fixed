@@ -672,14 +672,6 @@ BattleGroundEnemies:SetScript("OnEvent", function(self, event, ...)
   end
 end)
 
-function BattleGroundEnemies:ShowTooltip(owner, func)
-  if self.db.profile.ShowTooltips then
-    GameTooltip:SetOwner(owner, "ANCHOR_RIGHT", 0, 0)
-    func()
-    GameTooltip:Show()
-  end
-end
-
 function BattleGroundEnemies:GetColoredName(playerButton)
   if not playerButton.PlayerDetails then
     return

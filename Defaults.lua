@@ -449,7 +449,6 @@ Data.defaultSettings = {
     MyTarget_BorderSize = 2,
     MyFocus_Color = { 0, 0.988235294117647, 0.729411764705882, 1 },
     MyFocus_BorderSize = 2,
-    ShowTooltips = false,
     EnableMouseWheelPlayerTargeting = false,
     ConvertCyrillic = true,
 

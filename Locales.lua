@@ -62,7 +62,6 @@ L["Auras_Enabled_Desc"] =
 L["Auras_Filtering_Mode"] = "Filtering mode"
 L["Auras_Filtering_Mode_Desc"] = [=[Here you can choose which filter should be applied to the auras.
 You can choose between a blizzlike filter which applys the same filter als Blizzard uses on the raid frame and custom filtering conditions]=]
-L["Auras_ShowTooltips"] = "Show spell tooltips"
 L["AurasCustomConditions"] = "Custom conditions"
 L["AurasFiltering_AddSpellID"] = "SpellID"
 L["AurasFiltering_AddSpellID_Desc"] =
@@ -438,8 +437,6 @@ L["ShowRealmnames"] = "Show Realmnames"
 L["ShowRealmnames_Desc"] = "Shows the enemy's realm"
 L["ShowSpecIfExists"] = "Show spec if exists"
 L["ShowSpecIfExists_Desc"] = "When this option is enabled it will show the spec icon instead of the class icon"
-L["ShowTooltips"] = "Show tooltips"
-L["ShowTooltips_Desc"] = "Show tooltips when you move the mouse over objects like trinket and aura icons"
 L["Side"] = "Side"
 L["SideAtObject"] = "Side at object"
 L["Size"] = "Size"
@@ -559,7 +556,6 @@ Wenn du "Alle" auswählst, wird die Aura nur angezeigt sobald alle ausgewählten
   L["Auras_Filtering_Mode"] = "Filtermodus"
   L["Auras_Filtering_Mode_Desc"] = [=[Hier kannst du auswählen welcher Filter auf die Auren angewandt wird.
 Du kannst zwischen einem Blizzard-Filter (der Filter der für die Schlachtzugsfenster verwendet wird) und benutzerdefinierten Bedingungen wählen.]=]
-  L["Auras_ShowTooltips"] = "Zaubertooltips anzeigen"
   L["AurasCustomConditions"] = "Benutzerdefinierte Bedingungen"
   L["AurasFiltering_AddSpellID"] = "Zauber-ID"
   L["AurasFiltering_AddSpellID_Desc"] =
@@ -943,9 +939,6 @@ Diese Einstellung ist aufgrund Einschränkungen seitens Blizzards nicht im Kampf
   L["ShowSpecIfExists"] = "Spezialisierung anzeigen falls vorhanden"
   L["ShowSpecIfExists_Desc"] =
     "Wenn diese Option aktiviert ist, wird das Spezialisierungssymol anstatt des Klassensymbols angezeigt"
-  L["ShowTooltips"] = "Tooltips anzeigen"
-  L["ShowTooltips_Desc"] =
-    "Zeigt Hinweistexte an, wenn du deine Maus über Objekte wie Schmuckstück- oder Aurensymbole bewegst."
   L["Side"] = "Seite"
   L["SideAtObject"] = "Seite des Objekts"
   L["Size"] = "Größe"
@@ -1062,7 +1055,6 @@ elseif LOCALE_esES or LOCALE_esMX then
   L["Auras_Filtering_Mode"] = "Modo de filtrado"
   L["Auras_Filtering_Mode_Desc"] =
     "Aquí puedes elegir qué filtro se aplica a las auras. Puedes elegir entre el filtro Ventisca, el cual aplica el mismo filtro que Blizzard usa en el marco de banda, y las condiciones de filtrado personalizadas"
-  L["Auras_ShowTooltips"] = "Mostrar información de los hechizos"
   L["AurasCustomConditions"] = "Condiciones personalizadas"
   L["AurasFiltering_AddSpellID"] = "ID del Hechizo"
   L["AurasFiltering_AddSpellID_Desc"] =
@@ -1423,8 +1415,6 @@ elseif LOCALE_esES or LOCALE_esMX then
   L["ShowRealmnames_Desc"] = "Muestra el Reino del enemigo"
   L["ShowSpecIfExists"] = "Mostrar especialidad si está disponible"
   L["ShowSpecIfExists_Desc"] = "Al activarse, mostrará el icono de especialidad en lugar del de clase"
-  L["ShowTooltips"] = "Mostrar Consejos"
-  L["ShowTooltips_Desc"] = "Muestre consejos cuando mueva el mouse sobre objetos como iconos de abalorio y auras"
   L["Side"] = "Lado"
   L["SideAtObject"] = "Lado en el objeto"
   L["Size"] = "Tamaño"
@@ -1542,7 +1532,6 @@ Si vous choisissez "Toutes" l'aura apparaîtra seulement si elle remplit toutes 
   L["Auras_Filtering_Mode"] = "Mode de filtrage"
   L["Auras_Filtering_Mode_Desc"] =
     "Ici, vous pouvez choisir le filtre qui sera appliqué à vos auras. Vous pouvez choisir entre un filtre Blizzlike appliquant le même filtre que celui que Blizzard utilise sur les fenêtres de raid, et des conditions de filtrage personnalisées"
-  L["Auras_ShowTooltips"] = "Afficher les tooltips de sorts"
   L["AurasCustomConditions"] = "Conditions personnalisées"
   L["AurasFiltering_AddSpellID"] = "ID de sort"
   L["AurasFiltering_AddSpellID_Desc"] =
@@ -1903,9 +1892,6 @@ Si vous choisissez "Toutes" l'aura apparaîtra seulement si elle remplit toutes 
   L["ShowSpecIfExists"] = "Afficher la spécification si elle existe"
   L["ShowSpecIfExists_Desc"] =
     "Lorsque cette option est activée, l'icône de la spécialisation est affichée à la place de l'icône de la classe."
-  L["ShowTooltips"] = "Afficher les tooltips"
-  L["ShowTooltips_Desc"] =
-    "Affiche les informations quand vous passez la souris au dessus des objets tels que les bijoux ou les icones d'améliorations/affaiblissements"
   L["Side"] = "Le Côté "
   L["SideAtObject"] = "Coté de l'objet"
   L["Size"] = "Taille"
@@ -2021,7 +2007,6 @@ elseif LOCALE_itIT then
   L["Auras_Filtering_Mode"] = "Modalità di filtraggio"
   L["Auras_Filtering_Mode_Desc"] =
     "Qui puoi scegliere quale filtro applicare alle aure. Puoi scegliere tra un filtro blizzlike che applica lo stesso filtro utilizzato da Blizzard sul frame del raid e condizioni di filtraggio personalizzate"
-  L["Auras_ShowTooltips"] = "Mostra i suggerimenti degli incantesimi"
   L["AurasCustomConditions"] = "Condizioni Personalizzate"
   L["AurasFiltering_AddSpellID"] = "ID Incantesimo"
   L["AurasFiltering_AddSpellID_Desc"] =
@@ -2326,9 +2311,6 @@ elseif LOCALE_itIT then
     "Mostra numeri di recupero, tieni presente che questa opzione potrebbe non funzionare quando utilizzi componenti aggiuntivi come OmniCC"
   L["ShowRealmnames"] = "Mostra nomi dei reami"
   L["ShowRealmnames_Desc"] = "Mostra il reame del nemico"
-  L["ShowTooltips"] = "Mostra suggerimenti"
-  L["ShowTooltips_Desc"] =
-    "Mostra i suggerimenti quando sposti il mouse su oggetti come le icone dei monili e dell'aura"
   L["Side"] = "Lato"
   L["SideAtObject"] = "Lato all'oggetto"
   L["Size"] = "Dimensione"
@@ -2437,7 +2419,6 @@ elseif LOCALE_koKR then
   L["Auras_Filtering_Mode"] = "필터링 모드"
   L["Auras_Filtering_Mode_Desc"] =
     "여기서 오라에 적용할 필터를 선택할 수 있습니다. 블리자드가 공격대 프레임에 사용하는 것과 동일한 필터를 적용하는 블리자드 필터와 사용자 지정 필터링 조건 중에서 선택할 수 있습니다."
-  L["Auras_ShowTooltips"] = "주문 툴팁 표시"
   L["AurasCustomConditions"] = "사용자 정의 조건"
   L["AurasFiltering_AddSpellID"] = "주문ID"
   L["AurasFiltering_AddSpellID_Desc"] =
@@ -2815,9 +2796,6 @@ elseif LOCALE_koKR then
   L["ShowSpecIfExists"] = "존재하는 경우 전문화 표시"
   L["ShowSpecIfExists_Desc"] =
     "이 옵션을 활성화하면 클래스 아이콘 대신 전문화 아이콘이 표시됩니다."
-  L["ShowTooltips"] = "툴팁 표시"
-  L["ShowTooltips_Desc"] =
-    "장신구 및 오라 아이콘과 같은 객체 위로 마우스를 이동하면 툴팁이 표시됩니다."
   L["Side"] = "가장자리"
   L["SideAtObject"] = "개체의 가장자리"
   L["Size"] = "크기"
@@ -2929,7 +2907,6 @@ elseif LOCALE_ptBR or LOCALE_ptPT then
   L["Auras_Filtering_Mode"] = "Modo de filtragem"
   L["Auras_Filtering_Mode_Desc"] =
     "Aqui você pode escolher qual filtro deve ser aplicado às auras. Você pode escolher entre um filtro semelhante a uma nevasca que aplica o mesmo filtro que a Blizzard usa no frame do raid e condições de filtragem personalizadas"
-  L["Auras_ShowTooltips"] = "Mostrar dicas das magias"
   L["AurasCustomConditions"] = "Condições customizadas"
   L["AurasFiltering_AddSpellID"] = "IDmagico"
   L["AurasFiltering_AddSpellID_Desc"] =
@@ -3249,9 +3226,6 @@ Borda Vermelha: Próximo CC NÂO vai ser aplicado por que o jogador esta imune.]
     "Mostra os números do tempo de recarga, note que esta opção pode não funcionar se você estiver usando addons como o OmniCC"
   L["ShowRealmnames"] = "Mostrar nomes verdadeiros"
   L["ShowRealmnames_Desc"] = "Mostra o reino do inimigo"
-  L["ShowTooltips"] = "Mostrar dicas"
-  L["ShowTooltips_Desc"] =
-    "Mostra dicas quando você move o mouse por cima de objetos como berloques e ícones de auras"
   L["Side"] = "lado"
   L["SideAtObject"] = "ao lado do objeto"
   L["Size"] = "Tamanho"
@@ -3358,7 +3332,6 @@ elseif LOCALE_ruRU then
   L["Auras_Filtering_Mode"] = "Режим фильтрации"
   L["Auras_Filtering_Mode_Desc"] =
     "Здесь вы можете выбрать, какой фильтр применять к аурам. Вы можете выбрать между фильтром, подобным blizzlike, который применяет тот же фильтр, что и Blizzard, применяемый к рамке рейда, и пользовательскими условиями фильтрации."
-  L["Auras_ShowTooltips"] = "Показать подсказки заклинаний"
   L["AurasCustomConditions"] = "Пользовательские условия"
   L["AurasFiltering_AddSpellID"] = "ID Зaклинания"
   L["AurasFiltering_AddSpellID_Desc"] =
@@ -3738,9 +3711,6 @@ elseif LOCALE_ruRU then
     "Показывать кулдаун, эта функция может не работать, если вы используете такие аддоны как OmniCC"
   L["ShowRealmnames"] = "Отображать имена игровых миров"
   L["ShowRealmnames_Desc"] = "Отображает имя игрового мира врагов"
-  L["ShowTooltips"] = "Показать подсказки"
-  L["ShowTooltips_Desc"] =
-    "Показывать подсказки, когда указатель мыши наводится на иконки типа ауры или медальона"
   L["Side"] = "Сторона "
   L["SideAtObject"] = "Сторона объекта"
   L["Size"] = "Размер"
@@ -3854,7 +3824,6 @@ elseif LOCALE_zhCN then
   L["Auras_Filtering_Mode"] = "过滤模式"
   L["Auras_Filtering_Mode_Desc"] =
     "您可以在此处选择应用于光环的过滤器。您可以在 blizzlike 过滤器和自定义过滤条件之间进行选择，blizzlike 过滤器与暴雪在团队框架上使用相同的过滤器"
-  L["Auras_ShowTooltips"] = "鼠标悬停显示法术信息"
   L["AurasCustomConditions"] = "自定义条件"
   L["AurasFiltering_AddSpellID"] = "法术ID"
   L["AurasFiltering_AddSpellID_Desc"] =
@@ -4205,8 +4174,6 @@ elseif LOCALE_zhCN then
   L["ShowRealmnames_Desc"] = "显示敌方的服务器名"
   L["ShowSpecIfExists"] = "如果存在时，显示专精"
   L["ShowSpecIfExists_Desc"] = "当启用该选项时，将会用专精图标替代职业图标"
-  L["ShowTooltips"] = "显示鼠标提示"
-  L["ShowTooltips_Desc"] = "当您将鼠标移动到饰品和光环图标等目标时显示鼠标提示"
   L["Side"] = "方向"
   L["SideAtObject"] = "目标方向"
   L["Size"] = "大小"
@@ -4317,7 +4284,6 @@ elseif LOCALE_zhTW then
   L["Auras_Filtering_Mode"] = "過濾模式"
   L["Auras_Filtering_Mode_Desc"] =
     "在這裡可以選擇，哪種過濾方式要套用到光環。選擇暴雪過濾方式時，會和遊戲內建框架顯示相同的光環，或是選擇自訂過濾條件。"
-  L["Auras_ShowTooltips"] = "顯示法術的滑鼠提示"
   L["AurasCustomConditions"] = "自訂條件"
   L["AurasFiltering_AddSpellID"] = "法術 ID"
   L["AurasFiltering_AddSpellID_Desc"] =
@@ -4663,8 +4629,6 @@ elseif LOCALE_zhTW then
   L["ShowRealmnames_Desc"] = "顯示敵方的伺服器名稱。"
   L["ShowSpecIfExists"] = "顯示專精 (如果有的話)"
   L["ShowSpecIfExists_Desc"] = "啟用時，會顯示專精圖示而不是職業圖示"
-  L["ShowTooltips"] = "顯示滑鼠提示"
-  L["ShowTooltips_Desc"] = "滑鼠指向飾品或光環圖示等物件時顯示滑鼠提示。"
   L["Side"] = "方向"
   L["SideAtObject"] = "物件的方向"
   L["Size"] = "大小"
