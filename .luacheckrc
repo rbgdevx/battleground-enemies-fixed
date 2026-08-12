@@ -53,7 +53,7 @@ read_globals = {
   "COMPACT_UNIT_FRAME_PROFILE_HEALTHTEXT_PERC", "CUSTOM_CLASS_COLORS", "C_AddOns",
   "C_CVar", "C_CreatureInfo", "C_EventUtils", "C_Item", "C_LossOfControl", "C_Map", "C_MountJournal",
   "C_PetJournal", "C_PvP", "C_SpecializationInfo", "C_Spell", "C_SpellBook", "C_SpellDiminish",
-  "C_Timer", "C_UIWidgetManager", "C_UnitAuras", "CalculateDistanceSq", "ChatEdit_InsertLink", "ChatFontNormal",
+  "C_Timer", "C_UIWidgetManager", "CalculateDistanceSq", "ChatEdit_InsertLink", "ChatFontNormal",
   "ChatFrameUtil", "CheckInteractDistance", "ClearCursor", "CloseSpecialWindows",
   "CompactArenaFrame", "CompactUnitFrame_UpdateHealPrediction", "CopyTable", "CreateFont",
   "CreateFrame", "CreateFromMixins", "CreateIndexRangeDataProvider", "CreateObjectPool",
