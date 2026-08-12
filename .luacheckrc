@@ -95,7 +95,7 @@ read_globals = {
   "SecureHandlerWrapScript", "SelectionFrameCancelButton_OnClick",
   "SelectionFrameOkayButton_OnClick", "SetBattlefieldScoreFaction", "SetCVar",
   "SetDesaturation", "SetRaidTargetIconTexture", "Settings", "StanceBar", "TARGET", "UIParent",
-  "UNKNOWN", "UnitAffectingCombat", "UnitCanAssist", "UnitCanAttack", "UnitClass",
+  "UNKNOWN", "UNKNOWNOBJECT", "UnitAffectingCombat", "UnitCanAssist", "UnitCanAttack", "UnitClass",
   "UnitClassBase", "UnitExists", "UnitFactionGroup", "UnitGUID",
   "UnitGetDetailedHealPrediction", "UnitGroupRolesAssigned", "UnitHealth", "UnitHealthMax",
   "UnitHealthMissing", "UnitHealthPercent", "UnitHonorLevel", "UnitInRange",

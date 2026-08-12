@@ -181,6 +181,11 @@ function BattleGroundEnemies:GetCanonicalUnitName(unitID)
   if type(name) ~= "string" or name == "" then
     return nil
   end
+  -- Blizzard's own raid UI treats this UnitName placeholder as unresolved,
+  -- not as player identity.
+  if name == UNKNOWNOBJECT then
+    return nil
+  end
 
   if type(server) == "string" and server ~= "" then
     return self:CanonicalName(name .. "-" .. server)
