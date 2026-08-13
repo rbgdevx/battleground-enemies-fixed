@@ -1115,19 +1115,10 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
         for i = 1, 3 do
           local bindingType = self.config[mouseButtons[i] .. "Type"]
 
-          -- PlayerName is canonical "Name-Realm" post-refactor (Main.lua
-          -- CanonicalName). For /targetexact and macro substitution we
-          -- want the form WoW's targeting natively expects: "Name" for
-          -- same-realm, "Name-Realm" for cross-realm. Ambiguate context
-          -- "none" produces exactly that. Falls back to canonical form
-          -- if Ambiguate is unavailable (older clients).
+          -- Keep the canonical "Name-Realm" identity for /targetexact and
+          -- custom macro substitution. Shortening same-realm players to Name
+          -- makes an identically named pet an equally exact target.
           local targetName = self.PlayerDetails.PlayerName
-          if Ambiguate then
-            local ok, ambig = pcall(Ambiguate, targetName, "none")
-            if ok and type(ambig) == "string" then
-              targetName = ambig
-            end
-          end
           if bindingType == "Target" then
             newAttributes["macrotext" .. i] = "/cleartarget\n" .. "/targetexact " .. targetName
           elseif bindingType == "Focus" then
