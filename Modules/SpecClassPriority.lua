@@ -148,12 +148,9 @@ local function attachToPlayerButton(playerButton)
           BattleGroundEnemies.CropImage(icon, width, height)
         end
         auraButton:SetIcon(icon)
-        self.LiveCCIcon = icon
 
-        -- Blizzard restricts the AuraButton itself after this initializer.
-        -- SetIcon and SetDurationCooldown give these registered children only
-        -- their documented secret/forbidden aspects. Retain just those two
-        -- children for nonsecret style writes; never retain the AuraButton.
+        -- This cooldown belongs exclusively to the restricted aura button.
+        -- Do not add it to AllCooldowns or touch it after this initializer.
         local cooldown = CreateFrame("Cooldown", nil, auraButton)
         cooldown:SetAllPoints()
         cooldown:SetSwipeTexture("Interface/Buttons/WHITE8X8")
@@ -163,7 +160,6 @@ local function attachToPlayerButton(playerButton)
         BattleGroundEnemies.AttachCooldownSettings(cooldown)
         cooldown:ApplyCooldownSettings(cooldownSettings, true, { 0, 0, 0, 0.5 })
         auraButton:SetDurationCooldown(cooldown)
-        self.LiveCCCooldown = cooldown
       end,
     })
 
@@ -359,15 +355,6 @@ local function attachToPlayerButton(playerButton)
         BattleGroundEnemies.CropImage(self.SpecClassIcon, width, height)
       end
       BattleGroundEnemies.CropImage(self.PriorityIcon, width, height)
-      if self.LiveCCIcon then
-        BattleGroundEnemies.CropImage(self.LiveCCIcon, width, height)
-      end
-    end
-  end
-
-  frame.ApplyLiveCCStyle = function(self)
-    if self.LiveCCCooldown and self.config then
-      self.LiveCCCooldown:ApplyCooldownSettings(self.config.Cooldown, true, { 0, 0, 0, 0.5 })
     end
   end
 
@@ -407,7 +394,6 @@ local function attachToPlayerButton(playerButton)
       self:ResetPriorityData()
     end
     self:EnsureLiveCCContainer()
-    self:ApplyLiveCCStyle()
     if self:IsCompoundLiveCCUnit(playerButton.unitID) then
       self:SetLiveCCUnit(nil)
     else
