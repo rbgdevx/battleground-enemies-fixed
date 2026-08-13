@@ -4,76 +4,8 @@ local Data = select(2, ...)
 local BattleGroundEnemies = BattleGroundEnemies
 local L = Data.L
 local CreateFrame = CreateFrame
-local GameTooltip = GameTooltip
 local GetSpellTexture = C_Spell and C_Spell.GetSpellTexture or GetSpellTexture
 local GetClassAtlas = GetClassAtlas
-
--- Early-out filter for UNIT_AURA: checks whether the aura update contains
--- any crowd-control-related changes worth rebuilding for. Skips irrelevant
--- aura churn (food buffs, procs, HoTs, etc.) to avoid unnecessary work.
--- Returns true to proceed with UpdateLossOfControl, false to skip.
-local function IsInterestedInUpdate(unitID, updateInfo, existingPriorityAuras)
-  if not updateInfo or updateInfo.isFullUpdate then
-    return true
-  end
-
-  -- Added auras: pass the CC filter?
-  -- IsAuraFilteredOutByInstanceID may return secret booleans, so pcall it.
-  -- On any failure, assume we're interested (safe fallback).
-  if updateInfo.addedAuras then
-    for _, aura in pairs(updateInfo.addedAuras) do
-      local id = aura.auraInstanceID
-      if id then
-        if not C_UnitAuras.IsAuraFilteredOutByInstanceID then
-          return true
-        end
-        local ok, filtered = pcall(C_UnitAuras.IsAuraFilteredOutByInstanceID, unitID, id, "HARMFUL|CROWD_CONTROL")
-        if not ok or not filtered then
-          return true
-        end
-      end
-    end
-  end
-
-  -- Updated auras: pass the CC filter?
-  if updateInfo.updatedAuraInstanceIDs then
-    for _, id in pairs(updateInfo.updatedAuraInstanceIDs) do
-      if id then
-        if not C_UnitAuras.IsAuraFilteredOutByInstanceID then
-          return true
-        end
-        local ok, filtered = pcall(C_UnitAuras.IsAuraFilteredOutByInstanceID, unitID, id, "HARMFUL|CROWD_CONTROL")
-        if not ok or not filtered then
-          return true
-        end
-      end
-    end
-  end
-
-  -- Removed auras: was any of them a CC we were tracking?
-  -- We CANNOT match by ID here: auraInstanceID is SecretWhenUnitAuraRestricted,
-  -- so for enemies in instanced PvP both `entry.auraInstanceID` (stored from a
-  -- prior GetUnitAuras) and `id` (from the UNIT_AURA payload) can be secret
-  -- values. The old `entry.auraInstanceID == id` compared secret == secret with
-  -- no guard, which TAINTS execution — and because UNIT_AURA + CC churn fire
-  -- constantly, that taint re-emitted thousands of times per match, accumulated
-  -- across a no-reload session, and eventually detonated the score-parse path.
-  -- The filter API can't help either (removed auras are already gone).
-  --
-  -- We don't actually need the exact match: this branch only decides whether to
-  -- rebuild the CC display. So if we're tracking any CC and ANYTHING was removed,
-  -- conservatively rebuild. The rebuild re-scans live auras via GetUnitAuras and
-  -- is idempotent — identical display result, just an occasional extra rescan
-  -- (when a non-CC aura drops off a unit we're tracking CC on). No UX change, and
-  -- the secret comparison is gone entirely.
-  if updateInfo.removedAuraInstanceIDs and next(updateInfo.removedAuraInstanceIDs) ~= nil then
-    if #existingPriorityAuras > 0 then
-      return true
-    end
-  end
-
-  return false
-end
 
 local generalDefaults = {
   showSpecIfExists = true,
@@ -148,7 +80,6 @@ local SpecClassPriority = BattleGroundEnemies:NewButtonModule({
   options = options,
   generalOptions = generalOptions,
   events = {
-    "GotInterrupted",
     "UnitDied",
   },
   enabledInThisExpansion = true,
@@ -163,7 +94,6 @@ local function attachToPlayerButton(playerButton)
   frame.Background:SetAllPoints()
   frame.Background:SetColorTexture(0, 0, 0, 0.8)
   frame.PriorityAuras = {}
-  frame.ActiveInterrupt = false
   frame.ShowsSpec = false
   frame.SpecClassIcon = frame:CreateTexture(nil, "BORDER", nil, 2)
   frame.SpecClassIcon:SetAllPoints()
@@ -175,52 +105,165 @@ local function attachToPlayerButton(playerButton)
   if frame.Cooldown.SetUseAuraDisplayTime then
     frame.Cooldown:SetUseAuraDisplayTime(true)
   end
-  -- No OnCooldownDone handler — matches MiniCC's approach. CC cleanup is
-  -- driven by UNIT_AURA events (which fire when the aura is removed) and
-  -- the polling ticker as a safety net. OnCooldownDone can fire prematurely
-  -- with DurationObjects and race with SetCooldownFromDurationObject.
-
-  frame:HookScript("OnLeave", function(self)
-    if GameTooltip:IsOwned(self) then
-      GameTooltip:Hide()
-    end
-  end)
-
-  frame:HookScript("OnEnter", function(self)
-    BattleGroundEnemies:ShowTooltip(self, function()
-      if frame.DisplayedAura and frame.DisplayedAura.spellId then
-        GameTooltip:SetSpellByID(frame.DisplayedAura.spellId)
-      elseif not frame.DisplayedAura then
-        local playerDetails = playerButton.PlayerDetails
-        if not playerDetails.PlayerClass then
-          return
-        end
-        local numClasses = GetNumClasses()
-        local localizedClass
-        for i = 1, numClasses do -- we could also just save the localized class name it into the button itself, but since its only used for this tooltip no need for that
-          local className, classFile, _ = GetClassInfo(i)
-          if classFile and classFile == playerDetails.PlayerClass then
-            localizedClass = className
-          end
-        end
-        if not localizedClass then
-          return
-        end
-
-        if playerDetails.PlayerSpecName then
-          GameTooltip:SetText(localizedClass .. " " .. playerDetails.PlayerSpecName)
-        else
-          return GameTooltip:SetText(localizedClass)
-        end
-      end
-    end)
-  end)
+  -- Real CC is rendered by the secure AuraContainer below. This ordinary
+  -- cooldown remains for fake test-mode CC.
 
   frame:SetScript("OnSizeChanged", function(self, width, height)
     self:CropImage()
   end)
 
   frame:Hide()
+
+  function frame:EnsureLiveCCContainer()
+    if self.LiveCCContainer or (playerButton.PlayerDetails and playerButton.PlayerDetails.isFakePlayer) then
+      return
+    end
+    -- Blizzard_AuraContainer is a game-loaded 12.1 foundation whose public
+    -- templates are explicitly exposed for external addons. If those globals
+    -- do not exist, keep the addon loadable and omit only live CC display.
+    if not AuraContainerSortMethod or not AuraContainerSortDirection then
+      return
+    end
+
+    local container = CreateFrame("AuraContainer", nil, self, "CustomAuraContainerTemplate")
+    container:SetAllPoints()
+    container:SetEnabled(false)
+    container:SetUnit("none")
+
+    local width, height = self:GetSize()
+    local cooldownSettings = self.config.Cooldown
+    container:AddAuraSlot("CC", "HARMFUL|CROWD_CONTROL", {
+      sortMethod = AuraContainerSortMethod.AuraInstanceIDOnly,
+      sortDirection = AuraContainerSortDirection.Normal,
+      initializeFrame = function(auraButton)
+        auraButton:SetAllPoints()
+        auraButton:SetMouseClickEnabled(false)
+        auraButton:SetMouseMotionEnabled(false)
+
+        local icon = auraButton:CreateTexture(nil, "ARTWORK")
+        icon:SetAllPoints()
+        if width > 0 and height > 0 then
+          BattleGroundEnemies.CropImage(icon, width, height)
+        end
+        auraButton:SetIcon(icon)
+
+        -- This cooldown belongs exclusively to the restricted aura button.
+        -- Do not add it to AllCooldowns or touch it after this initializer.
+        local cooldown = CreateFrame("Cooldown", nil, auraButton)
+        cooldown:SetAllPoints()
+        cooldown:SetSwipeTexture("Interface/Buttons/WHITE8X8")
+        if cooldown.SetUseAuraDisplayTime then
+          cooldown:SetUseAuraDisplayTime(true)
+        end
+        BattleGroundEnemies.AttachCooldownSettings(cooldown)
+        cooldown:ApplyCooldownSettings(cooldownSettings, true, { 0, 0, 0, 0.5 })
+        auraButton:SetDurationCooldown(cooldown)
+      end,
+    })
+
+    self.LiveCCContainer = container
+  end
+
+  function frame:IsCompoundLiveCCUnit(unitID)
+    return playerButton.PlayerIsEnemy
+      and type(unitID) == "string"
+      and unitID ~= "target"
+      and unitID ~= "focus"
+      and unitID ~= "mouseover"
+      and unitID ~= "softenemy"
+      and not unitID:match("^arena%d+$")
+      and not unitID:match("^nameplate%d+$")
+  end
+
+  function frame:SetLiveCCUnit(unitID, forceRefresh)
+    local container = self.LiveCCContainer
+    if not container then
+      return
+    end
+
+    local isFakePlayer = playerButton.PlayerDetails and playerButton.PlayerDetails.isFakePlayer
+    local shouldEnable = self.Enabled
+      and self.config
+      and self.config.showHighestPriority
+      and not isFakePlayer
+      and not BattleGroundEnemies.betweenRounds
+      and type(unitID) == "string"
+      and unitID ~= ""
+    local nextUnit = shouldEnable and unitID or "none"
+
+    if nextUnit == "none" then
+      self.LiveCCVerifiedUnit = nil
+    end
+
+    if self.LiveCCUnit ~= nextUnit or self.LiveCCEnabled ~= shouldEnable then
+      -- Clear the previous slot before changing tokens so a recycled row never
+      -- flashes its former player's aura while the new unit is parsed.
+      container:SetEnabled(false)
+      container:SetUnit(nextUnit)
+      self.LiveCCUnit = nextUnit
+      self.LiveCCEnabled = shouldEnable
+      if shouldEnable then
+        container:SetEnabled(true)
+      end
+    elseif shouldEnable and forceRefresh then
+      -- Unit-token text can stay constant while its arena/target occupant
+      -- changes. Force the secure container to re-read that token in place.
+      container:UpdateAllAuras()
+    end
+  end
+
+  -- Revalidate the elected token against this row's exact canonical name
+  -- before allowing the secure container to read it.
+  function frame:SyncLiveCCUnit(unitID, forceRefresh)
+    local isFakePlayer = playerButton.PlayerDetails and playerButton.PlayerDetails.isFakePlayer
+    if
+      not self.LiveCCContainer
+      or not self.Enabled
+      or not self.config
+      or not self.config.showHighestPriority
+      or isFakePlayer
+      or BattleGroundEnemies.betweenRounds
+    then
+      self:SetLiveCCUnit(nil)
+      return false
+    end
+
+    -- Compound target chains can change occupants after this exact-name check
+    -- but before Blizzard's AuraContainer reads them on its next OnUpdate.
+    -- Never bind live CC to those volatile aliases.
+    if self:IsCompoundLiveCCUnit(unitID) then
+      self:SetLiveCCUnit(nil)
+      return false
+    end
+
+    local expectedName = playerButton.PlayerDetails and playerButton.PlayerDetails.PlayerName
+    local exactName = BattleGroundEnemies:GetCanonicalUnitName(unitID)
+    local expectedNameIsUsable = type(expectedName) == "string"
+      and expectedName ~= ""
+      and not (issecretvalue and issecretvalue(expectedName))
+
+    if exactName and expectedNameIsUsable then
+      if exactName == expectedName then
+        self.LiveCCVerifiedUnit = unitID
+      else
+        self.LiveCCVerifiedUnit = nil
+      end
+    else
+      self.LiveCCVerifiedUnit = nil
+    end
+
+    if self.LiveCCVerifiedUnit == unitID then
+      self:SetLiveCCUnit(unitID, forceRefresh)
+      return true
+    end
+
+    self:SetLiveCCUnit(nil)
+    return false
+  end
+
+  function frame:Disable()
+    self:SetLiveCCUnit(nil)
+  end
 
   function frame:MakeSureWeAreOnTop()
     if true then
@@ -245,10 +288,9 @@ local function attachToPlayerButton(playerButton)
   function frame:Update()
     self:MakeSureWeAreOnTop()
     local highestPrioritySpell
-    local currentTime = GetTime()
 
-    -- PriorityAuras are rebuilt from C_UnitAuras.GetUnitAuras each time
-    -- UpdateLossOfControl runs, so any entry in the list is currently active.
+    -- PriorityAuras is retained for fake test-mode CC. Real aura state is
+    -- rendered by LiveCCContainer without being exposed to addon code.
     local priorityAuras = self.PriorityAuras
     for i = 1, #priorityAuras do
       local priorityAura = priorityAuras[i]
@@ -256,31 +298,16 @@ local function attachToPlayerButton(playerButton)
         highestPrioritySpell = priorityAura
       end
     end
-    if frame.ActiveInterrupt then
-      if frame.ActiveInterrupt.expirationTime < currentTime then
-        frame.ActiveInterrupt = false
-      else
-        if not highestPrioritySpell or (frame.ActiveInterrupt.Priority > highestPrioritySpell.Priority) then
-          highestPrioritySpell = frame.ActiveInterrupt
-        end
-      end
-    end
-
     if highestPrioritySpell then
       frame.SpecClassIcon:Hide()
       frame.DisplayedAura = highestPrioritySpell
       frame.PriorityIcon:Show()
       local iconToShow = highestPrioritySpell.icon or GetSpellTexture(118)
       frame.PriorityIcon:SetTexture(iconToShow)
-      if highestPrioritySpell.durationObject and frame.Cooldown.SetCooldownFromDurationObject then
-        frame.Cooldown:SetCooldownFromDurationObject(highestPrioritySpell.durationObject)
-      else
-        -- Fallback for interrupts which still use expirationTime/duration
-        frame.Cooldown:SetCooldown(
-          highestPrioritySpell.expirationTime - highestPrioritySpell.duration,
-          highestPrioritySpell.duration
-        )
-      end
+      frame.Cooldown:SetCooldown(
+        highestPrioritySpell.expirationTime - highestPrioritySpell.duration,
+        highestPrioritySpell.duration
+      )
     else
       frame.SpecClassIcon:Show()
       frame.DisplayedAura = false
@@ -290,115 +317,12 @@ local function attachToPlayerButton(playerButton)
   end
 
   function frame:Reset()
+    self:SetLiveCCUnit(nil)
     self:ResetPriorityData()
   end
 
   function frame:ResetPriorityData()
-    self.ActiveInterrupt = false
     wipe(self.PriorityAuras)
-    if self._locExpiryTimer then
-      self._locExpiryTimer:Cancel()
-      self._locExpiryTimer = nil
-    end
-    self:Update()
-  end
-
-  function frame:GotInterrupted(spellId, interruptDuration)
-    self.ActiveInterrupt = {
-      spellId = spellId,
-      icon = GetSpellTexture(spellId),
-      expirationTime = GetTime() + interruptDuration,
-      duration = interruptDuration,
-      Priority = BattleGroundEnemies:GetSpellPriority(spellId) or 4,
-    }
-    self:Update()
-  end
-
-  function frame:UpdateLossOfControl(unitID, updateInfo)
-    if not self.config or not self.config.showHighestPriority then
-      return
-    end
-    -- Dead units can't be CC'd — clear immediately so icons don't linger after death.
-    if UnitIsDeadOrGhost(unitID) then
-      if self._locExpiryTimer then
-        self._locExpiryTimer:Cancel()
-        self._locExpiryTimer = nil
-      end
-      wipe(self.PriorityAuras)
-      self:Update()
-      return
-    end
-
-    -- No dead-player guard — MiniCC doesn't have one either. Let C_UnitAuras
-    -- try to detect CC on living allies even when the local player is dead.
-    -- If it returns empty, PriorityAuras will simply be empty (same as before).
-
-    -- Skip full rebuild if updateInfo tells us nothing CC-related changed.
-    -- Critical in BGs: UNIT_AURA fires constantly for food buffs, procs, heals, etc.
-    if not IsInterestedInUpdate(unitID, updateInfo, self.PriorityAuras) then
-      return
-    end
-
-    wipe(self.PriorityAuras)
-
-    -- C_UnitAuras for detection (works for allies and enemies):
-    -- 1. GetAuraDuration first (skip aura if no duration object)
-    -- 2. IsSpellCrowdControl to verify, with simple issecretvalue(x) or x
-    -- NOTE: Do NOT pass sort params — SecretArguments="AllowedWhenUntainted"
-    -- means they fail silently from tainted addon code.
-    local auras = C_UnitAuras.GetUnitAuras(unitID, "HARMFUL|CROWD_CONTROL")
-    for _, aura in ipairs(auras) do
-      local durationObj = C_UnitAuras.GetAuraDuration(unitID, aura.auraInstanceID)
-      if durationObj then
-        local isCC = C_Spell.IsSpellCrowdControl(aura.spellId)
-        if issecretvalue(isCC) or isCC then
-          self.PriorityAuras[#self.PriorityAuras + 1] = {
-            icon = aura.icon,
-            Priority = 5,
-            durationObject = durationObj,
-            auraInstanceID = aura.auraInstanceID,
-          }
-        end
-      end
-    end
-
-    -- Cancel any pending expiry timer before possibly starting a new one.
-    if self._locExpiryTimer then
-      self._locExpiryTimer:Cancel()
-      self._locExpiryTimer = nil
-    end
-
-    if #self.PriorityAuras > 0 then
-      -- Poll every second as a safety net in case UNIT_AURA misses the expiry.
-      self._locExpiryTimer = C_Timer.NewTicker(1, function(ticker)
-        if UnitIsDeadOrGhost(unitID) then
-          ticker:Cancel()
-          self._locExpiryTimer = nil
-          wipe(self.PriorityAuras)
-          self:Update()
-          return
-        end
-        local checkAuras = C_UnitAuras.GetUnitAuras(unitID, "HARMFUL|CROWD_CONTROL")
-        if #checkAuras == 0 then
-          -- If the local player is a ghost, GetUnitAuras returns empty for living
-          -- units due to phase separation — use C_LossOfControl as backup check.
-          if UnitIsDeadOrGhost("player") then
-            local locCount = C_LossOfControl
-                and C_LossOfControl.GetActiveLossOfControlDataCountByUnit
-                and C_LossOfControl.GetActiveLossOfControlDataCountByUnit(unitID)
-              or 0
-            if locCount > 0 then
-              return -- still CC'd per LoC, don't clear
-            end
-          end
-          ticker:Cancel()
-          self._locExpiryTimer = nil
-          wipe(self.PriorityAuras)
-          self:Update()
-        end
-      end)
-    end
-
     self:Update()
   end
 
@@ -451,6 +375,12 @@ local function attachToPlayerButton(playerButton)
     self.Cooldown:ApplyCooldownSettings(moduleSettings.Cooldown, true, { 0, 0, 0, 0.5 })
     if not moduleSettings.showHighestPriority then
       self:ResetPriorityData()
+    end
+    self:EnsureLiveCCContainer()
+    if self:IsCompoundLiveCCUnit(playerButton.unitID) then
+      self:SetLiveCCUnit(nil)
+    else
+      self:SyncLiveCCUnit(playerButton.unitID, false)
     end
     self:MakeSureWeAreOnTop()
   end

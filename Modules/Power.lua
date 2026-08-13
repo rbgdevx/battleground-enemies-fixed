@@ -176,7 +176,7 @@ function power:AttachToPlayerButton(playerButton)
       return
     end
     -- If we already have a class-confirmed power token, don't let scan results
-    -- override it (PID mismatch can feed us the wrong unit's power type)
+    -- override it (a stale unit token can feed us the wrong unit's power type)
     if self.classConfirmedToken then
       return
     end

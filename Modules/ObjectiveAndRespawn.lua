@@ -95,54 +95,44 @@ local function IsOrbBG(mapId)
   return mapId == 417 -- Temple of Kotmogu
 end
 
--- Helper: Find the correct button for an arena orb carrier
--- Enemy side uses PID matching (needed — arena tokens to unknown-identity
--- enemies). Ally side uses the direct token map — no PID for allies, ever.
-local function GetOrbCarrierButton(unitID)
-  -- Trust existing mapping unless live data contradicts it.
-  -- The chat handler binds carriers by NAME (definitive identity); the
-  -- matcher used below binds by FINGERPRINT (probabilistic). When chat
-  -- already correctly bound this slot, we must NOT let a fingerprint
-  -- match overwrite that authoritative result. Only re-resolve when:
-  --   (a) no mapping exists yet, or
-  --   (b) the existing mapping is concretely contradicted by live
-  --       class/race on this unitID (handles real carrier swaps where
-  --       chat for some reason failed to fire).
+-- Resolve a battleground carrier slot by the 12.1 UnitName PvP exception.
+-- `arenaN` here is a dynamic flag/orb slot, not a true-arena roster identity:
+-- every refresh must resolve its current exact Name-Realm and reconcile both
+-- sides of the slot map. Missing names never invalidate a mapping here;
+-- explicit event and chat paths below retain the existing teardown policy.
+local function GetCarrierButton(unitID)
   local currentMapping = BattleGroundEnemies.ArenaIDToPlayerButton[unitID]
-  if currentMapping and not BattleGroundEnemies:ArenaMappingContradicted(currentMapping, unitID) then
+  local playerName = BattleGroundEnemies:GetCanonicalUnitName(unitID)
+  if not playerName then
     return currentMapping
   end
 
-  BattleGroundEnemies:ClearScanCycleCache()
-  local matchedButton = BattleGroundEnemies:GetPlayerbuttonByUnitID(unitID, "Enemies", true)
-    or BattleGroundEnemies.Allies:GetAllyButtonByUnitID(unitID)
+  local matchedButton = BattleGroundEnemies.Enemies.Players[playerName]
+    or BattleGroundEnemies.Allies.Players[playerName]
 
+  -- Preserve the existing roster-lag policy: an exact name without a
+  -- constructed button is not itself a carrier-removal signal.
   if not matchedButton then
     return nil
   end
 
   if currentMapping == matchedButton then
-    return matchedButton -- Mapping is already correct
+    return matchedButton
   end
 
-  -- Bidirectional cleanup needed
-
-  -- 1. Clear stale mapping FROM the arena token (old button that had this token)
-  if currentMapping and currentMapping ~= matchedButton then
+  -- Keep the pre-migration mapping transition; only the identity source above
+  -- changed from the pseudo-PID matcher to an exact name lookup.
+  if currentMapping then
     currentMapping:UpdateEnemyUnitID("Arena", false)
-    currentMapping:DispatchEvent("ArenaOpponentHidden") -- Reset trinket, etc.
+    currentMapping:DispatchEvent("ArenaOpponentHidden")
   end
 
-  -- 2. Clear stale mapping FROM the matched button (if it had a different arena token)
   local oldArena = matchedButton.UnitIDs and matchedButton.UnitIDs.Arena
   if oldArena and oldArena ~= unitID then
     BattleGroundEnemies.ArenaIDToPlayerButton[oldArena] = nil
-    -- Note: matchedButton will get ArenaOpponentShown below, which handles the transition
   end
 
-  -- 3. Assign fresh mapping
   matchedButton:ArenaOpponentShown(unitID)
-
   return matchedButton
 end
 
@@ -156,11 +146,9 @@ local function CheckAllOrbs()
   isCheckingOrbs = true
 
   local ok, err = pcall(function()
-    -- No "clear stale" sweep here: ARENA_OPPONENT_UPDATE with
-    -- unitEvent=="cleared" is the authoritative signal for arena-token
-    -- invalidation (see Main.lua:1268). Using UnitExists as our own
-    -- invalidation check produces false positives (e.g., user dies, all
-    -- arena tokens report nonexistent, we wrongly wipe the carrier icon).
+    -- This sweep only attaches currently queryable slots. It does not infer
+    -- removal from UnitExists returning false; the explicit event/chat paths
+    -- below own the addon's existing teardown policy.
 
     -- Show orbs on players who have them.
     --
@@ -175,7 +163,7 @@ local function CheckAllOrbs()
       local unitID = "arena" .. i
       if UnitExists(unitID) then
         local battlegroundBuffs = BattleGroundEnemies:GetBattlegroundAuras()
-        local button = GetOrbCarrierButton(unitID)
+        local button = GetCarrierButton(unitID)
         if button and button.ObjectiveAndRespawn and battlegroundBuffs then
           local spellId = battlegroundBuffs[i - 1]
           if spellId then
@@ -193,50 +181,6 @@ local function CheckAllOrbs()
   end
 end
 
--- Helper: Find the correct button for a flag carrier
--- Enemy side uses PID matching. Ally side uses the direct token map — no PID.
-local function GetFlagCarrierButton(unitID)
-  -- Trust existing mapping unless live data contradicts it. Same reasoning
-  -- as GetOrbCarrierButton above — chat handler is the authoritative
-  -- name-based binder; matcher below is fingerprint-based and must not
-  -- overwrite a chat-set mapping that's still consistent with live data.
-  local currentMapping = BattleGroundEnemies.ArenaIDToPlayerButton[unitID]
-  if currentMapping and not BattleGroundEnemies:ArenaMappingContradicted(currentMapping, unitID) then
-    return currentMapping
-  end
-
-  BattleGroundEnemies:ClearScanCycleCache()
-  local matchedButton = BattleGroundEnemies:GetPlayerbuttonByUnitID(unitID, "Enemies", true)
-    or BattleGroundEnemies.Allies:GetAllyButtonByUnitID(unitID)
-
-  if not matchedButton then
-    return nil
-  end
-
-  if currentMapping == matchedButton then
-    return matchedButton -- Mapping is already correct
-  end
-
-  -- Bidirectional cleanup needed
-
-  -- 1. Clear stale mapping FROM the arena token (old button that had this token)
-  if currentMapping and currentMapping ~= matchedButton then
-    currentMapping:UpdateEnemyUnitID("Arena", false)
-    currentMapping:DispatchEvent("ArenaOpponentHidden") -- Reset trinket, etc.
-  end
-
-  -- 2. Clear stale mapping FROM the matched button (if it had a different arena token)
-  local oldArena = matchedButton.UnitIDs and matchedButton.UnitIDs.Arena
-  if oldArena and oldArena ~= unitID then
-    BattleGroundEnemies.ArenaIDToPlayerButton[oldArena] = nil
-  end
-
-  -- 3. Assign fresh mapping
-  matchedButton:ArenaOpponentShown(unitID)
-
-  return matchedButton
-end
-
 -- Module-level function to check flags for all arena units (WSG, Twin Peaks, Deephaul Ravine)
 local isCheckingFlags = false
 local function CheckAllFlags()
@@ -246,11 +190,9 @@ local function CheckAllFlags()
   isCheckingFlags = true
 
   local ok, err = pcall(function()
-    -- No "clear stale" sweep here: ARENA_OPPONENT_UPDATE with
-    -- unitEvent=="cleared" is the authoritative signal for arena-token
-    -- invalidation (see Main.lua:1268). Using UnitExists as our own
-    -- invalidation check produces false positives (e.g., user dies, all
-    -- arena tokens report nonexistent, we wrongly wipe the carrier icon).
+    -- This sweep only attaches currently queryable slots. It does not infer
+    -- removal from UnitExists returning false; the explicit event/chat paths
+    -- below own the addon's existing teardown policy.
 
     -- Show flags on players who have them.
     --
@@ -263,7 +205,7 @@ local function CheckAllFlags()
       local unitID = "arena" .. i
       if UnitExists(unitID) then
         local battlegroundBuffs = BattleGroundEnemies:GetBattlegroundAuras()
-        local button = GetFlagCarrierButton(unitID)
+        local button = GetCarrierButton(unitID)
         if button and button.ObjectiveAndRespawn and battlegroundBuffs then
           local spellId = battlegroundBuffs[i - 1]
           if spellId then
@@ -307,12 +249,9 @@ end
 -- ----------------------------------------------------------------------------
 -- Chat-message-driven flag-carrier identification.
 --
--- The arena-token PID matcher in CheckAllFlags can attribute the objective
--- icon to the wrong same-class enemy button when class+race+gender+honor+guild
--- don't disambiguate (PvP secrecy denies the matcher anything more granular).
--- BG system messages emit the carrier's full Name-Realm in non-secret form
--- (verified empirically 2026-05-01: secret=false). That gives us authoritative
--- name lookup via Players[name], bypassing the fingerprint resolver.
+-- The arena-token sweep now uses exact UnitName identity. Keep the chat path as
+-- an independent exact-name source because its pickup/drop messages also drive
+-- stack timing and provide the persisted /reload-while-dead replay below.
 --
 -- Coexistence with CheckAllFlags: when chat tracks any carrier, CheckAllFlags
 -- skips its arena-token sweep so it can't override the chat-set icon onto a
@@ -438,9 +377,8 @@ end
 -- Bind a chat-named carrier to an arena slot via the existing
 -- ArenaOpponentShown event infrastructure, so the icon-spell mapping in
 -- frame:ArenaOpponentShown picks the right texture and other modules
--- (Trinket, etc.) get notified consistently. Mirrors the cleanup logic
--- that GetOrbCarrierButton/GetFlagCarrierButton already do for the
--- arena-token / PID path: tear down stale mappings before binding new.
+-- (Trinket, etc.) get notified consistently. Mirrors the exact arena-token
+-- resolver's cleanup: tear down stale mappings before binding new.
 local function BindChatCarrierToArenaSlot(name, arenaIndex)
   local newButton = GetButtonForCarrier(name)
   if not newButton then
@@ -478,23 +416,6 @@ local function BindChatCarrierToArenaSlot(name, arenaIndex)
   local arenaToken = "arena" .. arenaIndex
   local prevButton = BattleGroundEnemies.ArenaIDToPlayerButton[arenaToken]
 
-  -- DIAG (TEMP, 2026-05-01): same-class-twin health-misroute hunt. Only
-  -- fires on the suspicious case — chat says NameX but Players[NameX]
-  -- returned a button whose stored PlayerName is something else (would
-  -- indicate Players-dict corruption). Successful binds (chatName matches
-  -- button name) are silent. Pair with the matcher-wrapper print in
-  -- Main.lua. Remove BOTH together once root cause is identified.
-  -- local newName = newButton.PlayerDetails and newButton.PlayerDetails.PlayerName
-  -- local canonicalChat = BattleGroundEnemies:CanonicalName(name)
-  -- if newName and canonicalChat and newName ~= canonicalChat then
-  --   local prevName = prevButton and prevButton.PlayerDetails and prevButton.PlayerDetails.PlayerName
-  --   -- Diagnostic: re-enable to debug Players[] dict corruption.
-  --   print(string.format(
-  --     "|cffff5555[BGE diag]|r chat-bind WRONG-BUTTON: chatName=%s (canonical=%s) arena=%d -> button[%s] (prev=%s)",
-  --     tostring(name), tostring(canonicalChat), arenaIndex, tostring(newName), tostring(prevName)
-  --   ))
-  -- end
-
   if prevButton == newButton then
     -- Already bound. Re-dispatch to refresh icon state in case the
     -- button's frame just initialized.
@@ -508,8 +429,7 @@ local function BindChatCarrierToArenaSlot(name, arenaIndex)
     prevButton:UpdateEnemyUnitID("Arena", false)
     prevButton:DispatchEvent("ArenaOpponentHidden")
   end
-  -- 2. The new button's previous arena slot (if it had one bound to a
-  --    different slot): un-key the old slot.
+  -- 2. The new button's previous arena slot (if any): un-key that old slot.
   local oldArena = newButton.UnitIDs and newButton.UnitIDs.Arena
   if oldArena and oldArena ~= arenaToken then
     BattleGroundEnemies.ArenaIDToPlayerButton[oldArena] = nil
@@ -526,26 +446,15 @@ end
 -- no UnitExists, no secret reads, wrong-twin-proof). Returns false while a
 -- carrier's button isn't built yet, so we keep pendingReplay set and try again.
 --
--- FIX A — LIVENESS GATE (mirrors the oracle's RestoreCarriersOnEntering idiom
--- `not UnitExists(unit) and UnitName(unit)`): only re-bind a saved slot when its
--- arena token is still genuinely present, i.e. UnitName("arenaN") resolves
--- (non-nil). UnitName works while the viewer is dead so long as the carrier is
--- still there, and goes nil once the token was CLEARED during the reload gap. So
--- a carrier who DROPPED the objective mid-reload is NOT resurrected — its dead
--- saved entry is pruned instead of kept pending forever. The UnitName return is
--- used ONLY as a boolean liveness predicate; it is passed to no string op, and
--- identity resolution stays name-authoritative via GetButtonForCarrier /
--- CanonicalName inside BindChatCarrierToArenaSlot (NOT the stock UnitName).
+-- Preserve the existing replay policy: UnitName is used only as the slot's
+-- liveness check. Exact live carrier identity belongs to GetCarrierButton;
+-- persisted chat bindings remain name-authoritative here.
 local function replaySavedSlot(name, arenaIndex, dropEntry)
-  -- Liveness gate: token cleared during the reload gap -> carrier is gone.
-  -- Prune the stale saved binding (resolved, not pending) and persist.
   if not UnitName("arena" .. arenaIndex) then
     dropEntry()
     PersistChatCarriers()
-    return false -- not "still pending": this slot is resolved (dead)
+    return false
   end
-  -- Token still live: re-bind name-authoritatively. Returns false (still
-  -- pending) only while the carrier's button hasn't been rebuilt yet.
   return not BindChatCarrierToArenaSlot(name, arenaIndex)
 end
 
@@ -1056,9 +965,9 @@ local function StacksOnChat(event, message)
   end
 end
 
--- Orbs only: arena "cleared" is authoritative removal (a dropped orb resets to
--- base). Flags deliberately ignore arena churn — it can't tell drop-then-return
--- from drop-then-repick (see the retired handler in bgwc predictions/flags.lua).
+-- Orbs only: under the addon's existing slot policy, arena "cleared" resets the
+-- clock to base. Flags deliberately ignore arena churn because it cannot tell
+-- drop-then-return from drop-then-repick.
 local function StacksOnArenaCleared(idx)
   if not stackCfg or stackCfg.mode ~= "orb" or idx > STACK_NUM_SLOTS then
     return
@@ -1275,7 +1184,7 @@ objectiveEventFrame:SetScript("OnEvent", function(self, event, ...)
     -- the viewer is dead, ARENA_OPPONENT_UPDATE does NOT replay, so a still-
     -- held enemy carrier would show nothing until respawn. Keep the persisted
     -- chat bindings, load them back into the in-memory tables (so `next(chat*)`
-    -- gating keeps the PID sweeps from fighting them), and arm a one-shot
+    -- gating keeps the live-token sweeps from racing them), and arm a one-shot
     -- replay that fires once the roster rebuilds (RefreshObjectiveCarriers).
     -- Any OTHER PEW (fresh BG entry / match boundary) hard-wipes as before.
     local db = BattleGroundEnemies.db
@@ -1332,11 +1241,9 @@ objectiveEventFrame:SetScript("OnEvent", function(self, event, ...)
     -- Race window: when an objective changes hands, both UPDATE_UI_WIDGET
     -- AND CHAT_MSG_BG_SYSTEM_* fire in close succession. The order between
     -- them is set by Blizzard's internal scheduling, not us. If WIDGET
-    -- arrives first while chat carriers are empty, CheckAllOrbs/Flags
-    -- runs immediately and PID-binds — possibly to the wrong same-class
-    -- twin. The chat handler then arrives ~milliseconds later and tears
-    -- down the wrong binding, but during that gap the user can see the
-    -- icon on the wrong button.
+    -- arrives first while chat carriers are empty, CheckAllOrbs/Flags binds
+    -- before the chat event that establishes persisted identity and stack
+    -- timing. The two state paths can briefly disagree.
     --
     -- Defer the widget-driven sweep by 0.1s so the chat handler — if it's
     -- going to fire at all for this event — has time to populate
@@ -1381,20 +1288,12 @@ objectiveEventFrame:SetScript("OnEvent", function(self, event, ...)
       end
     end)
   elseif event == "ARENA_OPPONENT_UPDATE" then
-    -- Fires when arena units appear/disappear. Two responsibilities:
-    --   1. On a slot CLEAR (carrier died / orb back on ground / flag dropped /
-    --      cap / return), tear the slot down — binding-agnostically, even while
-    --      the viewer is dead. This is the authoritative removal signal and is
-    --      the only path for silent removals (e.g. Kotmogu orb drops emit no
-    --      chat). Done IMMEDIATELY (no defer); cleared state is unambiguous.
-    --   2. Run CheckAllOrbs/Flags as the chat-silent fallback (deferred 0.1s for
-    --      the same race-avoidance reason as the other widget paths).
-    --
-    -- Trigger ONLY on "cleared". "cleared" is authoritative removal.
-    -- "unseen"/"destroyed" are lost-visibility — the carrier may still be alive
-    -- (viewer died, or carrier left render range), so tearing down on them would
-    -- wipe a still-live carrier's binding (R2). The oracle hides only on
-    -- "cleared" (core/events.lua); we mirror that here.
+    -- Every arena-slot update schedules the map-specific live sweep below.
+    -- Under the addon's existing policy, "cleared" also tears down the slot
+    -- binding immediately; other reasons do not tear it down here. Blizzard's
+    -- arena UI removes its frame on "cleared", retains it on "unseen", and
+    -- treats "destroyed" like "seen". That establishes UI-slot behavior, not
+    -- the gameplay cause of the update or objective-possession truth.
     local unitToken, updateReason = ...
     if unitToken and updateReason == "cleared" then
       local arenaIndex = tonumber(string.match(unitToken, "^arena(%d+)$"))
@@ -1417,12 +1316,11 @@ objectiveEventFrame:SetScript("OnEvent", function(self, event, ...)
         end
         PersistChatCarriers()
 
-        -- Binding-AGNOSTIC teardown: a PID/fingerprint-bound carrier is in
+        -- Binding-agnostic teardown under the existing "cleared" policy: a
+        -- live-token-bound carrier is in
         -- neither chat table, so clear whatever button currently owns this slot
-        -- via the slot map. Death-proof (no dead-guard — this handler is only
-        -- IsInPvPInstance-gated) and slot-keyed, so it's correct even for a
-        -- same-class twin: the icon's lifetime equals the slot's lifetime. We
-        -- Reset the objective frame DIRECTLY (not only via DispatchEvent) so the
+        -- via the slot map. Reset the objective frame directly (not only via
+        -- DispatchEvent) so the
         -- visual clear can't be swallowed by BattleGroundEnemies.betweenRounds
         -- (DispatchEvent early-returns in that window).
         local btn = BattleGroundEnemies.ArenaIDToPlayerButton[unitToken]
@@ -1607,11 +1505,9 @@ function objectiveAndRespawn:AttachToPlayerButton(playerButton)
   end
 
   function frame:UnitRevived()
-    -- Mirror the UnitDied carrier-protection: in an objective BG, a still-bound
-    -- carrier's objective icon must survive a revive — its removal is handled by
-    -- the authoritative "cleared", not by Reset. (Objective-BG scoped so it can't
-    -- touch the normal revive/Reset in arenas / non-objective BGs.) If the slot
-    -- binding is already gone, the carrier really dropped, so Reset runs.
+    -- Preserve an objective icon while this button still owns its carrier slot.
+    -- The explicit slot/chat teardown paths clear that ownership. Scope this to
+    -- objective BGs so normal arena/non-objective revive handling is unchanged.
     local states = BattleGroundEnemies:GetActiveStates()
     local arenaToken = playerButton.UnitIDs and playerButton.UnitIDs.Arena
     if
@@ -1628,10 +1524,9 @@ function objectiveAndRespawn:AttachToPlayerButton(playerButton)
   function frame:UnitDied()
     -- Don't clobber a live objective icon with the death/respawn placeholder
     -- (findings 18/21): the objective icon and the ghost icon share frame.Icon.
-    -- If this button still owns an arena slot, it is a bound carrier — its
-    -- removal is handled by the authoritative "cleared" (ArenaOpponentHidden),
-    -- NOT by a respawn paint over the objective texture. Oracle parity: a
-    -- carrier's death is removed by "cleared", never shown as a respawn timer.
+    -- If this button still owns an arena slot, preserve the objective texture
+    -- until the explicit slot/chat teardown path runs instead of painting the
+    -- respawn visual over it.
     -- FIX B: compare against `playerButton` (the enclosing upvalue), NOT `self`.
     -- Inside `function frame:UnitDied()` self is the ObjectiveAndRespawn child
     -- frame, but ArenaIDToPlayerButton stores the player BUTTON (assigned at
@@ -1674,21 +1569,20 @@ function objectiveAndRespawn:AttachToPlayerButton(playerButton)
     self.Cooldown:SetCooldown(GetTime(), respawnTime)
   end
 
-  function frame:ArenaOpponentShown()
+  function frame:ArenaOpponentShown(eventArenaToken)
     self:HideText()
 
     -- Set the icon based on THIS button's bound arena slot rather than
     -- iterating all slots via CheckAllOrbs/CheckAllFlags. The previous
-    -- implementation re-derived bindings via PID matching every time
-    -- ArenaOpponentShown fired, which is exactly the wrong-button bug
-    -- on same-class twins. The slot-to-spell mapping is the same as the
+    -- implementation re-derived identity every time ArenaOpponentShown fired.
+    -- The slot-to-spell mapping is the same as the
     -- iteration paths use; we just look up only our own slot.
     --
     -- Whoever bound this button — chat handler (BindChatCarrierToArenaSlot),
     -- ARENA_OPPONENT_UPDATE handler (Main.lua), or the CheckAll* fallback —
     -- has already set playerButton.UnitIDs.Arena before dispatching this
     -- event, so it's authoritative here.
-    local arenaToken = playerButton.UnitIDs and playerButton.UnitIDs.Arena
+    local arenaToken = (playerButton.UnitIDs and playerButton.UnitIDs.Arena) or eventArenaToken
     if not arenaToken then
       return
     end
@@ -1782,11 +1676,10 @@ function objectiveAndRespawn:AttachToPlayerButton(playerButton)
       -- Start ticker for frequent updates (widget events unreliable).
       -- Gate on `not next(chatFlagCarriers)` like every other CheckAll call site
       -- (627/650/692/970/974): when chat is authoritative the ungated ticker
-      -- would re-run the PID matcher during the post-drop token-lag window and
-      -- re-Show the icon (possibly on the wrong same-class twin) before the
-      -- authoritative "cleared" hides it — the hide->show->hide flicker (finding
-      -- 8). Chat-tracked maps clear via the chat handler; this ticker only
-      -- covers the chat-silent fallback.
+      -- would re-run the live-token resolver during the post-drop token-lag
+      -- window and re-show the icon on a stale owner before the slot teardown.
+      -- Chat-tracked maps clear via the chat handler; this ticker only covers
+      -- the chat-silent fallback.
       if not self.FlagTicker then
         self.FlagTicker = C_Timer.NewTicker(1, function()
           if not next(chatFlagCarriers) then
@@ -1799,7 +1692,7 @@ function objectiveAndRespawn:AttachToPlayerButton(playerButton)
       CheckAllOrbs()
 
       -- Start ticker for frequent updates if not already running. Gated like
-      -- FlagTicker above (and every other CheckAll call site) so the PID sweep
+      -- FlagTicker above (and every other CheckAll call site) so the token sweep
       -- can't override a chat-authoritative binding during a drop window.
       if not self.OrbTicker then
         self.OrbTicker = C_Timer.NewTicker(1, function()
@@ -1832,8 +1725,8 @@ function objectiveAndRespawn:AttachToPlayerButton(playerButton)
     -- one widget update. The module-level objectiveEventFrame:OnEvent
     -- already handles these widgets ONCE with proper deferral and
     -- chat-tracker gating. Skip here when chat is authoritative — an
-    -- ungated CheckAllOrbs/Flags would PID-match and override any
-    -- chat-set binding on a same-class twin. When chat is silent,
+    -- ungated CheckAllOrbs/Flags would re-resolve and override an exact
+    -- chat-set binding. When chat is silent,
     -- defer to the global handler's fallback path; this per-button
     -- redundant call is no longer needed.
     --
