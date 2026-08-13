@@ -138,7 +138,7 @@ function symbolicTargetIndicator:AttachToPlayerButton(playerButton)
     end
 
     -- Render-time validation: prune stale entries where the source button's
-    -- .Target no longer points back to us (phantom indicators from PID
+    -- .Target no longer points back to us (phantom indicators from token
     -- oscillation leaving orphaned TargetedByEnemy entries), and collect the
     -- class color of each surviving targeter in the same pass.
     local stale

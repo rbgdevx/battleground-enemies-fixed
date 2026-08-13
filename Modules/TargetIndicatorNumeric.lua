@@ -86,7 +86,7 @@ function targetIndicatorNumeric:AttachToPlayerButton(playerButton)
     if playerButton.UnitIDs and playerButton.UnitIDs.TargetedByEnemy then
       -- Render-time validation: prune stale entries where the source button's
       -- .Target no longer points back to us. This catches phantom counts
-      -- caused by PID oscillation leaving orphaned TargetedByEnemy entries.
+      -- caused by token churn leaving orphaned TargetedByEnemy entries.
       local stale
       for sourceButton in pairs(playerButton.UnitIDs.TargetedByEnemy) do
         if sourceButton.Target ~= playerButton then

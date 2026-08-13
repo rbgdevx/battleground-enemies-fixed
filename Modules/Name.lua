@@ -87,14 +87,15 @@ function name:AttachToPlayerButton(playerButton)
     -- Arena-prep buttons may carry a SecretDisplayName from UnitName("arenaN")
     -- when the unit identity is still secret. Pass it directly to :SetText()
     -- (InsecureSecretArguments) and bail — no realm strip / Cyrillic conversion.
-    local secretName = playerButton.PlayerDetails.SecretDisplayName
-    if type(secretName) ~= "nil" then
+    local playerDetails = playerButton.PlayerDetails
+    local secretName = playerDetails.SecretDisplayName
+    if playerDetails.PlayerName == playerDetails.PlayerArenaUnitID and type(secretName) ~= "nil" then
       self.fs:SetText(secretName)
       self.fs.DisplayedName = nil
       return
     end
 
-    local playerName = playerButton.PlayerDetails.PlayerName
+    local playerName = playerDetails.PlayerName
     if not playerName then
       return
     end

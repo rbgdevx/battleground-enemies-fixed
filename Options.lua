@@ -1918,18 +1918,12 @@ function BattleGroundEnemies:SetupOptions()
                 desc = L.MouseWheelPlayerTargeting_Desc,
                 order = 2,
               },
-              ShowTooltips = {
-                type = "toggle",
-                name = L.ShowTooltips,
-                desc = L.ShowTooltips_Desc,
-                order = 3,
-              },
               ConvertCyrillic = {
                 type = "toggle",
                 name = L.ConvertCyrillic,
                 desc = L.ConvertCyrillic_Desc,
                 width = "normal",
-                order = 4,
+                order = 3,
               },
               RoleSortingOrder = {
                 type = "select",

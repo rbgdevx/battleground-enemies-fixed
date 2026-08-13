@@ -6,7 +6,6 @@ local L = Data.L
 
 local CreateFrame = CreateFrame
 local BackdropTemplateMixin = BackdropTemplateMixin
-local GameTooltip = GameTooltip
 local GetTime = GetTime
 
 -- DR-specific debug prints (always on for now)
@@ -312,23 +311,6 @@ local function createNewDrFrame(playerButton, container)
 
   drFrame.Cooldown:SetScript("OnCooldownDone", function()
     drFrame:Remove()
-  end)
-
-  drFrame:HookScript("OnEnter", function(self)
-    BattleGroundEnemies:ShowTooltip(self, function()
-      local catKey = self.input and self.input.drCat
-      local info = catKey and categoryKeyToInfo[catKey]
-      if info then
-        GameTooltip:AddLine(info.name, 1, 1, 1)
-        GameTooltip:Show()
-      end
-    end)
-  end)
-
-  drFrame:HookScript("OnLeave", function(self)
-    if GameTooltip:IsOwned(self) then
-      GameTooltip:Hide()
-    end
   end)
 
   drFrame.Container = container

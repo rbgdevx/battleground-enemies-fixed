@@ -35,9 +35,7 @@ local math_floor = math.floor
 -- BGE-specific counters
 ------------------------------------------------------------------------------
 
--- Matcher cache-hit heuristic: count fast vs slow calls.
--- A "fast" call (<0.01ms = 10μs) suggests cache hit or early reject; "slow"
--- (>=10μs) suggests a full resolve walked some/all of the fallback tiers.
+-- Matcher timing split: count fast vs slow exact-name resolves.
 local CACHE_FAST_THRESHOLD_MS = 0.01
 local matcherFast = 0
 local matcherSlow = 0

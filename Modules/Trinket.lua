@@ -6,7 +6,6 @@ local L = Data.L
 local CreateFrame = CreateFrame
 local GetTime = GetTime
 local GetSpellTexture = C_Spell and C_Spell.GetSpellTexture or GetSpellTexture
-local GameTooltip = GameTooltip
 
 local defaultSettings = {
   Enabled = true,
@@ -61,20 +60,6 @@ local trinket = BattleGroundEnemies:NewButtonModule({
 
 function trinket:AttachToPlayerButton(playerButton)
   local frame = CreateFrame("frame", nil, playerButton)
-
-  frame:HookScript("OnEnter", function(self)
-    if self.spellId then
-      BattleGroundEnemies:ShowTooltip(self, function()
-        GameTooltip:SetSpellByID(self.spellId)
-      end)
-    end
-  end)
-
-  frame:HookScript("OnLeave", function(self)
-    if GameTooltip:IsOwned(self) then
-      GameTooltip:Hide()
-    end
-  end)
 
   frame.Icon = frame:CreateTexture()
   frame.Icon:SetAllPoints()

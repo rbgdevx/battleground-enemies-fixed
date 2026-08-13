@@ -15,34 +15,6 @@ local type = type
 local CreateFrame = CreateFrame
 local GetArenaOpponentSpec = GetArenaOpponentSpec
 local GetSpecializationInfoByID = GetSpecializationInfoByID
--- Secret-safe GetUnitName (mirrors Main.lua). Enemy name/realm are SECRET in
--- instanced PvP and Blizzard's stock GetUnitName does an unguarded `server ~= ""`
--- on them, emitting taint that pcall cannot suppress. Guard with issecretvalue:
--- when name/realm is secret, return the bare name (callers issecretvalue-check
--- before using it as a key, and SetText accepts secrets).
-local GetUnitName = function(unit, showServerName)
-  local name, server = UnitName(unit)
-  if not name then
-    return nil
-  end
-  if issecretvalue and (issecretvalue(name) or issecretvalue(server)) then
-    return name
-  end
-  if server and server ~= "" then
-    if showServerName then
-      return name .. "-" .. server
-    else
-      local relationship = UnitRealmRelationship(unit)
-      if relationship == LE_REALM_RELATION_VIRTUAL then
-        return name
-      else
-        return name .. FOREIGN_SERVER_LABEL
-      end
-    end
-  else
-    return name
-  end
-end
 local InCombatLockdown = InCombatLockdown
 local UnitGUID = UnitGUID
 local UnitRace = UnitRace
@@ -336,50 +308,22 @@ local function CreateMainFrame(playerType)
     end
   end
 
-  local function matchBattleFieldScoreToArenaEnemyPlayer(scoreTables, arenaPlayerInfo)
-    local foundPlayer = false
-    local foundMatchIndex
+  local function findBattleFieldScoreByName(scoreTables, playerName)
+    local playerKey = BattleGroundEnemies:CanonicalName(playerName)
+    if type(playerKey) ~= "string" or (issecretvalue and issecretvalue(playerKey)) then
+      return nil
+    end
+
     for i = 1, #scoreTables do
       local scoreInfo = scoreTables[i]
-
-      -- local faction = scoreInfo.faction
-      -- local name = scoreInfo.name
-      -- local classToken = scoreInfo.classToken
-      -- local specName = scoreInfo.talentSpec
-      -- local raceName = scoreInfo.raceName
-
-      if scoreInfo.classToken and arenaPlayerInfo.classToken then
-        -- talentSpec has no NeverSecret flag in PVPScoreInfo, so it can be
-        -- a secret string in active matches. Direct == compare on a secret
-        -- string taints the call stack — fold the secrecy check into a
-        -- pre-computed specMatches bool. Legacy expansions return
-        -- talentSpec=nil, which still needs to match arenaPlayerInfo.specName=nil.
-        local scoreSpec = scoreInfo.talentSpec
-        local specMatches
-        if scoreSpec == nil then
-          specMatches = (arenaPlayerInfo.specName == nil)
-        elseif issecretvalue and issecretvalue(scoreSpec) then
-          -- Secret spec can't be safely disambiguated. Skip this candidate.
-          specMatches = false
-        else
-          specMatches = (scoreSpec == arenaPlayerInfo.specName)
-        end
-
-        if
-          scoreInfo.faction == BattleGroundEnemies.EnemyFaction
-          and scoreInfo.classToken == arenaPlayerInfo.classToken
-          and specMatches
-        then
-          if foundPlayer then
-            return false -- we already had a match but found a second player that matches, unlucky
-          end
-          foundPlayer = true --we found a match, make sure its the only one
-          foundMatchIndex = i
-        end
+      local scoreName = scoreInfo and scoreInfo.name
+      if
+        type(scoreName) == "string"
+        and not (issecretvalue and issecretvalue(scoreName))
+        and BattleGroundEnemies:CanonicalName(scoreName) == playerKey
+      then
+        return scoreInfo
       end
-    end
-    if foundPlayer then
-      return scoreTables[foundMatchIndex]
     end
   end
 
@@ -408,22 +352,19 @@ local function CreateMainFrame(playerType)
 
           if numArenaEnemies > 0 then
             for i = 1, numArenaEnemies do
-              local playerName
               local arenaEnemy = arenaEnemies[i]
-              if arenaEnemy.name then
-                playerName = arenaEnemy.name
-              else
-                --useful in solo shuffle in first round, then we can show a playername via data from scoreboard
-                local match = matchBattleFieldScoreToArenaEnemyPlayer(scoreboardEnemies, arenaEnemy)
-                if match then
-                  playerName = match.name
-                else
-                  -- use the unitID
-                  playerName = arenaEnemy.additionalData.PlayerArenaUnitID
-                end
-              end
+              local playerName = arenaEnemy.name or arenaEnemy.additionalData.PlayerArenaUnitID
               local t = Mixin({}, arenaEnemy)
               t.name = playerName
+
+              -- Once UnitName reveals an exact identity, enrich this arena-slot
+              -- row from the matching scoreboard row. Never infer identity from
+              -- class/spec: duplicate specs are common and talentSpec is secret
+              -- during an active match.
+              local scoreInfo = arenaEnemy.name and findBattleFieldScoreByName(scoreboardEnemies, arenaEnemy.name)
+              if scoreInfo then
+                t.raceName = scoreInfo.raceName
+              end
               table.insert(newPlayers, t)
             end
           else
@@ -884,7 +825,7 @@ local function CreateMainFrame(playerType)
   end
 
   function mainframe:GetPlayerbuttonByUnitID(unitID, requestedPlayerType)
-    -- Delegate to the robust GUID/PID matcher in Main.lua
+    -- Delegate to the exact-name matcher in Main.lua.
     return BattleGroundEnemies:GetPlayerbuttonByUnitID(unitID, requestedPlayerType)
   end
 
@@ -1048,6 +989,10 @@ local function CreateMainFrame(playerType)
     local targetEnemyButton = playerButton.Target
     if targetEnemyButton then -- if that no longer exiting ally targeted something update the button of its target
       playerButton:IsNoLongerTarging(targetEnemyButton)
+    end
+
+    if playerButton.SpecClassPriority then
+      playerButton.SpecClassPriority:SetLiveCCUnit(nil)
     end
 
     if InCombatLockdown() then
@@ -1274,13 +1219,21 @@ local function CreateMainFrame(playerType)
       end
     end
 
+    local playerName = BattleGroundEnemies:CanonicalName(name)
+    local arenaSlot = additionalData and additionalData.PlayerArenaUnitID
+    if arenaSlot and name == arenaSlot then
+      -- arenaN is a structural placeholder and secure unit token, not a player
+      -- identity. Keep it literal until UnitName reveals Name-Realm.
+      playerName = arenaSlot
+    end
+
     local playerDetails = {
       -- Canonicalize PlayerName to "Name-Realm" form. PVPScoreInfo.name and
       -- GetRaidRosterInfo return short "Name" for same-realm players; chat
       -- messages always emit "Name-Realm". Storing under canonical form
       -- means Players[] lookups work uniformly. See BattleGroundEnemies:CanonicalName
       -- in Main.lua for rationale.
-      PlayerName = BattleGroundEnemies:CanonicalName(name),
+      PlayerName = playerName,
       PlayerClass = string.upper(classToken), --apparently it can happen that we get a lowercase "druid" from GetBattlefieldScore() in TBCC, IsTBCC
       PlayerClassColor = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classToken],
       PlayerRace = race or "Unknown", -- store localized race name directly (merc-mode safe)
@@ -1288,7 +1241,7 @@ local function CreateMainFrame(playerType)
       -- LIVE spec exactly as the source delivered it (scoreboard talentSpec for
       -- real players, GetSpecializationInfoByID for test-mode fakes). Secret
       -- mid-match; pure pass-through. The harvest seeder below may overwrite
-      -- PlayerSpecName (which feeds LOGIC: role/icon/tooltip) with the stale
+      -- PlayerSpecName (which feeds role/icon logic) with the stale
       -- last-seen spec — this field is NEVER touched by harvest, so display-only
       -- consumers (Spec Name module) always render the CURRENT match's spec.
       PlayerSpecNameScoreboard = spec,
@@ -1298,75 +1251,48 @@ local function CreateMainFrame(playerType)
       PlayerLevel = false,
       isFakePlayer = false, --to set a base value, might be overwritten by mixin
       PlayerArenaUnitID = nil, --to set a base value, might be overwritten by mixin
-      GuildName = nil, -- cached from unit info
-      GuildRealm = nil, -- cached from unit info
       realmName = realmName, -- from scoreboard
     }
     if additionalData then
       Mixin(playerDetails, additionalData)
     end
 
-    -- GUIDs are effectively always secret in 12.0.5 PvP now, so the old
-    -- PlayerGUIDs fast-path can never be populated with a usable key —
-    -- removed. Ditto for the GUID-match stage in identity lookup below.
-
     -- Find existing button for this scoreboard entry. Each button can be
     -- claimed (status=1) at most once per tick — all matching paths honor
-    -- the status check so name-lookup and fingerprint-fallback can't both
-    -- collide on the same button and cause data swaps / duplicates.
+    -- the status check so exact name and arena-slot continuity cannot collide
+    -- on one button.
     --
-    -- Stage 1: non-secret name lookup. Stable identity for non-secret names.
-    -- Stage 2: consume-first-unclaimed by class (fallback for secret names).
-    --
-    -- GUIDs are effectively always secret in 12.0.5 PvP now, so the GUID
-    -- stage that used to sit between these two has been removed — it was
-    -- silently dead code.
+    -- Stage 1: exact canonical-name lookup.
+    -- Stage 2: structural arena-slot continuity for arena roster rows.
+    -- Non-arena rows only reuse a button through exact canonical identity.
     local playerButton
-    local strongMatch = false
-    -- local matchStage = "new" -- diagnostic: tracks which stage produced the match
     if name then
       -- Canonicalize lookup key: Players[] stores under "Name-Realm" form
       -- (CanonicalName at storage above). PVPScoreInfo.name is short for
-      -- same-realm — must canonicalize before lookup or we silently miss
-      -- and fall through to class-fallback, mis-claiming buttons.
-      local btn = self.Players[BattleGroundEnemies:CanonicalName(name)]
-      -- Must check status so the SAME button doesn't get claimed twice in
-      -- one tick (once via name, once via class fallback). Without this,
+      -- same-realm, so it must be canonicalized before lookup.
+      local btn = self.Players[playerName]
+      -- Must check status so the same button doesn't get claimed twice in
+      -- one tick. Without this,
       -- two rows that resolve to the same button mutate each other's data
       -- and the "loser" row's player never materializes anywhere.
       if btn and btn.status ~= 1 then
         playerButton = btn
-        strongMatch = true
-        -- matchStage = "stage1-name"
       end
     end
-    if not playerButton and classToken and self.PlayerList then
-      local upperClass = string.upper(classToken)
-      local raceKey = race or ""
-      -- Consume-first-unclaimed. Same-class-same-race rows are processed
-      -- in order; each row claims the first unclaimed button that matches
-      -- (greedy). Identity of individual buttons among same-class peers
-      -- can drift across ticks if row order shifts, but the total count
-      -- stays correct — no duplicates, no hijacking, no ghost buttons.
+    if not playerButton and arenaSlot and self.PlayerList then
+      -- Startup placeholders and revealed names describe the same secure arena
+      -- slot. Reuse that slot's button so an identity reveal never creates a
+      -- duplicate frame. Slot continuity is structural, not proof that the
+      -- same player survived a Solo Shuffle round, so it is intentionally not
+      -- a strong identity match for preserving player-specific metadata.
       for i = 1, #self.PlayerList do
         local btn = self.PlayerList[i]
-        if
-          btn.status ~= 1
-          and btn.PlayerDetails
-          and btn.PlayerDetails.PlayerClass == upperClass
-          and (btn.PlayerDetails.PlayerRace or "") == raceKey
-        then
+        if btn.status ~= 1 and btn.PlayerDetails and btn.PlayerDetails.PlayerArenaUnitID == arenaSlot then
           playerButton = btn
-          -- matchStage = "stage2-fingerprint"
-          -- Not a strong match — live-captured attrs (gender, honor,
-          -- guild) should not be preserved across this swap since we're
-          -- attaching a potentially different player's scoreboard row
-          -- onto this button.
           break
         end
       end
     end
-
     -- Preserve fields we set on the button after its initial creation —
     -- these are NOT provided by the scoreboard, so a wholesale PlayerDetails
     -- swap would wipe them. Specifically this was the "click works once"
@@ -1376,60 +1302,26 @@ local function CreateMainFrame(playerType)
     -- SetBindings clears the secure unit/type1/type2 attributes.
     if playerButton and playerButton.PlayerDetails then
       local pd = playerButton.PlayerDetails
-      -- Arena-token-mirror / scoreboard-can't-provide fields: preserve
-      -- unconditionally. They were written by us onto this exact button
-      -- (ArenaOpponentShown), not inferred via ambiguous fingerprint.
-      if pd.PlayerArenaUnitID and not playerDetails.PlayerArenaUnitID then
-        playerDetails.PlayerArenaUnitID = pd.PlayerArenaUnitID
-      end
-      if pd.SecretDisplayName ~= nil and playerDetails.SecretDisplayName == nil then
-        playerDetails.SecretDisplayName = pd.SecretDisplayName
+      -- BG objective tokens are not present in scoreboard rows, so preserve
+      -- that mirror there. A live true-arena row without prep-specialization
+      -- data can also arrive through the scoreboard; preserve its exact slot
+      -- only while UnitName confirms that arenaN still names this same row.
+      local oldArenaSlot = pd.PlayerArenaUnitID
+      local exactArenaSlotStillOwnsRow = BattleGroundEnemies.states.real.isInArena
+        and oldArenaSlot
+        and BattleGroundEnemies:GetCanonicalUnitName(oldArenaSlot) == playerDetails.PlayerName
+      if
+        oldArenaSlot
+        and not playerDetails.PlayerArenaUnitID
+        and (not BattleGroundEnemies.states.real.isInArena or exactArenaSlotStillOwnsRow)
+      then
+        playerDetails.PlayerArenaUnitID = oldArenaSlot
       end
     end
 
-    -- Preserve live-captured non-secret attrs across the details swap —
-    -- ONLY on strong identity match. Weak (ambiguous fingerprint) matches
-    -- might be carrying another player's data forward.
-    -- Source tags travel with the value so captureLiveAttrs in
-    -- GetPlayerbuttonByUnitID can still distinguish "harvest seed" vs
-    -- "live captured" after a CreateOrUpdatePlayerDetails swap.
-    if strongMatch and playerButton and playerButton.PlayerDetails then
-      local pd = playerButton.PlayerDetails
-      if pd.gender and not (issecretvalue and issecretvalue(pd.gender)) and not playerDetails.gender then
-        playerDetails.gender = pd.gender
-        playerDetails._genderSource = pd._genderSource
-      end
-      if
-        pd.honorLevel
-        and not (issecretvalue and issecretvalue(pd.honorLevel))
-        and (not playerDetails.honorLevel or (issecretvalue and issecretvalue(playerDetails.honorLevel)))
-      then
-        playerDetails.honorLevel = pd.honorLevel
-        playerDetails._honorLevelSource = pd._honorLevelSource
-      end
-      -- GuildName: `false` (confirmed guildless) is a real value, not
-      -- "no value". Use explicit `~= nil` instead of truthy check so we
-      -- correctly preserve a captured-guildless state across the swap.
-      if
-        pd.GuildName ~= nil
-        and not (issecretvalue and issecretvalue(pd.GuildName))
-        and playerDetails.GuildName == nil
-      then
-        playerDetails.GuildName = pd.GuildName
-        playerDetails._GuildNameSource = pd._GuildNameSource
-      end
-      if pd.lastPowerType and not playerDetails.lastPowerType then
-        playerDetails.lastPowerType = pd.lastPowerType
-        playerDetails._lastPowerTypeSource = pd._lastPowerTypeSource
-      end
-    end
-
-    -- Harvest seed: fill any field still nil/false/secret from
-    -- db.global.PlayerHistory. Runs AFTER live-captured preservation so
-    -- live values take priority over harvest. Source-tag with
-    -- _<field>Source = "harvest" so captureLiveAttrs in GetPlayerbuttonByUnitID
-    -- can promote to "live" on the first non-fallback unit-token resolve.
-    -- For PlayerSpecName / PlayerRole this is the ONLY mid-match source —
+    -- Stored history supplies spec and derived role when the live scoreboard
+    -- fields are secret. For PlayerSpecName / PlayerRole this is the only
+    -- mid-match source —
     -- talentSpec/roleAssigned are SecretInActivePvPMatch on the scoreboard.
     do
       local history = BattleGroundEnemies.db
@@ -1437,35 +1329,6 @@ local function CreateMainFrame(playerType)
         and BattleGroundEnemies.db.global.PlayerHistory
         and BattleGroundEnemies.db.global.PlayerHistory[playerDetails.PlayerName]
       if history then
-        -- Normal seed: empty = nil OR false (placeholder) OR secret.
-        local function seed(field, value, sourceField)
-          if value == nil then
-            return
-          end
-          local cur = playerDetails[field]
-          if cur == nil or cur == false or (issecretvalue and issecretvalue(cur)) then
-            playerDetails[field] = value
-            playerDetails[sourceField] = "harvest"
-          end
-        end
-        -- GuildName seed: `false` means CONFIRMED GUILDLESS (real value),
-        -- NOT a placeholder. Empty = ONLY nil OR secret. Don't overwrite
-        -- a live-captured `false` with potentially-stale harvest data.
-        local function seedGuild(value)
-          if value == nil then
-            return
-          end
-          local cur = playerDetails.GuildName
-          if cur == nil or (issecretvalue and issecretvalue(cur)) then
-            playerDetails.GuildName = value
-            playerDetails._GuildNameSource = "harvest"
-          end
-        end
-        seed("gender", history.gender, "_genderSource")
-        seed("honorLevel", history.honorLevel, "_honorLevelSource")
-        seedGuild(history.GuildName)
-        seed("lastPowerType", history.lastPowerType, "_lastPowerTypeSource")
-
         -- Spec seeding also recomputes PlayerRole via spec→roleID, since
         -- the original PlayerRole calculation above ran with spec=secret.
         local specStillEmpty = playerDetails.PlayerSpecName == nil
@@ -1544,6 +1407,13 @@ local function CreateMainFrame(playerType)
         detailsChanged = true
       end
 
+      -- SecretDisplayName itself cannot be compared. Arena source rebuilds are
+      -- infrequent and may represent a new occupant in the same slot, so always
+      -- refresh modules for structural arena rows.
+      if arenaSlot then
+        detailsChanged = true
+      end
+
       playerButton.PlayerDetails = playerDetails
 
       if detailsChanged then
@@ -1551,7 +1421,6 @@ local function CreateMainFrame(playerType)
       end
 
       playerButton.status = 1 --1 means found, already existing
-      playerDetails = playerButton.PlayerDetails
 
       -- if BattleGroundEnemies.LogButtonEvent then
       --   BattleGroundEnemies:LogButtonEvent("MATCH", self.PlayerType, playerButton, matchStage)
@@ -1881,19 +1750,14 @@ BattleGroundEnemies.Allies = CreateMainFrame(BattleGroundEnemies.consts.PlayerTy
 
 -- Direct unit-token → ally button map. Rebuilt by UpdateAllUnitIDs after
 -- GROUP_ROSTER_UPDATE. Allies are driven exclusively by stable raidN/partyN/
--- player tokens — no PID matching, no scoreboard, no cross-side contamination.
+-- player tokens without scoreboard or cross-side identity inference.
 BattleGroundEnemies.Allies.tokenToButton = {}
 
 -- Resolve any incoming unitID to an ally button, or nil if not one of ours.
 -- Fast path: direct token lookup (covers party/raid/player event tokens).
--- Fallback A: UnitIsUnit iteration for arbitrary tokens (target, focus,
--- nameplateN, mouseover, etc). Bounded at ≤40 iterations in a BG, ≤5 in
--- arena. UnitIsUnit is SecretWhenUnitComparisonRestricted — in 12.0.5 PvP
--- it returns a SECRET BOOLEAN for compound tokens like raid1target (testing
--- it in a boolean context would taint, crashing the addon). We pre-filter
--- via issecretvalue and silently skip such pairs.
--- Fallback B: name match via GetUnitName (also pcall + secret-guarded).
--- No PID, no fingerprinting. Never touches the enemy matcher.
+-- Fallback: exact canonical UnitName match through the shared 12.1 helper
+-- for arbitrary player tokens (target, focus, nameplateN, mouseover, etc.).
+-- Never touches the enemy matcher.
 function BattleGroundEnemies.Allies:GetAllyButtonByUnitID(unitID)
   if not unitID then
     return nil
@@ -1913,25 +1777,9 @@ function BattleGroundEnemies.Allies:GetAllyButtonByUnitID(unitID)
   if direct then
     return direct
   end
-  for token, btn in pairs(self.tokenToButton) do
-    local ok, same = pcall(UnitIsUnit, unitID, token)
-    -- MUST check issecretvalue(same) BEFORE any boolean test on `same`.
-    -- Touching a secret boolean in a truthy check taints the entire call
-    -- stack. issecretvalue is designed to accept secret values without
-    -- tainting — it's the only safe probe we have.
-    if ok and not (issecretvalue and issecretvalue(same)) and same then
-      return btn
-    end
-  end
-  -- Name fallback — ally names may be non-secret (GetUnitName guarded).
-  -- Canonicalize: GetUnitName returns short "Name" for same-realm, but
-  -- Players[] is keyed by full "Name-Realm" since the canonicalization
-  -- refactor (Main.lua CanonicalName helper). Without this canonicalize,
-  -- same-realm allies would silently miss the name fallback and fall
-  -- through to the no-match return.
-  local ok, name = pcall(GetUnitName, unitID, true)
-  if ok and type(name) == "string" and not (issecretvalue and issecretvalue(name)) then
-    local btn = self.Players[BattleGroundEnemies:CanonicalName(name)]
+  local name = BattleGroundEnemies:GetCanonicalUnitName(unitID)
+  if name then
+    local btn = self.Players[name]
     if btn then
       return btn
     end
@@ -2089,6 +1937,10 @@ function BattleGroundEnemies.Allies:UpdateAllUnitIDs()
           if cached and allyButton.Trinket then
             allyButton.Trinket:DisplayTrinket(cached.spellId, cached.itemID)
           end
+        elseif allyButton.SpecClassPriority then
+          -- A missing roster token must not leave the prior party/raid slot
+          -- bound; indices can already belong to a different ally after churn.
+          allyButton.SpecClassPriority:SetLiveCCUnit(nil)
         end
         -- If unit is nil, we simply skip to the next iteration
       else
@@ -2141,30 +1993,6 @@ function BattleGroundEnemies.Allies:UpdateAllUnitIDs()
   end
 end
 
-function BattleGroundEnemies.Enemies:ChangeName(oldName, newName) --only used in arena when players switch from "arenaX" to a real name
-  -- oldName is always a unitID literal ("arenaN"); newName is filtered to
-  -- non-secret upstream in CreateArenaEnemies before reaching here.
-  --
-  -- Canonicalize both ends — Players[] is keyed by CanonicalName output
-  -- (Main.lua:CanonicalName). The arena-prep flow stored under key
-  -- "arenaN-Realm" because CanonicalName appended the user's realm to the
-  -- token literal. Lookups must canonicalize the same way or they miss.
-  -- newName is normally already in "Name-Realm" form (chat / arena reveal),
-  -- but pass it through CanonicalName for idempotency in case a same-realm
-  -- short form ever reaches here.
-  local oldKey = BattleGroundEnemies:CanonicalName(oldName)
-  local newKey = BattleGroundEnemies:CanonicalName(newName)
-  local playerButton = self.Players[oldKey]
-
-  if playerButton then
-    playerButton.PlayerDetails.PlayerName = newKey
-    playerButton:PlayerDetailsChanged()
-
-    self.Players[newKey] = playerButton
-    self.Players[oldKey] = nil
-  end
-end
-
 function BattleGroundEnemies.Enemies:CreateArenaEnemies()
   if not BattleGroundEnemies.states.real.isInArena then
     return
@@ -2212,37 +2040,27 @@ function BattleGroundEnemies.Enemies:CreateArenaEnemies()
       if specID and specID > 0 then
         _, specName, _, _, _, classToken, _ = GetSpecializationInfoByID(specID, gender)
       end
-    else
+    elseif WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
+      -- Legacy clients without arena specialization data still need the old
+      -- class fallback. On 12.1 mainline UnitClass is identity-restricted for
+      -- hostile units, so never probe it there.
       classToken = select(2, UnitClass(unitID))
     end
 
     if classToken then
-      local playerName
-      -- 12.0.0: Arena opponent names are secret values.
-      -- We can't use them as table keys, but we CAN pass them to :SetText() (InsecureSecretArguments).
+      local playerName = BattleGroundEnemies:GetCanonicalUnitName(unitID)
+      -- During arena startup the name may still be secret. Keep that value
+      -- display-only while arenaN remains the structural roster key.
       local secretDisplayName
-      local ok, name = pcall(GetUnitName, unitID, true)
-      if not ok then
-        ok, name = pcall(GetUnitName, unitID, false)
-      end
-      if not ok then
-        -- Both calls failed — name is an error string, not a player name
-        name = nil
-      elseif type(name) ~= "nil" then
-        -- Store secret name for display only — can't use as table key
-        secretDisplayName = name
-        name = nil
-      end
-      if name and name ~= UNKNOWN then
-        -- player has a real name, check if he is already shown as arenaX
-        self:ChangeName(unitID, name)
-        playerName = name
+      if not playerName then
+        local rawName, rawServer = UnitName(unitID)
+        if issecretvalue and (issecretvalue(rawName) or issecretvalue(rawServer)) then
+          secretDisplayName = rawName
+        end
       end
 
-      local raceName = UnitRace(unitID)
       self:AddPlayerToSource(BattleGroundEnemies.consts.PlayerSources.ArenaPlayers, {
         name = playerName,
-        raceName = raceName,
         classToken = classToken,
         specName = specName,
         additionalData = { PlayerArenaUnitID = unitID, SecretDisplayName = secretDisplayName },
@@ -2268,13 +2086,10 @@ end
 
 function BattleGroundEnemies.Enemies:NAME_PLATE_UNIT_ADDED(unitID)
   -- Only process enemy nameplates — friendly nameplates must be ignored
-  -- or they can PID-match to enemy buttons and cause false in-range.
+  -- or they can collide with an enemy-side exact-name lookup.
   if not BattleGroundEnemies.IsEnemyUnit(unitID) then
     return
   end
-  -- Clear stale sticky cache for this nameplate (may have been recycled from a different enemy)
-  BattleGroundEnemies:InvalidateStickyPID(unitID)
-  BattleGroundEnemies:InvalidateStickyPID(unitID .. "target")
 
   -- Track highest nameplate index for ScanTargets optimization
   local idx = unitID and tonumber(unitID:match("nameplate(%d+)"))
@@ -2285,13 +2100,12 @@ function BattleGroundEnemies.Enemies:NAME_PLATE_UNIT_ADDED(unitID)
   if enemyButton then
     enemyButton:UpdateEnemyUnitID("Nameplate", unitID)
   else
-    -- Match failed (unit data may not be ready yet, or PID failed in combat).
+    -- Match failed because unit/name data may not be ready yet.
     -- Retry after a short delay — ScanTargets will also catch it at 0.25s,
     -- but this gets us there faster.
     local enemies = self
     C_Timer.After(0.1, function()
       if UnitExists(unitID) and BattleGroundEnemies.IsEnemyUnit(unitID) then
-        BattleGroundEnemies:ClearScanCycleCache()
         local btn = enemies:GetPlayerbuttonByUnitID(unitID, "Enemies")
         if btn then
           btn:UpdateEnemyUnitID("Nameplate", unitID)
@@ -2302,11 +2116,6 @@ function BattleGroundEnemies.Enemies:NAME_PLATE_UNIT_ADDED(unitID)
 end
 
 function BattleGroundEnemies.Enemies:NAME_PLATE_UNIT_REMOVED(unitID)
-  -- Invalidate sticky PID cache for this nameplate token (and its compound tokens).
-  -- Without this, recycled nameplates would incorrectly map to the old enemy's button.
-  BattleGroundEnemies:InvalidateStickyPID(unitID)
-  BattleGroundEnemies:InvalidateStickyPID(unitID .. "target")
-
   -- Can't use GetPlayerbuttonByUnitID here because the unit may already be invalid
   -- (UnitExists returns false after nameplate removal). Instead, scan buttons directly
   -- to find which one has this nameplate stored.
@@ -2348,14 +2157,8 @@ local function UpdateUnitIDForToken(self, tokenKey, unitID)
 end
 
 function BattleGroundEnemies.Enemies:PLAYER_FOCUS_CHANGED()
-  -- Focus token attachment removed — was duplicating the work of
-  -- BattleGroundEnemies:PLAYER_FOCUS_CHANGED in Main.lua, which uses the
-  -- click stash to map "focus" to the correct button. This handler used
-  -- the matcher (no stash), so on same-class twins it could attach the
-  -- Focus token to the wrong button before the stash-based handler
-  -- corrected it — same wrong-frame flash bug we just fixed for target.
-  -- FocusTarget (your focus's target — a different token) is unique to
-  -- this handler, so it stays.
+  -- Main.lua owns the focus row itself. This container only owns the distinct
+  -- focus-target token.
   UpdateUnitIDForToken(self, "FocusTarget", "focustarget")
 end
 
@@ -2363,9 +2166,8 @@ function BattleGroundEnemies.Enemies:UPDATE_MOUSEOVER_UNIT()
   -- Persistently attach the Mouseover UnitID to the matched button (and
   -- detach it from any prior button). Sibling handler at
   -- BattleGroundEnemies:UPDATE_MOUSEOVER_UNIT in Main.lua does a one-shot
-  -- snapshot read of health/power via UpdateAll. Both run on the same
-  -- event; the matcher call here hits scanCycleCache (already populated
-  -- by the sibling). Don't consolidate — different abstractions.
+  -- snapshot read of health/power via UpdateAll. Don't consolidate — these
+  -- handlers update different abstractions.
   UpdateUnitIDForToken(self, "Mouseover", "mouseover")
 end
 
@@ -2381,12 +2183,6 @@ function BattleGroundEnemies.Enemies:PLAYER_SOFT_ENEMY_CHANGED()
 end
 
 function BattleGroundEnemies.Enemies:PLAYER_TARGET_CHANGED()
-  -- The user's target changed, so "targettarget" now traverses a DIFFERENT
-  -- source unit — any cached resolution is meaningless. UNIT_TARGET already
-  -- invalidates unitID.."target" for its unit; this is the same hygiene for
-  -- the viewer's own target swap (without it, a stale sticky could re-attach
-  -- the old resolution, which the elected-token sweep would then paint).
-  BattleGroundEnemies:InvalidateStickyPID("targettarget")
   UpdateUnitIDForToken(self, "TargetTarget", "targettarget")
 end
 
@@ -2468,10 +2264,6 @@ function BattleGroundEnemies.Enemies:RemoveGroupPetTarget(button, sourceUnit)
 end
 
 function BattleGroundEnemies.Enemies:UNIT_TARGET(unitID)
-  -- Invalidate sticky PID cache for the compound token that just changed.
-  -- e.g. raid3 fires UNIT_TARGET → "raid3target" now points to someone else.
-  BattleGroundEnemies:InvalidateStickyPID(unitID .. "target")
-
   -- Single-token handlers (your own unit changed target)
   if unitID == "target" then
     UpdateUnitIDForToken(self, "TargetTarget", "targettarget")
