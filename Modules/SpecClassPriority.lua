@@ -80,7 +80,6 @@ local SpecClassPriority = BattleGroundEnemies:NewButtonModule({
   options = options,
   generalOptions = generalOptions,
   events = {
-    "GotInterrupted",
     "UnitDied",
   },
   enabledInThisExpansion = true,
@@ -95,7 +94,6 @@ local function attachToPlayerButton(playerButton)
   frame.Background:SetAllPoints()
   frame.Background:SetColorTexture(0, 0, 0, 0.8)
   frame.PriorityAuras = {}
-  frame.ActiveInterrupt = false
   frame.ShowsSpec = false
   frame.SpecClassIcon = frame:CreateTexture(nil, "BORDER", nil, 2)
   frame.SpecClassIcon:SetAllPoints()
@@ -108,7 +106,7 @@ local function attachToPlayerButton(playerButton)
     frame.Cooldown:SetUseAuraDisplayTime(true)
   end
   -- Real CC is rendered by the secure AuraContainer below. This ordinary
-  -- cooldown remains for fake test-mode CC and interrupts.
+  -- cooldown remains for fake test-mode CC.
 
   frame:SetScript("OnSizeChanged", function(self, width, height)
     self:CropImage()
@@ -282,7 +280,6 @@ local function attachToPlayerButton(playerButton)
   function frame:Update()
     self:MakeSureWeAreOnTop()
     local highestPrioritySpell
-    local currentTime = GetTime()
 
     -- PriorityAuras is retained for fake test-mode CC. Real aura state is
     -- rendered by LiveCCContainer without being exposed to addon code.
@@ -293,16 +290,6 @@ local function attachToPlayerButton(playerButton)
         highestPrioritySpell = priorityAura
       end
     end
-    if frame.ActiveInterrupt then
-      if frame.ActiveInterrupt.expirationTime < currentTime then
-        frame.ActiveInterrupt = false
-      else
-        if not highestPrioritySpell or (frame.ActiveInterrupt.Priority > highestPrioritySpell.Priority) then
-          highestPrioritySpell = frame.ActiveInterrupt
-        end
-      end
-    end
-
     if highestPrioritySpell then
       frame.SpecClassIcon:Hide()
       frame.DisplayedAura = highestPrioritySpell
@@ -327,19 +314,7 @@ local function attachToPlayerButton(playerButton)
   end
 
   function frame:ResetPriorityData()
-    self.ActiveInterrupt = false
     wipe(self.PriorityAuras)
-    self:Update()
-  end
-
-  function frame:GotInterrupted(spellId, interruptDuration)
-    self.ActiveInterrupt = {
-      spellId = spellId,
-      icon = GetSpellTexture(spellId),
-      expirationTime = GetTime() + interruptDuration,
-      duration = interruptDuration,
-      Priority = BattleGroundEnemies:GetSpellPriority(spellId) or 4,
-    }
     self:Update()
   end
 

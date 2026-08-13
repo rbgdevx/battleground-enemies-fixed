@@ -35,7 +35,6 @@ local GetNumBattlefieldScores = GetNumBattlefieldScores
 local GetNumGroupMembers = GetNumGroupMembers
 local GetRaidRosterInfo = GetRaidRosterInfo
 local GetSpellName = C_Spell and C_Spell.GetSpellName or GetSpellName
-local GetUnitName
 local InCombatLockdown = InCombatLockdown
 local IsInInstance = IsInInstance
 local IsInRaid = IsInRaid
@@ -48,7 +47,6 @@ local UnitIsDeadOrGhost = UnitIsDeadOrGhost
 local UnitIsGhost = UnitIsGhost
 local UnitName = UnitName
 local UnitRace = UnitRace
-local UnitRealmRelationship = UnitRealmRelationship
 
 local IsRetail = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
 local IsClassic = WOW_PROJECT_ID == WOW_PROJECT_CLASSIC
@@ -66,39 +64,6 @@ _G["BINDING_NAME_CLICK BGEAllies:Button4"] = L.TargetPreviousAlly
 _G["BINDING_NAME_CLICK BGEAllies:Button5"] = L.TargetNextAlly
 _G["BINDING_NAME_CLICK BGEEnemies:Button4"] = L.TargetPreviousEnemy
 _G["BINDING_NAME_CLICK BGEEnemies:Button5"] = L.TargetNextEnemy
-
--- Secret-safe GetUnitName replacement, used on ALL clients (not just Classic).
--- In instanced PvP, UnitName returns SECRET name/realm strings for enemies, and
--- Blizzard's stock GetUnitName does an unguarded `server ~= ""` (plus
--- name.."-"..server) on them — which EMITS taint and is blocked. Wrapping the
--- call in pcall does NOT prevent that taint (it only hides the error), so we
--- must never reach a comparison/concat on a secret. We override it everywhere
--- with an issecretvalue-guarded version: when name/realm is secret we return the
--- bare (possibly secret) name, which callers only pass to SetText or to
--- issecretvalue-guarded table lookups.
-GetUnitName = function(unit, showServerName)
-  local name, server = UnitName(unit)
-  if not name then
-    return nil
-  end
-  if issecretvalue and (issecretvalue(name) or issecretvalue(server)) then
-    return name
-  end
-  if server and server ~= "" then
-    if showServerName then
-      return name .. "-" .. server
-    else
-      local relationship = UnitRealmRelationship(unit)
-      if relationship == LE_REALM_RELATION_VIRTUAL then
-        return name
-      else
-        return name .. FOREIGN_SERVER_LABEL
-      end
-    end
-  else
-    return name
-  end
-end
 
 LSM:Register("statusbar", "UI-StatusBar", "Interface\\TargetingFrame\\UI-StatusBar")
 
@@ -3675,14 +3640,9 @@ function BattleGroundEnemies:HarvestRaidRoster()
       return
     end
 
-    -- Canonical "Name-Realm" key. GetUnitName(unit, true) returns short
-    -- "Name" for same-realm members; CanonicalName appends the user's realm
-    -- so the storage key matches what HarvestPlayerHistory writes.
-    local rawName = GetUnitName(unit, true)
-    if type(rawName) ~= "string" then
-      return
-    end
-    local key = self:CanonicalName(rawName)
+    -- Use the same canonical Name-Realm key as live row identity and
+    -- HarvestPlayerHistory.
+    local key = self:GetCanonicalUnitName(unit)
     if not key then
       return
     end
@@ -4127,7 +4087,7 @@ function BattleGroundEnemies:GROUP_ROSTER_UPDATE()
       -- we are in a party, 5 man group — no raid-assigned roles exist here.
       for i = 1, numGroupMembers do
         local unitID = "party" .. i
-        local name = GetUnitName(unitID, true)
+        local name = self:GetCanonicalUnitName(unitID)
 
         local classToken = select(2, UnitClass(unitID))
 
