@@ -228,6 +228,14 @@ local function attachToPlayerButton(playerButton)
       return false
     end
 
+    -- Compound target chains can change occupants after this exact-name check
+    -- but before Blizzard's AuraContainer reads them on its next OnUpdate.
+    -- Never bind live CC to those volatile aliases.
+    if self:IsCompoundLiveCCUnit(unitID) then
+      self:SetLiveCCUnit(nil)
+      return false
+    end
+
     local expectedName = playerButton.PlayerDetails and playerButton.PlayerDetails.PlayerName
     local exactName = BattleGroundEnemies:GetCanonicalUnitName(unitID)
     local expectedNameIsUsable = type(expectedName) == "string"

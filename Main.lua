@@ -2179,8 +2179,8 @@ function BattleGroundEnemies:ScanTargets()
         btn:UNIT_HEALTH(uid)
         btn:UNIT_POWER_FREQUENT(uid)
         if compoundCC then
-          -- A compound token string can stay the same while its endpoint
-          -- changes. Refresh once after every target source has settled.
+          -- Secure aura containers cannot be identity-pinned to volatile
+          -- compound aliases. SyncLiveCCUnit clears rather than binds them.
           btn.SpecClassPriority:SyncLiveCCUnit(uid, true)
         end
       elseif compoundCC then
