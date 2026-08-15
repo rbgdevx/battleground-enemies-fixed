@@ -3279,6 +3279,44 @@ local function parseBattlefieldScore(index, result)
   return result
 end
 
+-- Copy the live scoreboard spec onto friendly buttons that already exist.
+-- Friendly identity still comes exclusively from the raid/party roster. The
+-- scoreboard row is accepted only when its match-team faction equals the
+-- validated AllyFaction, then joined by the shared canonical Name-Realm key.
+-- talentSpec can be secret during an active match, so keep it as a pure
+-- pass-through to SpecName:SetSpec(), which renders it without evaluating it.
+function BattleGroundEnemies:UpdateFriendlyScoreboardSpecs()
+  if self.AllyFaction == nil or not self.Allies:ShouldBeEnabled() then
+    return
+  end
+
+  local needsSpec = false
+  for _, playerButton in pairs(self.Allies.Players) do
+    local playerDetails = playerButton.PlayerDetails
+    if playerDetails and type(playerDetails.PlayerSpecNameScoreboard) ~= "string" then
+      needsSpec = true
+      break
+    end
+  end
+  if not needsSpec then
+    return
+  end
+
+  for i = 1, GetNumBattlefieldScores() do
+    local scoreInfo = C_PvP.GetScoreInfo(i)
+    if scoreInfo and scoreInfo.faction == self.AllyFaction and type(scoreInfo.name) == "string" then
+      local playerButton = self.Allies.Players[self:CanonicalName(scoreInfo.name)]
+      local playerDetails = playerButton and playerButton.PlayerDetails
+      if playerDetails and type(playerDetails.PlayerSpecNameScoreboard) ~= "string" then
+        playerDetails.PlayerSpecNameScoreboard = scoreInfo.talentSpec
+        if playerButton.SpecName then
+          playerButton.SpecName:SetSpec()
+        end
+      end
+    end
+  end
+end
+
 -- Lobby-only diagnostic watchdog: every few seconds while the match state
 -- is Inactive (gates closed, pre-game), check whether our enemy PlayerList
 -- count matches what GetBattlefieldTeamInfo reports for the enemy team.
@@ -3778,10 +3816,9 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
   -- mark-and-sweep cycle further down — any button whose scoreboard row
   -- is missing this tick gets status=2 (untouched) and is removed.
 
-  -- AllyFaction is only used to identify which scoreboard rows belong to
-  -- the enemy team. Ally frames themselves are driven entirely by
-  -- raidN/partyN tokens from GROUP_ROSTER_UPDATE — scoreboard is never
-  -- read for allies.
+  -- AllyFaction identifies both teams' scoreboard rows. Ally frame identity
+  -- remains driven entirely by raidN/partyN tokens from GROUP_ROSTER_UPDATE;
+  -- scoreboard ally rows only supply the live spec display value.
   --
   -- AUTHORITATIVE source: the user's own scoreboard row via
   -- C_PvP.GetScoreInfoByPlayerGuid(UnitGUID("player")). info.faction =
@@ -3887,6 +3924,10 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
   if self.AllyFaction == nil then
     return
   end
+
+  -- This must run before the enemy-only enable/count gates below. Friendly
+  -- specs can arrive without any enemy roster-count change.
+  self:UpdateFriendlyScoreboardSpecs()
 
   local _, _, _, _, numEnemies = GetBattlefieldTeamInfo(self.EnemyFaction)
 
@@ -4113,6 +4154,10 @@ function BattleGroundEnemies:GROUP_ROSTER_UPDATE()
   end
   self.Allies:AfterPlayerSourceUpdate()
   self.Allies:UpdateAllUnitIDs()
+
+  -- The roster can build after the latest scoreboard event. Fill any newly
+  -- created friendly buttons immediately from the current scoreboard rows.
+  self:UpdateFriendlyScoreboardSpecs()
 
   -- unitIDs are now assigned — refresh raid target icons on ally buttons
   if self.Allies.Players then

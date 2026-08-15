@@ -2,6 +2,7 @@
 .claude
 
 # Maintainer-only notes (not shipped, not committed)
+package-addon.sh
 DEFERRED.md
 TOKEN_TIERS.md
 NEW_CHANGES.md
