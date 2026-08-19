@@ -5,8 +5,7 @@
 #
 # What it does:
 #   1. Bumps the trailing version segment in BattleGroundEnemiesFixed.toc
-#      (12.0.5.N → 12.0.5.(N+1)). Done first so a malformed .toc fails
-#      fast before anything destructive happens to the live install.
+#      unless NO_VERSION_BUMP=1 is set.
 #   2. Wipes /Applications/World of Warcraft/_retail_/Interface/AddOns/BattleGroundEnemiesFixed
 #   3. Mirrors this repo into that path, excluding dev-only files
 #
@@ -75,20 +74,24 @@ if [[ -z "$current" ]]; then
   echo "ERROR: no '## Version:' line found in $TOC" >&2
   exit 1
 fi
-prefix="${current%.*}"
-last="${current##*.}"
-if ! [[ "$last" =~ ^[0-9]+$ ]]; then
-  echo "ERROR: trailing version segment not numeric: '$last' (from '$current')" >&2
-  exit 1
-fi
-next=$((last + 1))
-new="${prefix}.${next}"
-echo "Bumping version: $current -> $new"
-# In-place sed differs between BSD (macOS) and GNU (Linux/Git Bash) sed.
-if sed --version >/dev/null 2>&1; then
-  sed -i -E "s/^(## Version:) .*/\1 ${new}/" "$TOC"
+if [[ "${NO_VERSION_BUMP:-0}" == "1" ]]; then
+  echo "Keeping version: $current"
 else
-  sed -i '' -E "s/^(## Version:) .*/\1 ${new}/" "$TOC"
+  prefix="${current%.*}"
+  last="${current##*.}"
+  if ! [[ "$last" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: trailing version segment not numeric: '$last' (from '$current')" >&2
+    exit 1
+  fi
+  next=$((last + 1))
+  new="${prefix}.${next}"
+  echo "Bumping version: $current -> $new"
+  # In-place sed differs between BSD (macOS) and GNU (Linux/Git Bash) sed.
+  if sed --version >/dev/null 2>&1; then
+    sed -i -E "s/^(## Version:) .*/\1 ${new}/" "$TOC"
+  else
+    sed -i '' -E "s/^(## Version:) .*/\1 ${new}/" "$TOC"
+  fi
 fi
 
 # --- Step 2: wipe-and-replace the live install --------------------------

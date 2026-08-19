@@ -1,6 +1,6 @@
 ## Interface: 120100
 ## Title: BattleGroundEnemiesFixed
-## Version: 12.1.0.1
+## Version: 12.1.0.2
 ## Author: RBGDEV
 ## Category: RBGDEV
 ## Notes: Credit to BattleGroundEnemies for the original code, author: Bullsei

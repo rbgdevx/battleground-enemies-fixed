@@ -70,6 +70,7 @@ read_globals = {
   "GetInventorySlotInfo", "GetItemIcon", "GetItemInfo", "GetLocale", "GetMacroInfo",
   "GetMaxPlayerLevel", "GetNormalizedRealmName", "GetNumArenaOpponentSpecs",
   "GetNumArenaOpponents", "GetNumBattlefieldScores", "GetNumClasses", "GetNumGroupMembers",
+  "GetNumSubgroupMembers",
   "GetNumSpecializationsForClassID", "GetNumSpellTabs", "GetPlayerInfoByGUID",
   "GetRaidRosterInfo", "GetRaidTargetIndex", "GetRealmName", "GetSpecialization",
   "GetSpecializationInfoByID", "GetSpecializationInfoForClassID", "GetSpecializationRole",

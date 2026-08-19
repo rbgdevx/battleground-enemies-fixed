@@ -3290,25 +3290,18 @@ function BattleGroundEnemies:UpdateFriendlyScoreboardSpecs()
     return
   end
 
-  local needsSpec = false
-  for _, playerButton in pairs(self.Allies.Players) do
-    local playerDetails = playerButton.PlayerDetails
-    if playerDetails and type(playerDetails.PlayerSpecNameScoreboard) ~= "string" then
-      needsSpec = true
-      break
-    end
-  end
-  if not needsSpec then
-    return
-  end
-
   for i = 1, GetNumBattlefieldScores() do
     local scoreInfo = C_PvP.GetScoreInfo(i)
     if scoreInfo and scoreInfo.faction == self.AllyFaction and type(scoreInfo.name) == "string" then
       local playerButton = self.Allies.Players[self:CanonicalName(scoreInfo.name)]
       local playerDetails = playerButton and playerButton.PlayerDetails
-      if playerDetails and type(playerDetails.PlayerSpecNameScoreboard) ~= "string" then
-        playerDetails.PlayerSpecNameScoreboard = scoreInfo.talentSpec
+      local talentSpec = scoreInfo.talentSpec
+      local hasTalentSpec = type(talentSpec) == "string"
+      if hasTalentSpec and not (issecretvalue and issecretvalue(talentSpec)) then
+        hasTalentSpec = talentSpec ~= ""
+      end
+      if playerDetails and hasTalentSpec then
+        playerDetails.PlayerSpecNameScoreboard = talentSpec
         if playerButton.SpecName then
           playerButton.SpecName:SetSpec()
         end
