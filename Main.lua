@@ -238,8 +238,9 @@ local bgMaxPlayerCorrections = {
 -- for several BGs -- notably epics return the TOTAL (80) instead of the per-team
 -- bracket size (40), which would trip SelectPlayerCountProfile's ">40 -> no
 -- profile" guard and hide all frames. Map known instance IDs to the per-team
--- count, and pin Solo Blitz (Solo RBG) to 8v8 regardless of map. Returns 0 when
--- nothing is known yet (instanceID nil during the load transition). The caller
+-- count, pin Solo Blitz (Solo RBG) to 8v8, and pin regular rated battlegrounds
+-- to 10v10 regardless of map. Returns 0 when nothing is known yet (instanceID
+-- nil during the load transition). The caller
 -- (SelectPlayerCountProfile) treats 0 as "no profile" (no enemies until it
 -- settles) and any >40 total-misreport from an UNLISTED map as an epic ->
 -- defaults to the 16-40 bracket (clamps to 40) rather than guessing a small
@@ -251,6 +252,9 @@ local bgMaxPlayerCorrections = {
 function BattleGroundEnemies:GetCorrectedMaxPlayers()
   if C_PvP and C_PvP.IsSoloRBG and C_PvP.IsSoloRBG() then
     return 8
+  end
+  if C_PvP and C_PvP.IsRatedBattleground and C_PvP.IsRatedBattleground() then
+    return 10
   end
   local _, _, _, _, maxPlayers, _, _, instanceID = GetInstanceInfo()
   if instanceID and bgMaxPlayerCorrections[instanceID] then
