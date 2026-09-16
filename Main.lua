@@ -2935,9 +2935,9 @@ function BattleGroundEnemies:UNIT_TARGET(unitID)
 end
 
 local function changeVisibility(frame, visible)
-  -- Edit Mode frames (e.g. CompactArenaFrame) override SetScale with a re-anchor loop over
-  -- GetNumPoints(), which is a secret value in arena and errors. SetScaleBase is the plain widget method.
+  -- Use the original scale setter to avoid Edit Mode's secret anchor loop.
   local setScale = frame.SetScaleBase or frame.SetScale
+
   if visible then
     frame:SetAlpha(1)
     setScale(frame, 1)
