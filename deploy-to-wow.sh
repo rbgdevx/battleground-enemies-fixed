@@ -14,6 +14,7 @@
 #   .gitignore    — version control
 #   .DS_Store     — macOS Finder noise
 #   .claude/      — agent state
+#   .codex/       — project decisions and agent state
 #   .vscode/      — editor config
 #   .luarc.json   — lua-language-server config
 #   .libraries/   — Blizzard UI reference source (read-only docs for devs)
@@ -113,6 +114,7 @@ EXCLUDES=(
   '.gitignore'
   '.DS_Store'
   '.claude'
+  '.codex'
   '.vscode'
   '.luarc.json'
   '.libraries'
