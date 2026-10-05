@@ -48,6 +48,10 @@ local UnitIsGhost = UnitIsGhost
 local UnitName = UnitName
 local UnitRace = UnitRace
 
+-- Forever names are regional first-name/surname identities, without realms.
+local UsesSurnames = RegionalUniqueNamesEnabled and RegionalUniqueNamesEnabled()
+local UnitNameSeparator = UsesSurnames and Constants.CharacterNameSeparatorConsts.CHARACTERNAME_SURNAME_SEPARATOR or "-"
+
 local IsRetail = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
 local IsClassic = WOW_PROJECT_ID == WOW_PROJECT_CLASSIC
 local IsWrath = WOW_PROJECT_ID == WOW_PROJECT_WRATH_CLASSIC
@@ -76,7 +80,9 @@ BattleGroundEnemies = CreateFrame("Frame", "BattleGroundEnemies", UIParent)
 local BattleGroundEnemies = BattleGroundEnemies
 BattleGroundEnemies.Counter = {}
 
--- Player-name canonicalization helper.
+-- Player-name canonicalization helper. Preserve Forever's full "First Surname"
+-- identity without a realm suffix.
+-- The realm-name handling below remains for Retail and other Classic clients.
 -- Players[] dict was historically keyed by whatever the API returned:
 --   PVPScoreInfo.name / GetRaidRosterInfo / UnitName(unit, true) all return
 --   "Name" for same-realm players and "Name-Realm" for cross-realm.
@@ -106,6 +112,9 @@ function BattleGroundEnemies:CanonicalName(name)
   if issecretvalue and issecretvalue(name) then
     return name
   end
+  if UsesSurnames then
+    return name
+  end
   if name:find("-", 1, true) then
     return name
   end
@@ -121,10 +130,11 @@ end
 -- in PvP; UnitFullName, UnitNameUnmodified, and UnitGUID still use the stricter
 -- identity predicate and must not be used as substitutes here.
 --
--- Return nil unless both UnitName results are ordinary strings. This keeps
+-- Return nil for secret, unresolved, or non-player identities. This keeps
 -- startup/unavailable/non-player tokens out of table lookups without ever
 -- comparing or concatenating a secret value. The result always uses the same
--- canonical Name-Realm form as Players[] and PlayerHistory.
+-- canonical identity as Players[] and PlayerHistory: "First Surname" on
+-- Forever, "Name-Realm" on clients that use realm-qualified player names.
 function BattleGroundEnemies:GetCanonicalUnitName(unitID)
   if type(unitID) ~= "string" then
     return nil
@@ -153,7 +163,8 @@ function BattleGroundEnemies:GetCanonicalUnitName(unitID)
   end
 
   if type(server) == "string" and server ~= "" then
-    return self:CanonicalName(name .. "-" .. server)
+    -- UnitName's second result is a surname on Forever, a realm elsewhere.
+    return self:CanonicalName(name .. UnitNameSeparator .. server)
   end
   return self:CanonicalName(name)
 end
@@ -1346,10 +1357,9 @@ end
 --Triggered immediately before PLAYER_ENTERING_WORLD on login and UI Reload, but NOT when entering/leaving instances.
 function BattleGroundEnemies:PLAYER_LOGIN()
   self.UserDetails = {
-    -- Canonicalize so this matches Players[] keys (which are canonical
-    -- since the CanonicalName refactor). UnitName("player") returns the
-    -- short form; CanonicalName appends our own realm.
-    PlayerName = self:CanonicalName(UnitName("player")),
+    -- Use the same identity as target/focus/nameplate and roster lookups,
+    -- including Forever's surname.
+    PlayerName = self:GetCanonicalUnitName("player"),
     PlayerClass = select(2, UnitClass("player")),
     isGroupLeader = UnitIsGroupLeader("player"),
     isGroupAssistant = UnitIsGroupAssistant("player"),
@@ -3877,7 +3887,12 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
       if IsInRaid() then
         raidNames = {}
         for i = 1, GetNumGroupMembers() or 0 do
-          local memberName = GetRaidRosterInfo(i)
+          local memberName
+          if UsesSurnames then
+            memberName = self:GetCanonicalUnitName("raid" .. i)
+          else
+            memberName = GetRaidRosterInfo(i)
+          end
           if
             type(memberName) == "string"
             and not (issecretvalue and issecretvalue(memberName))
@@ -4107,13 +4122,11 @@ function BattleGroundEnemies:GROUP_ROSTER_UPDATE()
     if IsInRaid() then
       for i = 1, numGroupMembers do -- the player itself only shows up here when he is in a raid
         local name, rank, _, _, _, classToken, _, _, _, role, _, _ = GetRaidRosterInfo(i)
+        if UsesSurnames then
+          name = self:GetCanonicalUnitName("raid" .. i)
+        end
 
-        -- Canonicalize the GetRaidRosterInfo name so it can be compared with
-        -- UserDetails.PlayerName (canonical post-refactor). For same-realm
-        -- members (always true for the user themselves) GetRaidRosterInfo
-        -- returns short "Name"; UserDetails.PlayerName is "Name-Realm". The
-        -- old direct compare would have silently missed self-identification
-        -- after the canonicalization refactor.
+        -- Use the same canonical identity for the self comparison and allies.
         if type(name) == "string" and self:CanonicalName(name) == self.UserDetails.PlayerName then
           selfRaidRole = role
         elseif type(name) == "string" and rank and classToken then
