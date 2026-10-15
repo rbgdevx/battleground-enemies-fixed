@@ -9,6 +9,7 @@ if not Data.L then
   print("|cffff0000BattleGroundEnemiesFixed|r: Locales.lua failed to load. Reinstall the addon.")
 end
 local L = Data.L
+local IsForever = Data.IsForever
 local LSM = LibStub("LibSharedMedia-3.0")
 
 local AceConfigDialog = LibStub("AceConfigDialog-3.0")
@@ -22,6 +23,7 @@ local math_min = math.min
 local pairs = pairs
 -- local print = print
 local time = time
+local tonumber = tonumber
 local type = type
 local unpack = unpack
 
@@ -34,12 +36,14 @@ local GetBattlefieldTeamInfo = GetBattlefieldTeamInfo
 local GetNumBattlefieldScores = GetNumBattlefieldScores
 local GetNumGroupMembers = GetNumGroupMembers
 local GetRaidRosterInfo = GetRaidRosterInfo
+local GetSpecialization = C_SpecializationInfo and C_SpecializationInfo.GetSpecialization or GetSpecialization
 local GetSpellName = C_Spell and C_Spell.GetSpellName or GetSpellName
 local InCombatLockdown = InCombatLockdown
 local IsInInstance = IsInInstance
 local IsInRaid = IsInRaid
 local RequestBattlefieldScoreData = RequestBattlefieldScoreData
 local SetBattlefieldScoreFaction = SetBattlefieldScoreFaction
+local UnitClassBase = UnitClassBase
 local UnitExists = UnitExists
 local UnitFactionGroup = UnitFactionGroup
 local UnitGUID = UnitGUID
@@ -167,6 +171,19 @@ function BattleGroundEnemies:GetCanonicalUnitName(unitID)
     return self:CanonicalName(name .. UnitNameSeparator .. server)
   end
   return self:CanonicalName(name)
+end
+
+function BattleGroundEnemies.GetArenaOpponentIndex(playerButton)
+  if
+    not BattleGroundEnemies.states.real.isInArena
+    or BattleGroundEnemies:IsTestmodeActive()
+    or not playerButton.PlayerIsEnemy
+  then
+    return nil
+  end
+  local details = playerButton.PlayerDetails
+  local unitID = details and details.PlayerArenaUnitID
+  return unitID and tonumber(unitID:match("^arena(%d+)$"))
 end
 
 -- Track scoreboard faction filter so we can re-assert after the user (or
@@ -734,8 +751,8 @@ do
       local name, classToken, specName
 
       if HasSpeccs then
-        local randomSpec
-        randomSpec = Data.RolesToSpec[role][math_random(1, #Data.RolesToSpec[role])]
+        local specs = Data.RolesToSpec[IsForever and "DAMAGER" or role]
+        local randomSpec = specs[math_random(1, #specs)]
         classToken = randomSpec.classToken
         specName = randomSpec.specName
       else
@@ -3705,7 +3722,7 @@ function BattleGroundEnemies:HarvestRaidRoster()
     -- complete data. Without this guard, GetGuildInfo also returns nil
     -- for an unloaded unit and we'd incorrectly write GuildName=false
     -- ("confirmed guildless") into PlayerHistory.
-    local _, classToken = UnitClassBase(unit)
+    local classToken = UnitClassBase(unit)
     local raceName = UnitRace(unit) -- 1st return: localized; matches scoreboard.raceName
     if not classToken and not raceName then
       return
@@ -3904,14 +3921,9 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
       end
 
       if raidNames and next(raidNames) then
-        -- Require >= 2 raid peers' scoreboard rows to agree with our team
-        -- number before committing. With one peer it's still possible for
-        -- both rows to be transiently wrong with the same default value;
-        -- requiring two distinct peers makes that essentially impossible.
-        -- ANY disagreement (even one peer reporting a different team)
-        -- means the scoreboard is mid-populate and inconsistent — bail
-        -- and retry on the next UBS tick.
-        local REQUIRED_PEERS = 2
+        -- Two-player arenas have only one teammate available for corroboration.
+        -- Keep the two-peer threshold everywhere else.
+        local REQUIRED_PEERS = self.states.real.isInArena and GetNumGroupMembers() == 2 and 1 or 2
         local agreed = 0
         for i = 1, GetNumBattlefieldScores() do
           local row = C_PvP.GetScoreInfo(i)

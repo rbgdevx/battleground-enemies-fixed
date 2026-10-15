@@ -12,12 +12,15 @@ end
 local L = Data.L
 
 local GetClassInfo = GetClassInfo
+local GetSpecialization = C_SpecializationInfo and C_SpecializationInfo.GetSpecialization or GetSpecialization
 local GetNumSpecializationsForClassID = C_SpecializationInfo and C_SpecializationInfo.GetNumSpecializationsForClassID
   or GetNumSpecializationsForClassID
 local GetSpecializationInfoForClassID = GetSpecializationInfoForClassID
 -- local GetSpellName = C_Spell and C_Spell.GetSpellName or GetSpellName
 -- local C_Spell = C_Spell
 -- local GetSpellTexture = C_Spell and C_Spell.GetSpellTexture or GetSpellTexture
+
+Data.IsForever = WOW_PROJECT_ID == WOW_PROJECT_CAMELOT
 
 local IsRetail = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
 -- local IsClassic = WOW_PROJECT_ID == WOW_PROJECT_CLASSIC

@@ -4,7 +4,10 @@ local BattleGroundEnemies = BattleGroundEnemies
 local Data = select(2, ...)
 
 local L = Data.L
+local IsForever = Data.IsForever
 local LSM = LibStub("LibSharedMedia-3.0")
+local UpdateArenaOpponentSpecDisplay = UnitFrameUtil and UnitFrameUtil.UpdateArenaOpponentSpecDisplay
+local GetArenaOpponentIndex = BattleGroundEnemies.GetArenaOpponentIndex
 
 local defaultSettings = {
   Enabled = true,
@@ -52,8 +55,9 @@ local specName = BattleGroundEnemies:NewButtonModule({
   localizedModuleName = L.SpecName,
   defaultSettings = defaultSettings,
   options = options,
-  enabledInThisExpansion = true,
+  enabledInThisExpansion = not IsForever,
   attachSettingsToButton = false,
+  events = { "ArenaOpponentShown", "ArenaOpponentHidden" },
   flags = {
     SetZeroWidthWhenDisabled = true,
   },
@@ -146,19 +150,25 @@ function specName:AttachToPlayerButton(playerButton)
     -- this button by the identity matcher. NOT PlayerSpecName — that field gets
     -- overwritten by the harvest seeder with the player's last-seen spec from a
     -- PREVIOUS game (needed for role/icon logic, which can't use a secret), and
-    -- rendering it here showed stale specs. Mid-match the value is
-    -- SecretInActivePvPMatch, so render it 100% as-is: only type() (safe on a
-    -- secret) decides empty-vs-present, and SetText (InsecureSecretArguments)
-    -- draws it. No comparison / slicing / formatting — any of those would taint.
-    -- nil or false (no scoreboard spec yet) just clears the text.
+    -- rendering it here showed stale specs. Pass current scoreboard text
+    -- directly to SetText; type() safely selects the missing-value path.
+    -- When absent, real arena rows use the native text helper; other rows clear.
     local spec = playerButton.PlayerDetails.PlayerSpecNameScoreboard
     local specType = type(spec)
     if specType == "nil" or specType == "boolean" then
-      self.fs:SetText("")
+      local arenaIndex = GetArenaOpponentIndex(playerButton)
+      if arenaIndex and UpdateArenaOpponentSpecDisplay then
+        UpdateArenaOpponentSpecDisplay({ specNameText = self.fs }, arenaIndex)
+      else
+        self.fs:SetText("")
+      end
       return
     end
     self.fs:SetText(spec)
   end
+
+  container.ArenaOpponentShown = container.SetSpec
+  container.ArenaOpponentHidden = container.SetSpec
 
   container.ApplyAllSettings = function(self)
     if not self.config then

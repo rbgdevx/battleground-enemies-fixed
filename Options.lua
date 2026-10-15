@@ -1337,8 +1337,10 @@ local function addEnemyAndAllySettings(self, mainFrame)
       end
     end
 
-    local playerCountConfigDefaults = BattleGroundEnemies.db.defaults.profile[playerType].playerCountConfigs
-    local playerCountConfigDefault = playerCountConfigDefaults[i]
+    local playerTypeDefaults = BattleGroundEnemies.db.defaults.profile[playerType]
+    local playerCountConfigDefaults = playerTypeDefaults.playerCountConfigs
+    local playerCountConfigDefault = isCustomProfile and playerTypeDefaults.customPlayerCountConfigs["**"]
+      or playerCountConfigDefaults[i]
 
     local tempInputs = {
       MinPlayerCount = playerCountLocation.minPlayerCount,
@@ -1412,7 +1414,7 @@ local function addEnemyAndAllySettings(self, mainFrame)
             overWriteSettigsKeepPlayerCount(
               thisPlayerCountConfigs,
               indexThisPlayerCountConfg,
-              isCustomProfileEnabled and playerCountConfigDefaults[value] or playerCountConfigDefault
+              playerCountConfigDefaults[value]
             )
           end,
           values = function()

@@ -1,5 +1,6 @@
 ---@class BattleGroundEnemies
 local BattleGroundEnemies = BattleGroundEnemies
+local After = C_Timer.After
 
 local currentDBVersion = 2
 
@@ -81,23 +82,23 @@ function BattleGroundEnemies:UpgradeProfile(profile, profileName)
              BattleGroundEnemies.db.profile.Font to BattleGroundEnemies.db.profile.Text.Font
         ]]
 
-    C_Timer.After(20, function()
+    self.db:ResetProfile(nil, true)
+
+    After(20, function()
       if not beSilent then
         BattleGroundEnemies:Information(
           "profile "
             .. profileName
-            .. " is not compatible with the current version of BattleGroundEnemies due to the fact that many options got merged into a single one its not possible to convert it. It will be reset to default settings"
+            .. " is not compatible with the current version of BattleGroundEnemies due to the fact that many options got merged into a single one its not possible to convert it. It has been reset to default settings"
         )
       end
-
-      BattleGroundEnemies.db:ResetProfile()
     end)
   end
 
   self:SetCurrentDbVerion(profile)
 
   if didStuff then
-    C_Timer.After(20, function()
+    After(20, function()
       if not beSilent then
         BattleGroundEnemies:Information("profile " .. profileName .. " saved varaibles upgraded to new format")
       end
@@ -107,7 +108,6 @@ function BattleGroundEnemies:UpgradeProfile(profile, profileName)
 end
 
 function BattleGroundEnemies:UpgradeProfiles(db)
-  for profileName, profileData in pairs(db.profiles) do
-    self:UpgradeProfile(profileData, profileName)
-  end
+  -- Inactive profiles are upgraded by ProfileChanged when selected.
+  self:UpgradeProfile(db.profile, db:GetCurrentProfile())
 end

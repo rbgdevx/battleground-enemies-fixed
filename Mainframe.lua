@@ -13,8 +13,7 @@ local pairs = pairs
 local type = type
 
 local CreateFrame = CreateFrame
-local GetArenaOpponentSpec = GetArenaOpponentSpec
-local GetSpecializationInfoByID = GetSpecializationInfoByID
+local GetSpecialization = C_SpecializationInfo and C_SpecializationInfo.GetSpecialization or GetSpecialization
 local InCombatLockdown = InCombatLockdown
 local UnitGUID = UnitGUID
 local UnitRace = UnitRace
@@ -1998,18 +1997,9 @@ function BattleGroundEnemies.Enemies:CreateArenaEnemies()
     return
   end
 
-  -- #1 ghost-frame gate (arena enemy path). Arena enemies come from the
-  -- ArenaPlayers source -- the enemy build path that the UBS gate does NOT
-  -- cover -- so without this, disabling enemies in an arena bracket would still
-  -- build hidden enemy frames. We derive the decision from a reliable opponent
-  -- count: SetRealPlayerCount runs SelectPlayerCountProfile (sets
-  -- playerType/playerCountConfig synchronously), then ShouldBeEnabled reads
-  -- those config fields -- which is correct even mid-combat, unlike self.enabled
-  -- (which lags past InCombatLockdown). Live count first, falling back to the
-  -- prep-phase spec count so disabled enemies are suppressed during arena prep
-  -- too. When the count is 0 we don't yet have a fresh profile, so we fall
-  -- through to the normal build below -- which produces 0 buttons anyway (the
-  -- loop finds no opponents), so the enabled case is never broken.
+  -- Select the bracket from the live/prep opponent count before reconciling
+  -- scoreboard rows. Check the configuration directly because self.enabled
+  -- can lag while combat prevents frame updates.
   local opponentCount = (GetNumArenaOpponents and GetNumArenaOpponents()) or 0
   if opponentCount == 0 and GetNumArenaOpponentSpecs then
     opponentCount = GetNumArenaOpponentSpecs() or 0
@@ -2017,56 +2007,13 @@ function BattleGroundEnemies.Enemies:CreateArenaEnemies()
   if opponentCount > 0 then
     self:SetRealPlayerCount(opponentCount)
     if not self:ShouldBeEnabled() then
-      -- Enemy frames off for this bracket: tear down ALL enemy buttons. Must use
-      -- RemoveAllPlayersFromAllSources, NOT just wipe the ArenaPlayers source:
-      -- the enemy AfterPlayerSourceUpdate falls back to the Scoreboard source
-      -- when ArenaPlayers is empty (Mainframe.lua ~429-438), and Scoreboard IS
-      -- populated in solo shuffle / arenas with a scoreboard -- so wiping only
-      -- ArenaPlayers would rebuild enemies from scoreboard and defeat the gate.
-      -- Wiping every source yields 0 buttons. Mirrors the UBS enemy gate.
+      -- Clear every source so the scoreboard fallback cannot rebuild disabled rows.
       self:RemoveAllPlayersFromAllSources()
       return
     end
   end
 
   self:BeforePlayerSourceUpdate(BattleGroundEnemies.consts.PlayerSources.ArenaPlayers)
-  for i = 1, 15 do --we can have 15 enemies in the Arena Brawl Packed House
-    local unitID = "arena" .. i
-
-    local _, classToken, specName
-    if GetArenaOpponentSpec and GetSpecializationInfoByID then --HasSpeccs
-      local specID, gender = GetArenaOpponentSpec(i)
-
-      if specID and specID > 0 then
-        _, specName, _, _, _, classToken, _ = GetSpecializationInfoByID(specID, gender)
-      end
-    elseif WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
-      -- Legacy clients without arena specialization data still need the old
-      -- class fallback. On 12.1 mainline UnitClass is identity-restricted for
-      -- hostile units, so never probe it there.
-      classToken = select(2, UnitClass(unitID))
-    end
-
-    if classToken then
-      local playerName = BattleGroundEnemies:GetCanonicalUnitName(unitID)
-      -- During arena startup the name may still be secret. Keep that value
-      -- display-only while arenaN remains the structural roster key.
-      local secretDisplayName
-      if not playerName then
-        local rawName, rawServer = UnitName(unitID)
-        if issecretvalue and (issecretvalue(rawName) or issecretvalue(rawServer)) then
-          secretDisplayName = rawName
-        end
-      end
-
-      self:AddPlayerToSource(BattleGroundEnemies.consts.PlayerSources.ArenaPlayers, {
-        name = playerName,
-        classToken = classToken,
-        specName = specName,
-        additionalData = { PlayerArenaUnitID = unitID, SecretDisplayName = secretDisplayName },
-      })
-    end
-  end
 
   self:AfterPlayerSourceUpdate()
 

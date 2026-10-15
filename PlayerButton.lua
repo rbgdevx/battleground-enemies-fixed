@@ -49,7 +49,7 @@ local UnitInRange = UnitInRange
 local UnitIsDeadOrGhost = UnitIsDeadOrGhost
 local UnitIsVisible = UnitIsVisible
 local CheckInteractDistance = CheckInteractDistance
-local C_Item = C_Item
+local IsItemInRange = C_Item and C_Item.IsItemInRange
 local C_Spell = C_Spell
 
 --lua
@@ -181,14 +181,14 @@ local function isItemInRange(unitID)
   if InCombatLockdownRestriction(unitID) then
     return false
   end
-  if not C_Spell or not C_Spell.IsItemInRange then
+  if not IsItemInRange then
     return false
   end
-  local r1 = C_Item.IsItemInRange(140786, unitID) -- Ley Spider Eggs (38y)
+  local r1 = IsItemInRange(140786, unitID) -- Ley Spider Eggs (38y)
   if r1 then
     return true
   end
-  local r2 = C_Item.IsItemInRange(116139, unitID) -- Haunting Memento (50y)
+  local r2 = IsItemInRange(116139, unitID) -- Haunting Memento (50y)
   if r2 then
     return true
   end

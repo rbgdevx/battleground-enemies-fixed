@@ -5,6 +5,7 @@ local BattleGroundEnemies = BattleGroundEnemies
 local L = Data.L
 local CreateFrame = CreateFrame
 local GetTime = GetTime
+local GetItemIconByID = C_Item.GetItemIconByID
 local GetSpellTexture = C_Spell and C_Spell.GetSpellTexture or GetSpellTexture
 
 local defaultSettings = {
@@ -89,7 +90,7 @@ function trinket:AttachToPlayerButton(playerButton)
     local spellIdSecret = issecretvalue and spellId and issecretvalue(spellId)
     local itemIdSecret = issecretvalue and itemID and issecretvalue(itemID)
     if itemID and itemID ~= 0 and not itemIdSecret then
-      texture = GetItemIcon(itemID)
+      texture = GetItemIconByID(itemID)
     elseif spellId and not spellIdSecret then
       -- Guard: GetSpellTexture crashes on nil input
       local _, spellTextureNoOverride = GetSpellTexture(spellId)

@@ -141,6 +141,8 @@ function name:AttachToPlayerButton(playerButton)
     local config = self.config
     -- name
     self.fs:ApplyFontStringSettings(config.Text)
+    self.fs:SetMaxLines(1)
+    self.fs:SetWordWrap(false)
     self:SetName()
   end
 

@@ -71,7 +71,7 @@ local generalOptions = function(location)
             local locationn = location[Icons[i]]
             local optiontable = {} --hold a copy of the option table for the OnOkayButtonPressed otherweise the table will be empty
             Mixin(optiontable, option)
-            LibSpellIconSelector:Show(locationn, function(spelldata)
+            LibSpellIconSelector:Show(locationn.Icon, function(spelldata)
               Data.SetOption(locationn, optiontable, spelldata.icon)
               BattleGroundEnemies:NotifyChange()
             end)

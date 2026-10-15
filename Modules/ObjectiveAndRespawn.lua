@@ -1412,6 +1412,16 @@ function objectiveAndRespawn:AttachToPlayerButton(playerButton)
 
   frame:SetScript("OnEvent", function(self, event, ...)
     if not BattleGroundEnemies:IsInPvPInstance() then
+      if event == "PLAYER_ENTERING_WORLD" then
+        if self.OrbTicker then
+          self.OrbTicker:Cancel()
+          self.OrbTicker = nil
+        end
+        if self.FlagTicker then
+          self.FlagTicker:Cancel()
+          self.FlagTicker = nil
+        end
+      end
       return
     end
     if self[event] then

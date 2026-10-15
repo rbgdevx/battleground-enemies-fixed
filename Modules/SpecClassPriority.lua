@@ -2,10 +2,13 @@
 local Data = select(2, ...)
 ---@class BattleGroundEnemies
 local BattleGroundEnemies = BattleGroundEnemies
+local IsForever = Data.IsForever
 local L = Data.L
 local CreateFrame = CreateFrame
 local GetSpellTexture = C_Spell and C_Spell.GetSpellTexture or GetSpellTexture
 local GetClassAtlas = GetClassAtlas
+local UpdateArenaOpponentSpecDisplay = UnitFrameUtil and UnitFrameUtil.UpdateArenaOpponentSpecDisplay
+local GetArenaOpponentIndex = BattleGroundEnemies.GetArenaOpponentIndex
 
 local generalDefaults = {
   showSpecIfExists = true,
@@ -81,12 +84,24 @@ local SpecClassPriority = BattleGroundEnemies:NewButtonModule({
   generalOptions = generalOptions,
   events = {
     "UnitDied",
+    "ArenaOpponentShown",
+    "ArenaOpponentHidden",
   },
   enabledInThisExpansion = true,
   flags = {
     SetZeroWidthWhenDisabled = true,
   },
 })
+
+local function createArenaSpecIcon(parent)
+  if not UpdateArenaOpponentSpecDisplay then
+    return nil
+  end
+  local icon = parent:CreateTexture(nil, "BORDER", nil, 2)
+  icon:SetAllPoints()
+  icon:SetAlpha(0)
+  return icon
+end
 
 local function attachToPlayerButton(playerButton)
   local frame = CreateFrame("frame", nil, playerButton)
@@ -97,6 +112,7 @@ local function attachToPlayerButton(playerButton)
   frame.ShowsSpec = false
   frame.SpecClassIcon = frame:CreateTexture(nil, "BORDER", nil, 2)
   frame.SpecClassIcon:SetAllPoints()
+  frame.ArenaSpecIcon = createArenaSpecIcon(frame)
   frame.PriorityIcon = frame:CreateTexture(nil, "BORDER", nil, 3)
   frame.PriorityIcon:SetAllPoints()
   frame.Cooldown = BattleGroundEnemies.MyCreateCooldown(frame)
@@ -300,6 +316,9 @@ local function attachToPlayerButton(playerButton)
     end
     if highestPrioritySpell then
       frame.SpecClassIcon:Hide()
+      if frame.ArenaSpecIcon then
+        frame.ArenaSpecIcon:Hide()
+      end
       frame.DisplayedAura = highestPrioritySpell
       frame.PriorityIcon:Show()
       local iconToShow = highestPrioritySpell.icon or GetSpellTexture(118)
@@ -310,6 +329,9 @@ local function attachToPlayerButton(playerButton)
       )
     else
       frame.SpecClassIcon:Show()
+      if frame.ArenaSpecIcon then
+        frame.ArenaSpecIcon:Show()
+      end
       frame.DisplayedAura = false
       frame.PriorityIcon:Hide()
       frame.Cooldown:Clear()
@@ -337,6 +359,9 @@ local function attachToPlayerButton(playerButton)
       if self.ShowsSpec then
         BattleGroundEnemies.CropImage(self.SpecClassIcon, width, height)
       end
+      if self.ArenaSpecIcon then
+        BattleGroundEnemies.CropImage(self.ArenaSpecIcon, width, height)
+      end
       BattleGroundEnemies.CropImage(self.PriorityIcon, width, height)
     end
   end
@@ -353,8 +378,14 @@ local function attachToPlayerButton(playerButton)
     end
     self.ShowsSpec = false
 
+    local arenaIndex = GetArenaOpponentIndex(playerButton)
+    local useArenaSpec = arenaIndex and UpdateArenaOpponentSpecDisplay and self.config.showSpecIfExists
+    self.SpecClassIcon:SetAlpha(1)
+    if self.ArenaSpecIcon then
+      self.ArenaSpecIcon:SetAlpha(0)
+    end
     local specData = playerButton:GetSpecData()
-    if specData and self.config.showSpecIfExists then
+    if not IsForever and specData and self.config.showSpecIfExists then
       self.SpecClassIcon:SetTexture(specData.specIcon)
       self.ShowsSpec = true
     else
@@ -371,6 +402,11 @@ local function attachToPlayerButton(playerButton)
         end
       end
     end
+    if useArenaSpec then
+      local hasSpec = UpdateArenaOpponentSpecDisplay({ specPortrait = self.ArenaSpecIcon }, arenaIndex)
+      self.ArenaSpecIcon:SetAlphaFromBoolean(hasSpec, 1, 0)
+      self.SpecClassIcon:SetAlphaFromBoolean(hasSpec, 0, 1)
+    end
     self:CropImage()
     self.Cooldown:ApplyCooldownSettings(moduleSettings.Cooldown, true, { 0, 0, 0, 0.5 })
     if not moduleSettings.showHighestPriority then
@@ -384,6 +420,8 @@ local function attachToPlayerButton(playerButton)
     end
     self:MakeSureWeAreOnTop()
   end
+  frame.ArenaOpponentShown = frame.ApplyAllSettings
+  frame.ArenaOpponentHidden = frame.ApplyAllSettings
   return frame
 end
 
