@@ -1929,25 +1929,52 @@ function BattleGroundEnemies:SetupOptions()
               },
               RoleSortingOrder = {
                 type = "select",
-                name = L.RoleSortingOrder,
-                desc = L.RoleSortingOrder_Desc,
+                name = "Ally sorting",
+                sorting = {
+                  "CLASS",
+                  "NAME",
+                  "DAMAGER_HEALER_TANK",
+                  "DAMAGER_TANK_HEALER",
+                  "HEALER_DAMAGER_TANK",
+                  "HEALER_TANK_DAMAGER",
+                  "TANK_DAMAGER_HEALER",
+                  "TANK_HEALER_DAMAGER",
+                },
+                desc = "Choose how allies are ordered in arenas and battlegrounds. Role orders use class, then name, to break ties. Class sorting uses name to break ties.",
+                get = function()
+                  local mode = location.AllySorting or "ROLE"
+                  return mode == "ROLE" and location.RoleSortingOrder or mode
+                end,
+                set = function(_, value)
+                  if value == "CLASS" or value == "NAME" then
+                    location.AllySorting = value
+                  else
+                    location.AllySorting = "ROLE"
+                    location.RoleSortingOrder = value
+                  end
+                  BattleGroundEnemies:ApplyAllSettingsDebounce()
+                end,
                 values = function()
-                  local roles = Data.PlayerRoles
-                  local allRolePermutations = Data.Helpers.permgen(roles)
-
-                  local result = {}
+                  local allRolePermutations = Data.Helpers.permgen(Data.PlayerRoles)
+                  local result = { CLASS = "Class", NAME = "Name" }
                   for _, perm in ipairs(allRolePermutations) do
                     local key = table.concat(perm, "_")
                     local values = {}
-
                     for _, role in ipairs(perm) do
                       table.insert(values, _G[role])
                     end
                     result[key] = table.concat(values, " > ")
                   end
-
                   return result
                 end,
+                width = "double",
+              },
+              EnemySorting = {
+                type = "select",
+                name = "Enemy sorting",
+                desc = "Choose how battleground enemies are ordered. Class sorting uses name to break ties. Arena enemies always use arena slot order.",
+                values = { CLASS = "Class", NAME = "Name" },
+                order = 102,
                 width = "double",
               },
               HideArenaframesIn = {

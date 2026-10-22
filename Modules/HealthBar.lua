@@ -4,6 +4,8 @@ local Data = select(2, ...)
 local BattleGroundEnemies = BattleGroundEnemies
 local LSM = LibStub("LibSharedMedia-3.0")
 local L = Data.L
+local GetArenaOpponentIndex = BattleGroundEnemies.GetArenaOpponentIndex
+local GetArenaOpponentSpecDisplayInfo = UnitFrameUtil and UnitFrameUtil.GetArenaOpponentSpecDisplayInfo
 
 local HealthTextTypes = {
   health = COMPACT_UNIT_FRAME_PROFILE_HEALTHTEXT_HEALTH,
@@ -141,7 +143,7 @@ local healthBar = BattleGroundEnemies:NewButtonModule({
   generalDefaults = generalDefaults,
   options = options,
   generalOptions = generalOptions,
-  events = { "UpdateHealth" },
+  events = { "UpdateHealth", "ArenaOpponentShown", "ArenaOpponentHidden" },
   flags = {
     -- Healthbar is auto-managed by SetModulePositions: full button width,
     -- height = button height minus the power bar. Don't expose per-player-count UI for it.
@@ -409,13 +411,26 @@ function healthBar:AttachToPlayerButton(playerButton)
     self.predictionAnchorsSet = nil
     self.Background:SetVertexColor(unpack(config.Background))
 
+    self:UpdateClassColor()
+  end
+
+  function playerButton.healthBar:UpdateClassColor()
     local playerDetails = playerButton.PlayerDetails
     if not playerDetails then
       return
     end
-    local color = playerDetails.PlayerClassColor
-    self:SetStatusBarColor(color.r, color.g, color.b)
+    local arenaIndex = GetArenaOpponentIndex(playerButton)
+    if arenaIndex and playerDetails.PlayerClass == "UNKNOWN" and GetArenaOpponentSpecDisplayInfo then
+      local info = GetArenaOpponentSpecDisplayInfo(arenaIndex)
+      self:SetStatusBarColor(info.barColorR, info.barColorG, info.barColorB)
+    else
+      local color = playerDetails.PlayerClassColor
+      self:SetStatusBarColor(color.r, color.g, color.b)
+    end
   end
+
+  playerButton.healthBar.ArenaOpponentShown = playerButton.healthBar.UpdateClassColor
+  playerButton.healthBar.ArenaOpponentHidden = playerButton.healthBar.UpdateClassColor
 
   return playerButton.healthBar
 end
