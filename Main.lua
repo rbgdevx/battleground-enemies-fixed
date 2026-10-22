@@ -1426,10 +1426,11 @@ function BattleGroundEnemies:PLAYER_LOGIN()
     self:ApplyAllSettings()
   end
 
+  self:InstallBlizzardFrameHooks()
+
   -- self:RegisterEvent("GROUP_ROSTER_UPDATE") ... (Keeping event registration flow intact)
 
   self:RegisterEvent("ADDON_LOADED")
-  self:ADDON_LOADED() -- unit-frame addons may already be loaded at login
   self:RegisterEvent("GROUP_ROSTER_UPDATE") --Fired whenever a group or raid is formed or disbanded, players are leaving or joining the group or raid.
   self:RegisterEvent("PLAYER_ENTERING_WORLD")
   self:RegisterEvent("PARTY_LEADER_CHANGED") --Fired when the player's leadership changed.
@@ -3059,9 +3060,8 @@ function BattleGroundEnemies:ToggleRaidFrames()
 end
 
 local hookedFrameGenerators = {}
-function BattleGroundEnemies:ADDON_LOADED()
-  -- Both Retail and Forever generate compact frames lazily. ADDON_LOADED
-  -- alone isn't enough if Edit Mode creates one after settings were applied.
+function BattleGroundEnemies:InstallBlizzardFrameHooks()
+  -- Apply visibility settings when Blizzard creates compact frames lazily.
   for _, name in ipairs({ "CompactArenaFrame_Generate", "CompactPartyFrame_Generate" }) do
     if type(_G[name]) == "function" and not hookedFrameGenerators[name] then
       hookedFrameGenerators[name] = true
@@ -3073,6 +3073,10 @@ function BattleGroundEnemies:ADDON_LOADED()
       end)
     end
   end
+end
+
+function BattleGroundEnemies:ADDON_LOADED()
+  self:InstallBlizzardFrameHooks()
   if self.db then
     self:ToggleArenaFrames()
     self:ToggleRaidFrames()
