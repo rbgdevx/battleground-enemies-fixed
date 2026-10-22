@@ -8,6 +8,22 @@ local IsForever = Data.IsForever
 local LSM = LibStub("LibSharedMedia-3.0")
 local UpdateArenaOpponentSpecDisplay = UnitFrameUtil and UnitFrameUtil.UpdateArenaOpponentSpecDisplay
 local GetArenaOpponentIndex = BattleGroundEnemies.GetArenaOpponentIndex
+local IsRetail = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+local GetPlayerSpecName = IsRetail and PlayerUtil.GetSpecName
+local GetInspectSpecialization = IsRetail and C_SpecializationInfo.GetInspectSpecialization
+local GetSpecializationNameForSpecID = GetSpecializationNameForSpecID
+local CanInspect = CanInspect
+local NotifyInspect = NotifyInspect
+local ClearInspectPlayer = ClearInspectPlayer
+local UnitGUID = UnitGUID
+local UnitSex = UnitSex
+local GetTime = GetTime
+local InCombatLockdown = InCombatLockdown
+local issecretvalue = issecretvalue
+local wipe = wipe
+local After = C_Timer.After
+local IsTestmodeActive = BattleGroundEnemies.IsTestmodeActive
+local QueueForUpdateAfterCombat = BattleGroundEnemies.QueueForUpdateAfterCombat
 
 local defaultSettings = {
   Enabled = true,
@@ -63,6 +79,269 @@ local specName = BattleGroundEnemies:NewButtonModule({
   },
 })
 
+-- Friendly arena inspection results belong only to this instance and roster.
+local friendlySpecs = {}
+local inspectQueue = {}
+local pendingInspect
+local nextInspectCheck = 0
+local layoutRefreshQueued = false
+
+local function isFriendlyArenaRow(playerButton)
+  return IsRetail and BattleGroundEnemies.states.real.isInArena
+    and not IsTestmodeActive(BattleGroundEnemies) and not playerButton.PlayerIsEnemy
+end
+
+local function getFriendlyArenaUnit(playerButton)
+  if not BattleGroundEnemies.enabled or not isFriendlyArenaRow(playerButton)
+    or not playerButton.SpecName.Enabled then
+    return nil
+  end
+  local details = playerButton.PlayerDetails
+  local unit = details and details.unitID
+  if not unit or (unit ~= "player" and not unit:match("^party%d+$") and not unit:match("^raid%d+$")) then
+    return nil
+  end
+  local guid = UnitGUID(unit)
+  if issecretvalue(guid) or not guid or guid ~= details.GUID then
+    return nil
+  end
+  return unit, guid
+end
+
+local function findFriendlyArenaUnit(guid)
+  for _, playerButton in ipairs(BattleGroundEnemies.Allies.PlayerList) do
+    local unit, currentGUID = getFriendlyArenaUnit(playerButton)
+    if currentGUID == guid then
+      return unit, playerButton
+    end
+  end
+end
+
+local function refreshFriendlySpecNames()
+  for _, playerButton in ipairs(BattleGroundEnemies.Allies.PlayerList) do
+    local display = playerButton.SpecName
+    if display.Enabled then
+      display:SetSpec()
+    end
+  end
+end
+
+function specName:RefreshFriendlyLayout()
+  if not BattleGroundEnemies.enabled or not BattleGroundEnemies.states.real.isInArena
+    or IsTestmodeActive(BattleGroundEnemies) then
+    return
+  end
+  if InCombatLockdown() then
+    QueueForUpdateAfterCombat(BattleGroundEnemies, self, "RefreshFriendlyLayout")
+    return
+  end
+  refreshFriendlySpecNames()
+  BattleGroundEnemies.Allies:SortPlayers(true)
+end
+
+local function queueFriendlyLayoutRefresh()
+  if InCombatLockdown() then
+    QueueForUpdateAfterCombat(BattleGroundEnemies, specName, "RefreshFriendlyLayout")
+  elseif not layoutRefreshQueued then
+    layoutRefreshQueued = true
+    After(0, function()
+      layoutRefreshQueued = false
+      specName:RefreshFriendlyLayout()
+    end)
+  end
+end
+
+local function resetFriendlyInspections()
+  wipe(friendlySpecs)
+  wipe(inspectQueue)
+  pendingInspect = nil
+  nextInspectCheck = 0
+  specName:SetScript("OnUpdate", nil)
+end
+
+local function findNextFriendlyInspection(now)
+  local candidateGUID, candidateUnit, candidateState
+  local waiting = false
+  for guid, state in pairs(inspectQueue) do
+    local unit = findFriendlyArenaUnit(guid)
+    if not unit then
+      inspectQueue[guid] = nil
+    elseif state.attempts < 3 then
+      waiting = true
+      if now >= state.nextAttempt and CanInspect(unit)
+        and (not candidateState or state.attempts < candidateState.attempts) then
+        candidateGUID, candidateUnit, candidateState = guid, unit, state
+      end
+    end
+  end
+  return candidateGUID, candidateUnit, candidateState, waiting
+end
+
+local function processFriendlyInspections(self)
+  if not BattleGroundEnemies.enabled or not BattleGroundEnemies.states.real.isInArena
+    or IsTestmodeActive(BattleGroundEnemies) then
+    resetFriendlyInspections()
+    return
+  end
+  local now = GetTime()
+  if now < nextInspectCheck then
+    return
+  end
+  nextInspectCheck = now + 1.5
+  if pendingInspect and not findFriendlyArenaUnit(pendingInspect.guid) then
+    inspectQueue[pendingInspect.guid] = nil
+    pendingInspect = nil
+  end
+  if pendingInspect then
+    if now - pendingInspect.started < 10 then
+      return
+    end
+    pendingInspect = nil
+  end
+  if InCombatLockdown() or (InspectFrame and InspectFrame.unit)
+    or (PlayerSpellsFrame and PlayerSpellsFrame:IsInspecting()) then
+    return
+  end
+  local candidateGUID, candidateUnit, candidateState, waiting = findNextFriendlyInspection(now)
+  if candidateUnit then
+    candidateState.attempts = candidateState.attempts + 1
+    candidateState.nextAttempt = now + 13
+    pendingInspect = { guid = candidateGUID, started = now }
+    NotifyInspect(candidateUnit)
+  elseif not waiting then
+    self:SetScript("OnUpdate", nil)
+  end
+end
+
+local function applyFriendlySpec(display, spec, hasLine)
+  if display.hasSpecNameLine ~= hasLine then
+    if InCombatLockdown() then
+      if not hasLine then
+        display.fs:SetText("")
+      end
+      queueFriendlyLayoutRefresh()
+      return
+    end
+    display.hasSpecNameLine = hasLine
+    queueFriendlyLayoutRefresh()
+  end
+  if hasLine then
+    display.fs:SetText(spec)
+  else
+    display.fs:SetText("")
+  end
+end
+
+local function setFriendlyArenaSpec(display, playerButton)
+  if not isFriendlyArenaRow(playerButton) then
+    return false
+  end
+  local unit, guid = getFriendlyArenaUnit(playerButton)
+  local spec
+  if unit == "player" then
+    spec = GetPlayerSpecName()
+  elseif unit then
+    spec = friendlySpecs[guid]
+  end
+  if spec and spec ~= "" then
+    applyFriendlySpec(display, spec, true)
+  else
+    local scoreboardSpec = playerButton.PlayerDetails.PlayerSpecNameScoreboard
+    local kind = type(scoreboardSpec)
+    local hasScoreboardSpec = kind ~= "nil" and kind ~= "boolean"
+    if hasScoreboardSpec and not issecretvalue(scoreboardSpec) and scoreboardSpec == "" then
+      hasScoreboardSpec = false
+    end
+    if hasScoreboardSpec then
+      applyFriendlySpec(display, scoreboardSpec, true)
+    else
+      applyFriendlySpec(display, nil, false)
+    end
+    if unit and unit ~= "player" and not hasScoreboardSpec then
+      local state = inspectQueue[guid]
+      if not state then
+        state = { attempts = 0, nextAttempt = 0 }
+        inspectQueue[guid] = state
+      end
+      if state.attempts < 3 then
+        specName:SetScript("OnUpdate", processFriendlyInspections)
+      end
+    end
+  end
+  return true
+end
+
+local function receiveFriendlyInspection(guid)
+  local unit, playerButton = findFriendlyArenaUnit(guid)
+  local resolved = false
+  if unit then
+    local specID = GetInspectSpecialization(unit)
+    if not issecretvalue(specID) and specID > 0 then
+      local name = GetSpecializationNameForSpecID(specID, UnitSex(unit))
+      if name and name ~= "" then
+        friendlySpecs[guid] = name
+        resolved = true
+      end
+    end
+  end
+  if resolved then
+    inspectQueue[guid] = nil
+    playerButton.SpecName:SetSpec()
+  elseif inspectQueue[guid] then
+    inspectQueue[guid].nextAttempt = GetTime() + 3
+  end
+  if pendingInspect and pendingInspect.guid == guid then
+    if not (InspectFrame and InspectFrame.unit)
+      and not (PlayerSpellsFrame and PlayerSpellsFrame:IsInspecting()) then
+      ClearInspectPlayer()
+    end
+    pendingInspect = nil
+  end
+end
+
+local function pruneFriendlyInspections()
+  for guid in pairs(friendlySpecs) do
+    if not findFriendlyArenaUnit(guid) then
+      friendlySpecs[guid] = nil
+    end
+  end
+  for guid in pairs(inspectQueue) do
+    if not findFriendlyArenaUnit(guid) then
+      inspectQueue[guid] = nil
+    end
+  end
+end
+
+if IsRetail then
+  specName:RegisterEvent("INSPECT_READY")
+  specName:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+  specName:RegisterEvent("PLAYER_ENTERING_WORLD")
+  specName:RegisterEvent("GROUP_ROSTER_UPDATE")
+  specName:SetScript("OnEvent", function(_, event, unitOrGUID)
+    if event == "PLAYER_ENTERING_WORLD" then
+      resetFriendlyInspections()
+      if BattleGroundEnemies.states.real.isInArena then
+        refreshFriendlySpecNames()
+      end
+    elseif not BattleGroundEnemies.enabled or not BattleGroundEnemies.states.real.isInArena
+      or IsTestmodeActive(BattleGroundEnemies) then
+      return
+    elseif event == "GROUP_ROSTER_UPDATE" then
+      pruneFriendlyInspections()
+      refreshFriendlySpecNames()
+    elseif event == "INSPECT_READY" then
+      receiveFriendlyInspection(unitOrGUID)
+    else
+      local guid = UnitGUID(unitOrGUID)
+      if not issecretvalue(guid) and guid then
+        friendlySpecs[guid] = nil
+        inspectQueue[guid] = nil
+        refreshFriendlySpecNames()
+      end
+    end
+  end)
+end
+
 -- Extra button height to reserve for the spec-name line when the module is
 -- enabled, so the spec name has dedicated vertical room without forcing every
 -- user to raise their BarHeight. Real spec names are SecretInActivePvPMatch, so
@@ -74,7 +353,7 @@ local specName = BattleGroundEnemies:NewButtonModule({
 -- config, so the button layout (row spacing) and ApplyButtonSettings (button
 -- height) both call it and stay in lockstep — otherwise taller buttons overlap.
 local measureFontString
-function BattleGroundEnemies:GetSpecNameReservedHeight(playerCountConfig)
+function BattleGroundEnemies:GetSpecNameReservedHeight(playerCountConfig, playerButton)
   if not playerCountConfig then
     return 0
   end
@@ -83,6 +362,9 @@ function BattleGroundEnemies:GetSpecNameReservedHeight(playerCountConfig)
     return 0
   end
   if not self:IsModuleEnabledOnThisExpansion("SpecName") then
+    return 0
+  end
+  if playerButton and isFriendlyArenaRow(playerButton) and not playerButton.SpecName.hasSpecNameLine then
     return 0
   end
 
@@ -122,8 +404,8 @@ end
 -- midpoint is therefore half that drop below the line, so shifting Name UP by half
 -- the drop puts the midpoint back on the line: reservedHeight/4 - specOffsetY/2.
 -- Returns 0 when Spec Name is disabled, so Name is left exactly as configured.
-function BattleGroundEnemies:GetNameSpecNameYAdjust(playerCountConfig)
-  local reserved = self:GetSpecNameReservedHeight(playerCountConfig)
+function BattleGroundEnemies:GetNameSpecNameYAdjust(playerCountConfig, playerButton)
+  local reserved = self:GetSpecNameReservedHeight(playerCountConfig, playerButton)
   if reserved == 0 then
     return 0
   end
@@ -142,6 +424,10 @@ function specName:AttachToPlayerButton(playerButton)
 
   container.SetSpec = function(self)
     if not playerButton.PlayerDetails then
+      return
+    end
+
+    if setFriendlyArenaSpec(self, playerButton) then
       return
     end
 

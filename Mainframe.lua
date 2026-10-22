@@ -13,10 +13,10 @@ local pairs = pairs
 local type = type
 
 local CreateFrame = CreateFrame
-local GetSpecialization = C_SpecializationInfo and C_SpecializationInfo.GetSpecialization or GetSpecialization
 local InCombatLockdown = InCombatLockdown
 local UnitGUID = UnitGUID
 local UnitRace = UnitRace
+local GetClassColor = C_ClassColor and C_ClassColor.GetClassColor
 
 --lua
 local math_huge = math.huge
@@ -24,8 +24,6 @@ local math_max = math.max
 local math_random = math.random
 local table_insert = table.insert
 local table_remove = table.remove
-
-local HasSpeccs = not not GetSpecialization
 
 --[[  from wowpedia
 1	IconSmall RaidStar.png 		Yellow 4-point Star
@@ -363,6 +361,9 @@ local function CreateMainFrame(playerType)
               local scoreInfo = arenaEnemy.name and findBattleFieldScoreByName(scoreboardEnemies, arenaEnemy.name)
               if scoreInfo then
                 t.raceName = scoreInfo.raceName
+                t.classToken = scoreInfo.classToken
+                t.additionalData = Mixin({}, t.additionalData)
+                t.additionalData.PlayerClassColor = nil
               end
               table.insert(newPlayers, t)
             end
@@ -535,9 +536,6 @@ local function CreateMainFrame(playerType)
         self:RegisterEvent("NAME_PLATE_UNIT_ADDED")
         self:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
         self:RegisterEvent("UNIT_NAME_UPDATE")
-        if HasSpeccs then
-          self:RegisterEvent("ARENA_PREP_OPPONENT_SPECIALIZATIONS")
-        end
       end
 
       BattleGroundEnemies:CheckForArenaEnemies()
@@ -1103,13 +1101,6 @@ local function CreateMainFrame(playerType)
     end
     local columns = config.BarColumns
 
-    local barHeight = config.BarHeight
-    -- Spec Name (when enabled) makes each button taller by the spec text height
-    -- in ApplyButtonSettings; add the same amount to the row pitch so the taller
-    -- buttons don't overlap. Returns 0 when the module is disabled.
-    if BattleGroundEnemies.GetSpecNameReservedHeight then
-      barHeight = barHeight + BattleGroundEnemies:GetSpecNameReservedHeight(config)
-    end
     local barWidth = config.BarWidth
 
     local verticalSpacing = config.BarVerticalSpacing
@@ -1136,6 +1127,10 @@ local function CreateMainFrame(playerType)
 
     local column = 1
     local row = 1
+    local columnHeight = 0
+    local maxColumnHeight = 0
+    local firstButtonHeight
+    local hasVariableHeights = false
 
     for i = 1, playerCount do
       local playerButton = orderedPlayers[i]
@@ -1147,26 +1142,32 @@ local function CreateMainFrame(playerType)
           offsetX = 0
         end
 
-        if row > 1 then
-          offsetY = (row - 1) * (barHeight + verticalSpacing) * offsetDirectionY
-        else
-          offsetY = 0
-        end
+        offsetY = columnHeight * offsetDirectionY
 
         playerButton:ClearAllPoints()
         playerButton:SetPoint(point, self, point, offsetX, offsetY)
 
         playerButton:ApplyButtonSettings()
+        local buttonHeight = playerButton:GetHeight()
+        firstButtonHeight = firstButtonHeight or buttonHeight
+        hasVariableHeights = hasVariableHeights or buttonHeight ~= firstButtonHeight
+        maxColumnHeight = math.max(maxColumnHeight, columnHeight + buttonHeight)
 
         if row < rowsPerColumn then
+          columnHeight = columnHeight + playerButton:GetHeight() + verticalSpacing
           row = row + 1
         else
           column = column + 1
           row = 1
+          columnHeight = 0
         end
       end
     end
     if playerCount > 0 then
+      if hasVariableHeights then
+        self:SetSize(barWidth, maxColumnHeight)
+        return
+      end
       local lastButton = orderedPlayers[playerCount]
       local firstButton = orderedPlayers[1]
 
@@ -1234,7 +1235,7 @@ local function CreateMainFrame(playerType)
       -- in Main.lua for rationale.
       PlayerName = playerName,
       PlayerClass = string.upper(classToken), --apparently it can happen that we get a lowercase "druid" from GetBattlefieldScore() in TBCC, IsTBCC
-      PlayerClassColor = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classToken],
+      PlayerClassColor = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classToken] or { r = 0.5, g = 0.5, b = 0.5 },
       PlayerRace = race or "Unknown", -- store localized race name directly (merc-mode safe)
       PlayerSpecName = spec, --set to false since we use Mixin() and Mixin doesnt mixin nil values and therefore we dont overwrite values with nil
       -- LIVE spec exactly as the source delivered it (scoreboard talentSpec for
@@ -1531,8 +1532,12 @@ local function CreateMainFrame(playerType)
       if raid == "MAINTANK" or raid == "MAINASSIST" then
         return raid
       end
-      local role = details.PlayerRole
-      if role and not (issecretvalue and issecretvalue(role)) then
+      local role = details.groupRole
+      if not (issecretvalue and issecretvalue(role)) and role and role ~= "NONE" then
+        return role
+      end
+      role = details.PlayerRole
+      if not (issecretvalue and issecretvalue(role)) and role then
         return role
       end
       return "NONE"
@@ -1615,7 +1620,7 @@ local function CreateMainFrame(playerType)
       if not (detailsPlayerA.PlayerArenaUnitID and detailsPlayerB.PlayerArenaUnitID) then
         return
       end
-      if detailsPlayerA.PlayerArenaUnitID <= detailsPlayerB.PlayerArenaUnitID then
+      if tonumber(detailsPlayerA.PlayerArenaUnitID:match("%d+$")) < tonumber(detailsPlayerB.PlayerArenaUnitID:match("%d+$")) then
         return true
       end
     end
@@ -1646,58 +1651,31 @@ local function CreateMainFrame(playerType)
         table.insert(newPlayerOrder, self.PlayerList[i])
       end
 
-      -- Allies sort by role tier → name (UnitGroupRolesAssigned, raid/party
-      -- UnitClass, and ally names are all non-secret). BG enemies sort by
-      -- class tier → name — both PVPScoreInfo.classToken and .name are
-      -- NeverSecret per Blizzard's API docs. Enemy role is NOT used in the
-      -- comparator: talentSpec / roleAssigned remain secret in active match,
-      -- which would taint role-based compares.
-      if BattleGroundEnemies.states.real.isInArena then
-        if self.PlayerType == BattleGroundEnemies.consts.PlayerTypes.Enemies then
-          local usePlayerSortingByArenaUnitID = true
-          for i = 1, #newPlayerOrder do
-            if not newPlayerOrder[i].PlayerDetails.PlayerArenaUnitID then
-              usePlayerSortingByArenaUnitID = false
-              break
-            end
-          end
-          if usePlayerSortingByArenaUnitID then
-            -- Arena unit IDs are numeric tokens, safe to sort by.
-            table.sort(newPlayerOrder, PlayerSortingByArenaUnitID)
-          end
-        else
-          -- Arena allies: prefer role-based sort (user-configured priority
-          -- via RoleSortingOrder). Fall back to CRFSort_Group_ (unitID order)
-          -- when role data isn't yet populated for everyone.
-          local allHaveRoles = true
-          for i = 1, #newPlayerOrder do
-            if not newPlayerOrder[i].PlayerDetails.PlayerRole then
-              allHaveRoles = false
-              break
-            end
-          end
-          if allHaveRoles then
-            table.sort(newPlayerOrder, PlayerSortingByRoleClassName)
-          else
-            local usePlayerSortingByUnitID = true -- fake players don't have unitid
-            for i = 1, #newPlayerOrder do
-              if not newPlayerOrder[i].PlayerDetails.unitID then
-                usePlayerSortingByUnitID = false
-                break
-              end
-            end
-            if usePlayerSortingByUnitID then
-              table.sort(newPlayerOrder, CRFSort_Group_)
-            end
+      local function byName(a, b)
+        local nameA = a.PlayerDetails.PlayerName or ""
+        local nameB = b.PlayerDetails.PlayerName or ""
+        if nameA ~= nameB then
+          return nameA < nameB
+        end
+        return tostring(a) < tostring(b)
+      end
+      local profile = BattleGroundEnemies.db.profile
+      if self.PlayerType == BattleGroundEnemies.consts.PlayerTypes.Allies then
+        local mode = profile.AllySorting or "ROLE"
+        table.sort(newPlayerOrder, mode == "NAME" and byName
+          or mode == "CLASS" and PlayerSortingByClassName or PlayerSortingByRoleClassName)
+      elseif BattleGroundEnemies.states.real.isInArena then
+        -- Fixed arena slots keep secure targeting stable. Never sort secret specs.
+        local allHaveSlots = true
+        for i = 1, #newPlayerOrder do
+          if not newPlayerOrder[i].PlayerDetails.PlayerArenaUnitID then
+            allHaveSlots = false
+            break
           end
         end
+        table.sort(newPlayerOrder, allHaveSlots and PlayerSortingByArenaUnitID or PlayerSortingByClassName)
       else
-        -- BG. Allies by role (RoleSortingOrder setting). Enemies by class+name.
-        if self.PlayerType == BattleGroundEnemies.consts.PlayerTypes.Allies then
-          table.sort(newPlayerOrder, PlayerSortingByRoleClassName)
-        else
-          table.sort(newPlayerOrder, PlayerSortingByClassName)
-        end
+        table.sort(newPlayerOrder, profile.EnemySorting == "NAME" and byName or PlayerSortingByClassName)
       end
 
       local orderChanged = false
@@ -2000,20 +1978,46 @@ function BattleGroundEnemies.Enemies:CreateArenaEnemies()
   -- Select the bracket from the live/prep opponent count before reconciling
   -- scoreboard rows. Check the configuration directly because self.enabled
   -- can lag while combat prevents frame updates.
-  local opponentCount = (GetNumArenaOpponents and GetNumArenaOpponents()) or 0
-  if opponentCount == 0 and GetNumArenaOpponentSpecs then
-    opponentCount = GetNumArenaOpponentSpecs() or 0
+  -- Prep counts are public even though GetArenaOpponentSpec always returns
+  -- secrets. Create secure arenaN slots before gates open without reading specs.
+  local opponentCount = (GetNumArenaOpponentSpecs and GetNumArenaOpponentSpecs()) or 0
+  if opponentCount == 0 then
+    opponentCount = (GetNumArenaOpponents and GetNumArenaOpponents()) or 0
   end
-  if opponentCount > 0 then
-    self:SetRealPlayerCount(opponentCount)
-    if not self:ShouldBeEnabled() then
-      -- Clear every source so the scoreboard fallback cannot rebuild disabled rows.
-      self:RemoveAllPlayersFromAllSources()
-      return
-    end
+  if opponentCount == 0 then
+    return -- transient loading state; don't sweep the existing roster
+  end
+  self:SetRealPlayerCount(opponentCount)
+  if not self:ShouldBeEnabled() then
+    self:RemoveAllPlayersFromAllSources()
+    return
   end
 
-  self:BeforePlayerSourceUpdate(BattleGroundEnemies.consts.PlayerSources.ArenaPlayers)
+  local source = BattleGroundEnemies.consts.PlayerSources.ArenaPlayers
+  self:BeforePlayerSourceUpdate(source)
+  for i = 1, opponentCount do
+    local unitID = "arena" .. i
+    local name = BattleGroundEnemies:GetCanonicalUnitName(unitID)
+    local displayName = UnitName(unitID) -- display-only, may be secret
+    local _, classToken = UnitClass(unitID)
+    local classTokenIsSecret = issecretvalue and issecretvalue(classToken)
+    local classColor
+    if classTokenIsSecret and GetClassColor then
+      classColor = GetClassColor(classToken)
+    end
+    if classTokenIsSecret or not classToken then
+      classToken = "UNKNOWN"
+    end
+    self:AddPlayerToSource(source, {
+      name = name,
+      classToken = classToken,
+      additionalData = {
+        PlayerArenaUnitID = unitID,
+        SecretDisplayName = displayName,
+        PlayerClassColor = classColor,
+      },
+    })
+  end
 
   self:AfterPlayerSourceUpdate()
 
@@ -2024,8 +2028,6 @@ function BattleGroundEnemies.Enemies:CreateArenaEnemies()
     end
   end
 end
-
-BattleGroundEnemies.Enemies.ARENA_PREP_OPPONENT_SPECIALIZATIONS = BattleGroundEnemies.Enemies.CreateArenaEnemies -- for Prepframe, not available in TBC
 
 function BattleGroundEnemies.Enemies:UNIT_NAME_UPDATE(unitID)
   BattleGroundEnemies:CheckForArenaEnemies()

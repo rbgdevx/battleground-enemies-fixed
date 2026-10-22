@@ -9,6 +9,7 @@ local GetSpellTexture = C_Spell and C_Spell.GetSpellTexture or GetSpellTexture
 local GetClassAtlas = GetClassAtlas
 local UpdateArenaOpponentSpecDisplay = UnitFrameUtil and UnitFrameUtil.UpdateArenaOpponentSpecDisplay
 local GetArenaOpponentIndex = BattleGroundEnemies.GetArenaOpponentIndex
+local GetBoundArenaOpponent = BattleGroundEnemies.GetBoundArenaOpponent
 
 local generalDefaults = {
   showSpecIfExists = true,
@@ -250,6 +251,12 @@ local function attachToPlayerButton(playerButton)
     if self:IsCompoundLiveCCUnit(unitID) then
       self:SetLiveCCUnit(nil)
       return false
+    end
+
+    if GetBoundArenaOpponent(BattleGroundEnemies, unitID) == playerButton then
+      self.LiveCCVerifiedUnit = unitID
+      self:SetLiveCCUnit(unitID, forceRefresh)
+      return true
     end
 
     local expectedName = playerButton.PlayerDetails and playerButton.PlayerDetails.PlayerName

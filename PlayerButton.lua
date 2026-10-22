@@ -807,6 +807,38 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     end
   end
 
+  function playerButton:UpdateHealthBarLayout()
+    if not self:GetRect() then
+      return
+    end
+
+    -- HealthBar is auto-managed: pinned to the top of the button, fills its width,
+    -- and takes whatever height the power bar leaves behind (full button height when power is off).
+    local showPower = self.Power.Enabled and self.Power:ShouldShowInArena()
+    local powerHeight = showPower and self.Power:GetHeight() or 0
+    self.healthBar:ClearAllPoints()
+    self.healthBar:SetPoint("TOPLEFT", self, "TOPLEFT")
+    self.healthBar:SetPoint("TOPRIGHT", self, "TOPRIGHT")
+    self.healthBar:SetHeight(math.max(0.01, self:GetHeight() - powerHeight))
+    -- #4-S1: this is the sole place the healthBar width changes, so invalidate the
+    -- heal-prediction sub-bars' cached width — the next UpdateHealth re-SetWidth's
+    -- them to the new bar width.
+    self.healthBar.cachedBarWidth = nil
+
+    -- Hidden or disabled Power anchors the highlight to healthBar instead.
+    local bottomAnchor = showPower and self.Power or self.healthBar
+    self.MyTarget:SetParent(self)
+    self.MyTarget:ClearAllPoints()
+    self.MyTarget:SetPoint("TOPLEFT", self.healthBar, "TOPLEFT")
+    self.MyTarget:SetPoint("BOTTOMRIGHT", bottomAnchor, "BOTTOMRIGHT")
+    self.MyTarget:SetFrameLevel(self.Power:GetFrameLevel() + 5)
+    self.MyFocus:SetParent(self)
+    self.MyFocus:ClearAllPoints()
+    self.MyFocus:SetPoint("TOPLEFT", self.healthBar, "TOPLEFT")
+    self.MyFocus:SetPoint("BOTTOMRIGHT", bottomAnchor, "BOTTOMRIGHT")
+    self.MyFocus:SetFrameLevel(self.Power:GetFrameLevel() + 5)
+  end
+
   function playerButton:SetModulePositions()
     if not self:GetRect() then
       return
@@ -855,7 +887,7 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
                     -- anchor target (e.g. the Role icon). 0 when Spec Name is off.
                     local offsetY = pointConfig.OffsetY or 0
                     if moduleName == "Name" and BattleGroundEnemies.GetNameSpecNameYAdjust then
-                      offsetY = offsetY + BattleGroundEnemies:GetNameSpecNameYAdjust(self.playerCountConfig)
+                      offsetY = offsetY + BattleGroundEnemies:GetNameSpecNameYAdjust(self.playerCountConfig, self)
                     end
                     moduleFrameOnButton:SetPoint(
                       pointConfig.Point,
@@ -912,30 +944,7 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       i = i + 1
     until allModulesSet or i > 10 --maxium of 10 tries
 
-    -- HealthBar is auto-managed: pinned to the top of the button, fills its width,
-    -- and takes whatever height the power bar leaves behind (full button height when power is off).
-    local powerHeight = self.Power.Enabled and self.Power:GetHeight() or 0
-    self.healthBar:ClearAllPoints()
-    self.healthBar:SetPoint("TOPLEFT", self, "TOPLEFT")
-    self.healthBar:SetPoint("TOPRIGHT", self, "TOPRIGHT")
-    self.healthBar:SetHeight(math.max(0.01, self:GetHeight() - powerHeight))
-    -- #4-S1: this is the sole place the healthBar width changes, so invalidate the
-    -- heal-prediction sub-bars' cached width — the next UpdateHealth re-SetWidth's
-    -- them to the new bar width.
-    self.healthBar.cachedBarWidth = nil
-
-    -- Disabled Power frame is collapsed/repositioned, so anchor highlight to healthBar instead.
-    local bottomAnchor = self.Power.Enabled and self.Power or self.healthBar
-    self.MyTarget:SetParent(self)
-    self.MyTarget:ClearAllPoints()
-    self.MyTarget:SetPoint("TOPLEFT", self.healthBar, "TOPLEFT")
-    self.MyTarget:SetPoint("BOTTOMRIGHT", bottomAnchor, "BOTTOMRIGHT")
-    self.MyTarget:SetFrameLevel(self.Power:GetFrameLevel() + 5)
-    self.MyFocus:SetParent(self)
-    self.MyFocus:ClearAllPoints()
-    self.MyFocus:SetPoint("TOPLEFT", self.healthBar, "TOPLEFT")
-    self.MyFocus:SetPoint("BOTTOMRIGHT", bottomAnchor, "BOTTOMRIGHT")
-    self.MyFocus:SetFrameLevel(self.Power:GetFrameLevel() + 5)
+    self:UpdateHealthBarLayout()
   end
 
   function playerButton:ApplyModuleSettings()
@@ -1006,7 +1015,7 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     -- (0 otherwise). The row spacing in mainframe:ButtonPositioning adds the same
     -- amount, so taller buttons don't overlap.
     local specNameExtra = BattleGroundEnemies.GetSpecNameReservedHeight
-        and BattleGroundEnemies:GetSpecNameReservedHeight(conf)
+        and BattleGroundEnemies:GetSpecNameReservedHeight(conf, self)
       or 0
     self:SetHeight(conf.BarHeight + specNameExtra)
 

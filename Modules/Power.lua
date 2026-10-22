@@ -4,6 +4,12 @@ local Data = select(2, ...)
 local BattleGroundEnemies = BattleGroundEnemies
 local LSM = LibStub("LibSharedMedia-3.0")
 local L = Data.L
+local GetArenaOpponentIndex = BattleGroundEnemies.GetArenaOpponentIndex
+local GetActiveMatchState = C_PvP.GetActiveMatchState
+local PvPMatchState = Enum.PvPMatchState
+local IsRetail = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+local ArenaUnitExists = IsRetail and ArenaUtil.UnitExists
+local After = C_Timer.After
 
 local PowerBarColor = PowerBarColor --table
 local UnitPower = UnitPower
@@ -150,6 +156,25 @@ local power = BattleGroundEnemies:NewButtonModule({
   attachSettingsToButton = false,
 })
 
+local function refreshArenaPowerVisibility(unitID)
+  for _, playerButton in ipairs(BattleGroundEnemies.Enemies.PlayerList) do
+    local arenaIndex = GetArenaOpponentIndex(playerButton)
+    if arenaIndex and unitID == "arena" .. arenaIndex and playerButton.Power.Enabled then
+      playerButton.Power:UpdateArenaVisibility()
+    end
+  end
+end
+
+if IsRetail then
+  power:RegisterEvent("ARENA_OPPONENT_UPDATE")
+  power:SetScript("OnEvent", function(_, _, unitID)
+    -- Let Blizzard's ArenaUtil process its unseen override before reading it.
+    After(0, function()
+      refreshArenaPowerVisibility(unitID)
+    end)
+  end)
+end
+
 function power:AttachToPlayerButton(playerButton)
   playerButton.Power = CreateFrame("StatusBar", nil, playerButton)
   playerButton.Power:SetMinMaxValues(0, 1)
@@ -214,6 +239,17 @@ function power:AttachToPlayerButton(playerButton)
     pcall(powerUpdateImpl, self, unitID, powerToken)
   end
 
+  function playerButton.Power:ShouldShowInArena()
+    local arenaIndex = GetArenaOpponentIndex(playerButton)
+    return not arenaIndex or (GetActiveMatchState() == PvPMatchState.Engaged
+      and (not IsRetail or ArenaUnitExists("arena" .. arenaIndex)))
+  end
+
+  function playerButton.Power:UpdateArenaVisibility()
+    self:SetShown(self:ShouldShowInArena())
+    playerButton:UpdateHealthBarLayout()
+  end
+
   function playerButton.Power:ApplyAllSettings()
     if not self.config then
       return
@@ -221,6 +257,7 @@ function power:AttachToPlayerButton(playerButton)
     self.classConfirmedToken = nil -- reset for fresh class lookup
     -- power
     self:SetHeight(self.config.Height or 0.01)
+    self:UpdateArenaVisibility()
 
     self:SetStatusBarTexture(LSM:Fetch("statusbar", self.config.Texture)) --self.healthBar:SetStatusBarTexture(137012)
     self.Background:SetVertexColor(unpack(self.config.Background))
@@ -240,6 +277,7 @@ function power:AttachToPlayerButton(playerButton)
     else
       self:SetHeight(0.01)
     end
+    playerButton:UpdateHealthBarLayout()
 
     local powerToken
 

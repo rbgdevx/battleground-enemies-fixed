@@ -461,6 +461,8 @@ Data.defaultSettings = {
     },
 
     RoleSortingOrder = "HEALER_TANK_DAMAGER",
+    AllySorting = "ROLE",
+    EnemySorting = "CLASS",
 
     Cooldown = {
       ShowNumber = true,

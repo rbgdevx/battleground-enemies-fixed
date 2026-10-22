@@ -3,6 +3,9 @@ local Data = select(2, ...)
 ---@class BattleGroundEnemies
 local BattleGroundEnemies = BattleGroundEnemies
 local L = Data.L
+local GetArenaOpponentIndex = BattleGroundEnemies.GetArenaOpponentIndex
+local MyCreateFontString = BattleGroundEnemies.MyCreateFontString
+local IsRetail = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
 
 local CreateFrame = CreateFrame
 local BackdropTemplateMixin = BackdropTemplateMixin
@@ -305,6 +308,79 @@ local dRTracking = BattleGroundEnemies:NewButtonModule({
 -- Frame creation & setup (ported from OG DR.lua, adapted for C_SpellDiminish)
 ---------------------------------------------------------------------------
 
+local function createArenaDrRegions(drFrame)
+  drFrame.ArenaCountdown = MyCreateFontString(drFrame)
+  drFrame.ArenaCountdown:SetPoint("CENTER")
+  drFrame.ArenaImmunity = drFrame:CreateTexture(nil, "OVERLAY")
+  drFrame.ArenaImmunity:SetAtlas("GM-icon-role-tank")
+  drFrame.ArenaImmunity:SetSize(16, 16)
+  drFrame.ArenaImmunity:SetPoint("CENTER", drFrame, "TOP")
+end
+
+local function applyArenaDrFrameSettings(drFrame)
+  if not drFrame.ArenaCountdown then
+    createArenaDrRegions(drFrame)
+  end
+  drFrame.ArenaCountdown:ApplyFontStringSettings(drFrame.Container.config.Cooldown, true)
+  drFrame.Cooldown:Hide()
+  drFrame.StatusBG:Hide()
+  drFrame:SetBackdropBorderColor(0, 0, 0, 0)
+  local showNumber = drFrame.Container.config.Cooldown.ShowNumber
+  if showNumber == nil then
+    showNumber = BattleGroundEnemies.db.profile.Cooldown.ShowNumber
+  end
+  drFrame.ArenaCountdown:SetShown(showNumber)
+end
+
+local function copyArenaDrDisplay(drFrame, source)
+  drFrame.Icon:SetTexture(source.Icon:GetTexture())
+  local countdown = source.Cooldown:GetCountdownFontString()
+  drFrame.ArenaCountdown:SetText(countdown:GetText())
+  drFrame.ArenaCountdown:SetAlphaFromBoolean(countdown:IsShown(), 1, 0)
+  drFrame.ArenaImmunity:SetAlphaFromBoolean(source.ImmunityIndicator:IsShown(), 1, 0)
+  drFrame:SetAlphaFromBoolean(source:IsShown(), 1, 0)
+end
+
+local function getArenaDrTray(playerButton)
+  local arenaIndex = IsRetail and GetArenaOpponentIndex(playerButton)
+  if not arenaIndex then
+    return nil
+  end
+  for _, button in ipairs(playerButton.MainFrame.PlayerList) do
+    if button == playerButton then
+      local arenaFrame = CompactArenaFrame
+      local member = arenaFrame and arenaFrame.memberUnitFrames[arenaIndex]
+      return member and member.SpellDiminishStatusTray
+    end
+  end
+end
+
+local function reconcileArenaDrInputs(container, tray)
+  local changed = false
+  local count = 0
+  if tray then
+    for _, category in ipairs(tray.trayItemOrder) do
+      local source = tray:GetActiveTrayItemForCategory(category)
+      if source then
+        count = count + 1
+        local input = container.inputs[count]
+        if not input then
+          container:NewInput({ arenaSource = source })
+          changed = true
+        elseif input.arenaSource ~= source then
+          input.arenaSource = source
+          changed = true
+        end
+      end
+    end
+  end
+  for i = #container.inputs, count + 1, -1 do
+    container:RemoveFromInput(i)
+    changed = true
+  end
+  return changed
+end
+
 local function createNewDrFrame(playerButton, container)
   local drFrame = CreateFrame("Frame", nil, container, BackdropTemplateMixin and "BackdropTemplate")
   drFrame.Cooldown = BattleGroundEnemies.MyCreateCooldown(drFrame)
@@ -319,7 +395,10 @@ local function createNewDrFrame(playerButton, container)
     self.Cooldown:ApplyCooldownSettings(container.config.Cooldown, true, { 0, 0, 0, 0.5 })
     self:SetDisplayType()
     -- Update status counter visibility based on setting
-    if self.input and self.input.status then
+    if self.input and self.input.arenaSource then
+      applyArenaDrFrameSettings(self)
+      copyArenaDrDisplay(self, self.input.arenaSource)
+    elseif self.input and self.input.status then
       updateStatusCounter(self, self.input.status)
     end
   end
@@ -368,6 +447,17 @@ local function createNewDrFrame(playerButton, container)
 end
 
 local function setupDrFrame(container, drFrame, drDetails)
+  if drDetails.arenaSource then
+    applyArenaDrFrameSettings(drFrame)
+    copyArenaDrDisplay(drFrame, drDetails.arenaSource)
+    return
+  end
+  drFrame:SetAlpha(1)
+  drFrame.Cooldown:Show()
+  if drFrame.ArenaCountdown then
+    drFrame.ArenaCountdown:Hide()
+    drFrame.ArenaImmunity:SetAlpha(0)
+  end
   drFrame:SetStatus()
 
   -- Icon: prefer Blizzard's category icon, fall back to LoC-provided icon
@@ -475,6 +565,67 @@ end
 function dRTracking:AttachToPlayerButton(playerButton)
   local container = BattleGroundEnemies:NewContainer(playerButton, createNewDrFrame, setupDrFrame)
 
+  local displayInputs = container.Display
+
+  function container:UpdateArenaDisplay()
+    local tray = getArenaDrTray(playerButton)
+    if tray ~= self.arenaTray then
+      self:ResetInputs()
+      self.arenaTray = tray
+      self.arenaLayoutChanged = true
+    end
+    local changed = reconcileArenaDrInputs(self, tray)
+    if self.arenaLayoutChanged then
+      changed = true
+    end
+    if changed then
+      displayInputs(self)
+      self.arenaLayoutChanged = nil
+    end
+    for i, input in ipairs(self.inputs) do
+      copyArenaDrDisplay(self.childFrames[i], input.arenaSource)
+    end
+    if tray then
+      self:SetAlphaFromBoolean(tray:IsShown(), 1, 0)
+    else
+      self:SetAlpha(0)
+    end
+    -- Keep the refresh running while the source pool is empty or unavailable.
+    self:Show()
+  end
+
+  function container:Display()
+    if self.Enabled and (IsRetail and GetArenaOpponentIndex(playerButton)) then
+      self:UpdateArenaDisplay()
+      return
+    end
+    self:SetAlpha(1)
+    displayInputs(self)
+  end
+
+  function container:Disable()
+    self:SetScript("OnUpdate", nil)
+    if self.arenaTray then
+      self:ResetInputs()
+    end
+    self.arenaTray = nil
+    self.arenaLayoutChanged = nil
+  end
+
+  local function updateArenaDisplay(self, elapsed)
+    self.arenaElapsed = self.arenaElapsed + elapsed
+    if self.arenaElapsed < 0.1 then
+      return
+    end
+    self.arenaElapsed = 0
+    if not (IsRetail and GetArenaOpponentIndex(playerButton)) then
+      self:Disable()
+      self:Reset()
+      return
+    end
+    self:UpdateArenaDisplay()
+  end
+
   -- Whether C_SpellDiminish events have ever fired for this button (to decide fallback)
   container.diminishEventReceived = false
   container.locFallbackActive = false
@@ -485,7 +636,7 @@ function dRTracking:AttachToPlayerButton(playerButton)
   -- Dispatched from Main.lua when UNIT_SPELL_DIMINISH_CATEGORY_STATE_UPDATED fires
   ---------------------------------------------------------------------------
   function container:DiminishStateUpdated(_, stateInfo)
-    if not self.config then
+    if not self.config or (IsRetail and GetArenaOpponentIndex(playerButton)) then
       return
     end
 
@@ -556,6 +707,9 @@ function dRTracking:AttachToPlayerButton(playerButton)
   -- LoC polling fallback — dispatched from UpdateAll() every 0.1s via PeriodicUpdate event
   ---------------------------------------------------------------------------
   function container:PeriodicUpdate(unitID)
+    if (IsRetail and GetArenaOpponentIndex(playerButton)) then
+      return
+    end
     if self.diminishEventReceived then
       return
     end
@@ -591,6 +745,8 @@ function dRTracking:AttachToPlayerButton(playerButton)
   local TEST_MAX_ICONS = 3 -- realistic max simultaneous DRs per enemy
 
   function container:OnTestmodeEnabled()
+    self:Disable()
+    self:Reset()
     self.testmodeEnabled = true
   end
 
@@ -647,6 +803,13 @@ function dRTracking:AttachToPlayerButton(playerButton)
   function container:ApplyAllSettings()
     if not self.config then
       return
+    end
+    if (IsRetail and GetArenaOpponentIndex(playerButton)) then
+      self.arenaElapsed = 0
+      self.arenaLayoutChanged = true
+      self:SetScript("OnUpdate", updateArenaDisplay)
+    else
+      self:Disable()
     end
     self:Display()
     for i = 1, #self.childFrames do

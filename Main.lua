@@ -291,7 +291,6 @@ function BattleGroundEnemies:GetCorrectedMaxPlayers()
   return maxPlayers or 0
 end
 
-local previousCvarRaidOptionIsShown
 
 --variables used in multiple functions, if a variable is only used by one function its declared above that function
 BattleGroundEnemies.currentTarget = false
@@ -953,6 +952,7 @@ BattleGroundEnemies.GeneralEvents = {
   "UPDATE_MOUSEOVER_UNIT",
   "PLAYER_TARGET_CHANGED",
   "PLAYER_FOCUS_CHANGED",
+  "ARENA_PREP_OPPONENT_SPECIALIZATIONS",
   "ARENA_OPPONENT_UPDATE", --fires when a arena enemy appears and a frame is ready to be shown
   "ARENA_CROWD_CONTROL_SPELL_UPDATE", --fires when data requested by C_PvP.RequestCrowdControlSpell(unitID) is available
   "ARENA_COOLDOWNS_UPDATE", --fires when a arenaX enemy used a trinket or racial to break cc, C_PvP.GetArenaCrowdControlInfo(unitID) shoudl be called afterwards to get used CCs
@@ -1339,6 +1339,13 @@ function BattleGroundEnemies:Enable()
   -- Enable(). Idempotent (mark-and-sweep reuses pooled buttons); harmless in
   -- test mode (AfterPlayerSourceUpdate uses the FakePlayers source there).
   self:GROUP_ROSTER_UPDATE()
+  self:ARENA_PREP_OPPONENT_SPECIALIZATIONS()
+end
+
+function BattleGroundEnemies:ARENA_PREP_OPPONENT_SPECIALIZATIONS()
+  if self.states.real.isInArena and not self:IsTestmodeActive() then
+    self.Enemies:CreateArenaEnemies()
+  end
 end
 
 function BattleGroundEnemies:CheckEnableState()
@@ -1419,8 +1426,11 @@ function BattleGroundEnemies:PLAYER_LOGIN()
     self:ApplyAllSettings()
   end
 
+  self:InstallBlizzardFrameHooks()
+
   -- self:RegisterEvent("GROUP_ROSTER_UPDATE") ... (Keeping event registration flow intact)
 
+  self:RegisterEvent("ADDON_LOADED")
   self:RegisterEvent("GROUP_ROSTER_UPDATE") --Fired whenever a group or raid is formed or disbanded, players are leaving or joining the group or raid.
   self:RegisterEvent("PLAYER_ENTERING_WORLD")
   self:RegisterEvent("PARTY_LEADER_CHANGED") --Fired when the player's leadership changed.
@@ -1595,9 +1605,14 @@ end
 -- Expose for Mainframe.lua
 BattleGroundEnemies.IsEnemyUnit = IsEnemyUnit
 
--- Resolve hostile player tokens only through the exact canonical UnitName key.
--- The legacy parameters remain for call-site compatibility. Missing or
--- unavailable names deliberately produce no match.
+-- Resolve established arena slots separately from named enemy identities.
+function BattleGroundEnemies:GetBoundArenaOpponent(unitID)
+  if self.states.real.isInArena and not self:IsTestmodeActive()
+    and type(unitID) == "string" and unitID:match("^arena%d+$") then
+    return self.ArenaIDToPlayerButton[unitID]
+  end
+end
+
 function BattleGroundEnemies:GetPlayerbuttonByUnitID(unitID, playerType, ignoreExistingArena)
   if type(unitID) ~= "string" or not UnitExists(unitID) then
     return nil
@@ -1607,6 +1622,13 @@ function BattleGroundEnemies:GetPlayerbuttonByUnitID(unitID, playerType, ignoreE
   end
   if not IsEnemyUnit(unitID) then
     return nil
+  end
+
+  if not ignoreExistingArena then
+    local arenaButton = self:GetBoundArenaOpponent(unitID)
+    if arenaButton then
+      return arenaButton
+    end
   end
 
   local playerName = self:GetCanonicalUnitName(unitID)
@@ -2961,42 +2983,54 @@ function BattleGroundEnemies:UNIT_TARGET(unitID)
   end
 end
 
+-- Preserve Edit Mode scale/alpha, and keep Blizzard visibility refreshes from
+-- undoing a hidden setting. Only frames this addon changed are restored.
+local blizzardFrameVisibility = setmetatable({}, { __mode = "k" })
 local function changeVisibility(frame, visible)
-  -- Use the original scale setter to avoid Edit Mode's secret anchor loop.
-  local setScale = frame.SetScaleBase or frame.SetScale
-
+  if not frame then
+    return
+  end
+  local state = blizzardFrameVisibility[frame]
+  if not state then
+    if visible then
+      return
+    end
+    state = {}
+    blizzardFrameVisibility[frame] = state
+    local function enforceHidden()
+      if not state.hidden or state.updating then
+        return
+      end
+      state.updating = true
+      frame:SetAlpha(0)
+      if not InCombatLockdown() then
+        local setScale = frame.SetScaleBase or frame.SetScale
+        setScale(frame, 0.001)
+      end
+      state.updating = false
+    end
+    frame:HookScript("OnShow", enforceHidden)
+    hooksecurefunc(frame, "SetAlpha", enforceHidden)
+    hooksecurefunc(frame, "SetScale", enforceHidden)
+  end
   if visible then
-    frame:SetAlpha(1)
-    setScale(frame, 1)
+    if state.hidden then
+      state.hidden = false
+      frame:SetAlpha(state.alpha)
+      local setScale = frame.SetScaleBase or frame.SetScale
+      setScale(frame, state.scale)
+    end
   else
+    if not state.hidden then
+      state.alpha = frame:GetAlpha()
+      state.scale = frame:GetScale()
+      state.hidden = true
+    end
+    state.updating = true
     frame:SetAlpha(0)
+    local setScale = frame.SetScaleBase or frame.SetScale
     setScale(frame, 0.001)
-  end
-end
-
-local function disableArenaFrames()
-  if ArenaEnemyFrames then
-    if ArenaEnemyFrames_Disable then
-      ArenaEnemyFrames_Disable(ArenaEnemyFrames)
-    end
-  elseif ArenaEnemyFramesContainer then
-    changeVisibility(ArenaEnemyFramesContainer, false)
-  end
-  if CompactArenaFrame then
-    changeVisibility(CompactArenaFrame, false)
-  end
-end
-
-local function checkEffectiveEnableStateForArenaFrames()
-  if ArenaEnemyFrames then
-    if ArenaEnemyFrames_CheckEffectiveEnableState then
-      ArenaEnemyFrames_CheckEffectiveEnableState(ArenaEnemyFrames)
-    end
-  elseif ArenaEnemyFramesContainer then
-    changeVisibility(ArenaEnemyFramesContainer, true)
-  end
-  if CompactArenaFrame then
-    changeVisibility(CompactArenaFrame, true)
+    state.updating = false
   end
 end
 
@@ -3004,44 +3038,49 @@ function BattleGroundEnemies:ToggleArenaFrames()
   if InCombatLockdown() then
     return self:QueueForUpdateAfterCombat(self, "ToggleArenaFrames")
   end
-  if
-    (BattleGroundEnemies.states.real.isInArena and self.db.profile.DisableArenaFramesInArena)
-    or (BattleGroundEnemies.states.real.isInBattleground and self.db.profile.DisableArenaFramesInBattleground)
-  then
-    return disableArenaFrames()
-  end
-
-  checkEffectiveEnableStateForArenaFrames()
-end
-
-local function restoreShowRaidFrameCVar()
-  if not previousCvarRaidOptionIsShown then
-    return
-  end --we didn't modify it so no need to restore it
-  SetCVar("raidOptionIsShown", previousCvarRaidOptionIsShown)
-end
-
-local function disableRaidFrames()
-  if previousCvarRaidOptionIsShown == nil then
-    previousCvarRaidOptionIsShown = GetCVar("raidOptionIsShown")
-  end
-  if GetCVar("raidOptionIsShown") == "1" then
-    SetCVar("raidOptionIsShown", false)
-  end
+  local hidden = (self.states.real.isInArena and self.db.profile.DisableArenaFramesInArena)
+    or (self.states.real.isInBattleground and self.db.profile.DisableArenaFramesInBattleground)
+  changeVisibility(ArenaEnemyFrames, not hidden)
+  changeVisibility(ArenaEnemyFramesContainer, not hidden)
+  changeVisibility(CompactArenaFrame, not hidden)
 end
 
 function BattleGroundEnemies:ToggleRaidFrames()
   if InCombatLockdown() then
     return self:QueueForUpdateAfterCombat(self, "ToggleRaidFrames")
   end
-  if
-    (BattleGroundEnemies.states.real.isInArena and self.db.profile.DisableRaidFramesInArena)
-    or (BattleGroundEnemies.states.real.isInBattleground and self.db.profile.DisableRaidFramesInBattleground)
-  then
-    return disableRaidFrames()
-  end
+  local hidden = (self.states.real.isInArena and self.db.profile.DisableRaidFramesInArena)
+    or (self.states.real.isInBattleground and self.db.profile.DisableRaidFramesInBattleground)
+  -- Retail uses both compact raid-style party frames and the normal party
+  -- frame. raidOptionIsShown no longer controls these surfaces.
+  changeVisibility(CompactRaidFrameContainer, not hidden)
+  changeVisibility(CompactRaidFrameManager, not hidden)
+  changeVisibility(CompactPartyFrame, not hidden)
+  changeVisibility(PartyFrame, not hidden)
+end
 
-  restoreShowRaidFrameCVar()
+local hookedFrameGenerators = {}
+function BattleGroundEnemies:InstallBlizzardFrameHooks()
+  -- Apply visibility settings when Blizzard creates compact frames lazily.
+  for _, name in ipairs({ "CompactArenaFrame_Generate", "CompactPartyFrame_Generate" }) do
+    if type(_G[name]) == "function" and not hookedFrameGenerators[name] then
+      hookedFrameGenerators[name] = true
+      hooksecurefunc(name, function()
+        if self.db then
+          self:ToggleArenaFrames()
+          self:ToggleRaidFrames()
+        end
+      end)
+    end
+  end
+end
+
+function BattleGroundEnemies:ADDON_LOADED()
+  self:InstallBlizzardFrameHooks()
+  if self.db then
+    self:ToggleArenaFrames()
+    self:ToggleRaidFrames()
+  end
 end
 
 function BattleGroundEnemies:UpdateArenaPlayers()
@@ -3123,7 +3162,8 @@ function BattleGroundEnemies:UpdateArenaPlayers()
         end
       end
     end
-  elseif self.Enemies:ShouldBeEnabled() then
+  end
+  if self.states.real.isInArena and #self.Enemies.PlayerList == 0 and self.Enemies:ShouldBeEnabled() then
     -- Both player orders are empty. Only keep retrying while enemy frames are
     -- ENABLED for this bracket -- i.e. we're genuinely waiting for arena
     -- opponents to load. If enemies are disabled for the bracket (the
@@ -3398,8 +3438,30 @@ end
 
 -- BattleGroundEnemies._stopLobbyEnemyWatchdog = stopLobbyEnemyWatchdog
 
+local function clearArenaOpponentBindings(self)
+  for i = 1, 15 do
+    local unitID = "arena" .. i
+    local playerButton = self.ArenaIDToPlayerButton[unitID]
+    if playerButton then
+      local structuralUnitID = playerButton.PlayerDetails.PlayerArenaUnitID
+      self.ArenaIDToPlayerButton[unitID] = nil
+      playerButton:UpdateEnemyUnitID("Arena", false)
+      playerButton:DispatchEvent("ArenaOpponentHidden")
+      playerButton.PlayerDetails.PlayerArenaUnitID = structuralUnitID
+    end
+  end
+end
+
 function BattleGroundEnemies:PVP_MATCH_STATE_CHANGED()
   local state = C_PvP.GetActiveMatchState()
+
+  if self.states.real.isInArena and not self:IsTestmodeActive() then
+    for _, playerButton in ipairs(self.Enemies.PlayerList) do
+      if playerButton.Power.Enabled then
+        playerButton.Power:UpdateArenaVisibility()
+      end
+    end
+  end
 
   local function setLiveCCForAllRows(enabled)
     local mainframes = { self.Enemies, self.Allies }
@@ -3416,7 +3478,7 @@ function BattleGroundEnemies:PVP_MATCH_STATE_CHANGED()
               local unitID = playerButton.unitID
               local playerName = unitID and self:GetCanonicalUnitName(unitID)
               local exactButton = playerName and mainframe.Players and mainframe.Players[playerName]
-              if exactButton == playerButton then
+              if self:GetBoundArenaOpponent(unitID) == playerButton or exactButton == playerButton then
                 module:SyncLiveCCUnit(unitID, true)
               else
                 module:SetLiveCCUnit(nil)
@@ -3445,16 +3507,13 @@ function BattleGroundEnemies:PVP_MATCH_STATE_CHANGED()
 
   if state == Enum.PvPMatchState.Engaged then
     self.betweenRounds = false
-    -- Resume only rows whose current unit token still resolves to this exact
-    -- player. Arena slot changes reconcile asynchronously after this event;
-    -- mismatched rows stay unbound until that structural pass completes.
-    setLiveCCForAllRows(true)
-    -- UNIT_NAME_UPDATE is not documented to fire when the PvP name exception
-    -- becomes available. Reconcile arenaN slots explicitly at gates-open so
-    -- startup placeholders become exact Name-Realm rows immediately.
     if self.states.real.isInArena then
+      -- Clear prior-round runtime bindings, retaining structural slots for reuse.
+      clearArenaOpponentBindings(self)
+      self:UpdateArenaPlayers()
       self:CheckForArenaEnemies()
     end
+    setLiveCCForAllRows(true)
     -- Refresh raid target icons — updates during the lobby were
     -- swallowed by the DispatchEvent block, so icons may be stale
     -- (e.g. a player swapped sides but kept their old marker).
@@ -3808,6 +3867,17 @@ function BattleGroundEnemies:SetAllyFaction(allyFaction)
   end
 end
 
+local function getArenaPartyPeerNames(self)
+  local names = {}
+  for i = 1, GetNumGroupMembers() - 1 do
+    local name = self:GetCanonicalUnitName("party" .. i)
+    if name then
+      names[name] = true
+    end
+  end
+  return names
+end
+
 function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
   -- Re-assert factionEnum -1 if the user (or Blizzard's PVPMatch UI) clicked
   -- a faction tab and filtered the scoreboard to one team — without -1 our
@@ -3901,6 +3971,7 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
       and not (issecretvalue and issecretvalue(myInfo.name))
     then
       local raidNames = nil
+      local isArenaParty = self.states.real.isInArena and not IsInRaid()
       if IsInRaid() then
         raidNames = {}
         for i = 1, GetNumGroupMembers() or 0 do
@@ -3918,6 +3989,8 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
             raidNames[memberName] = true
           end
         end
+      elseif isArenaParty then
+        raidNames = getArenaPartyPeerNames(self)
       end
 
       if raidNames and next(raidNames) then
@@ -3927,7 +4000,11 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
         local agreed = 0
         for i = 1, GetNumBattlefieldScores() do
           local row = C_PvP.GetScoreInfo(i)
-          if row and type(row.name) == "string" and row.faction ~= nil and raidNames[row.name] then
+          local peerName = row and row.name
+          if isArenaParty and type(peerName) == "string" then
+            peerName = self:CanonicalName(peerName)
+          end
+          if row and type(peerName) == "string" and row.faction ~= nil and raidNames[peerName] then
             if row.faction == myInfo.faction then
               agreed = agreed + 1
               if agreed >= REQUIRED_PEERS then
