@@ -355,21 +355,28 @@ local function getArenaDrTray(playerButton)
   end
 end
 
-local function reconcileArenaDrInputs(container, pool)
+local function reconcileArenaDrInputs(container, tray)
   local changed = false
-  for i = #container.inputs, 1, -1 do
-    if not pool or not pool:IsActive(container.inputs[i].arenaSource) then
-      container:RemoveFromInput(i)
-      changed = true
-    end
-  end
-  if pool then
-    for source in pool:EnumerateActive() do
-      if not container:FindInputByAttribute("arenaSource", source) then
-        container:NewInput({ arenaSource = source })
-        changed = true
+  local count = 0
+  if tray then
+    for _, category in ipairs(tray.trayItemOrder) do
+      local source = tray:GetActiveTrayItemForCategory(category)
+      if source then
+        count = count + 1
+        local input = container.inputs[count]
+        if not input then
+          container:NewInput({ arenaSource = source })
+          changed = true
+        elseif input.arenaSource ~= source then
+          input.arenaSource = source
+          changed = true
+        end
       end
     end
+  end
+  for i = #container.inputs, count + 1, -1 do
+    container:RemoveFromInput(i)
+    changed = true
   end
   return changed
 end
@@ -567,8 +574,7 @@ function dRTracking:AttachToPlayerButton(playerButton)
       self.arenaTray = tray
       self.arenaLayoutChanged = true
     end
-    local pool = tray and tray.trayItemPool
-    local changed = reconcileArenaDrInputs(self, pool)
+    local changed = reconcileArenaDrInputs(self, tray)
     if self.arenaLayoutChanged then
       changed = true
     end

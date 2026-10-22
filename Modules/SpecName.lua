@@ -14,6 +14,7 @@ local GetInspectSpecialization = IsRetail and C_SpecializationInfo.GetInspectSpe
 local GetSpecializationNameForSpecID = GetSpecializationNameForSpecID
 local CanInspect = CanInspect
 local NotifyInspect = NotifyInspect
+local ClearInspectPlayer = ClearInspectPlayer
 local UnitGUID = UnitGUID
 local UnitSex = UnitSex
 local GetTime = GetTime
@@ -290,6 +291,10 @@ local function receiveFriendlyInspection(guid)
     inspectQueue[guid].nextAttempt = GetTime() + 3
   end
   if pendingInspect and pendingInspect.guid == guid then
+    if not (InspectFrame and InspectFrame.unit)
+      and not (PlayerSpellsFrame and PlayerSpellsFrame:IsInspecting()) then
+      ClearInspectPlayer()
+    end
     pendingInspect = nil
   end
 end
