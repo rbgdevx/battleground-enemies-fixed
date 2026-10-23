@@ -55,7 +55,7 @@ end
 
 local addResetFunctionForgroup = function(dbLocation, defaults, ignoreChildGroups)
   local function func(info)
-    local option = CopyTable(info.options, false)
+    local option = info.options
     for i = 1, #info - 1 do
       option = option.args[info[i]]
     end
@@ -482,17 +482,6 @@ end
 -- end
 
 local CopyTable = CopyTable
-  or function(settings, shallow)
-    local copy = {}
-    for k, v in pairs(settings) do
-      if type(v) == "table" and not shallow then
-        copy[k] = CopyTable(v)
-      else
-        copy[k] = v
-      end
-    end
-    return copy
-  end
 
 function Data.GetOption(location, option)
   local value = location[option[#option]]

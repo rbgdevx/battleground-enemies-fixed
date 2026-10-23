@@ -17,6 +17,7 @@ local InCombatLockdown = InCombatLockdown
 local UnitGUID = UnitGUID
 local UnitRace = UnitRace
 local GetClassColor = C_ClassColor and C_ClassColor.GetClassColor
+local GetRandomTableValue = GetRandomTableValue
 
 --lua
 local math_huge = math.huge
@@ -123,7 +124,7 @@ local testEvents = {
 
     local oppositeMainFrame = playerButton:GetOppositeMainFrame()
     if oppositeMainFrame then --this really should never be nil
-      local randomPlayer = oppositeMainFrame:GetRandomPlayer()
+      local randomPlayer = GetRandomTableValue(oppositeMainFrame.Players)
 
       if randomPlayer then
         playerButton:IsNowTargeting(randomPlayer)
@@ -824,17 +825,6 @@ local function CreateMainFrame(playerType)
   function mainframe:GetPlayerbuttonByUnitID(unitID, requestedPlayerType)
     -- Delegate to the exact-name matcher in Main.lua.
     return BattleGroundEnemies:GetPlayerbuttonByUnitID(unitID, requestedPlayerType)
-  end
-
-  function mainframe:GetRandomPlayer()
-    local t = {}
-    for playerName, playerButton in pairs(self.Players) do
-      table.insert(t, playerButton)
-    end
-    local numPlayers = #t
-    if numPlayers > 0 then
-      return t[math_random(1, numPlayers)]
-    end
   end
 
   function mainframe:SetPlayerCountJustifyV(direction)
@@ -1543,8 +1533,7 @@ local function CreateMainFrame(playerType)
       return "NONE"
     end
 
-    local function PlayerSortingByRoleClassName(playerA, playerB) -- a and b are playerButtons
-      local tiers = buildRoleTiers()
+    local function PlayerSortingByRoleClassName(playerA, playerB, tiers) -- a and b are playerButtons
       local detailsA = playerA.PlayerDetails
       local detailsB = playerB.PlayerDetails
 
@@ -1662,8 +1651,16 @@ local function CreateMainFrame(playerType)
       local profile = BattleGroundEnemies.db.profile
       if self.PlayerType == BattleGroundEnemies.consts.PlayerTypes.Allies then
         local mode = profile.AllySorting or "ROLE"
-        table.sort(newPlayerOrder, mode == "NAME" and byName
-          or mode == "CLASS" and PlayerSortingByClassName or PlayerSortingByRoleClassName)
+        if mode == "NAME" then
+          table.sort(newPlayerOrder, byName)
+        elseif mode == "CLASS" then
+          table.sort(newPlayerOrder, PlayerSortingByClassName)
+        else
+          local tiers = buildRoleTiers()
+          table.sort(newPlayerOrder, function(playerA, playerB)
+            return PlayerSortingByRoleClassName(playerA, playerB, tiers)
+          end)
+        end
       elseif BattleGroundEnemies.states.real.isInArena then
         -- Fixed arena slots keep secure targeting stable. Never sort secret specs.
         local allHaveSlots = true

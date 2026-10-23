@@ -12,8 +12,7 @@ local ArenaUnitExists = IsRetail and ArenaUtil.UnitExists
 local After = C_Timer.After
 
 local PowerBarColor = PowerBarColor --table
-local UnitPower = UnitPower
-local UnitPowerMax = UnitPowerMax
+local UnitPowerPercent = UnitPowerPercent
 local UnitPowerType = UnitPowerType
 local math_random = math.random
 
@@ -45,28 +44,12 @@ local function powerUpdateImpl(self, unitID, powerToken)
       self:CheckForNewPowerColor(powerToken)
     end
 
-    -- Secret Value Passthrough:
-    -- UnitPower / UnitPowerMax return secret values in Rated PvP.
-    -- We must NOT do math (cur / max * 100) or comparisons (if cur > 50).
-    -- We just pass them blindly to the status bar.
-    local cur = UnitPower(unitID, powerType)
-    local max = UnitPowerMax(unitID, powerType)
-
-    -- Keep-prior-on-nil: in 12.0.7 a restricted/stale token (nameplateNtarget,
-    -- arenaNtarget, a detached self.unitID) no longer errors from UnitPower/
-    -- UnitPowerMax — it returns nil. Pre-12.0.7 that error aborted this function
-    -- via the outer pcall in UpdatePower, leaving the bar's last fill intact; the
-    -- old `or 0`/`or 1` fallback would instead drive the bar to empty (visible
-    -- flicker-to-zero). Mirror the HealthBar keep-prior guard (the "fix health
-    -- resetting" fix). A secret value is truthy, so `not cur` distinguishes a
-    -- genuine nil from a secret without tainting; a real 0 (empty energy/rage) is
-    -- also truthy and still renders.
-    if not cur or not max then
+    -- Keep the fixed 0–1 range; pass the possibly secret fraction directly through.
+    local percent = UnitPowerPercent(unitID, powerType)
+    if not percent then
       return
     end
-
-    self:UpdateMinMaxValues(max)
-    self:SetValue(cur)
+    self:SetValue(percent)
   else
     if BattleGroundEnemies.states.testmodeActive then
       self:SetValue(math_random(0, 100) / 100)
@@ -74,11 +57,9 @@ local function powerUpdateImpl(self, unitID, powerToken)
       -- No unitID: reset to presumptive value based on resource type
       if self.powerToken and fullByDefault[self.powerToken] then
         self:SetMinMaxValues(0, 1)
-        self.maxValue = 1
         self:SetValue(1)
       else
         self:SetMinMaxValues(0, 1)
-        self.maxValue = 1
         self:SetValue(0)
       end
     end
@@ -178,23 +159,11 @@ end
 function power:AttachToPlayerButton(playerButton)
   playerButton.Power = CreateFrame("StatusBar", nil, playerButton)
   playerButton.Power:SetMinMaxValues(0, 1)
-  playerButton.Power.maxValue = 1
 
   --playerButton.Power.Background = playerButton.Power:CreateTexture(nil, 'BACKGROUND', nil, 2)
   playerButton.Power.Background = playerButton.Power:CreateTexture(nil, "BACKGROUND", nil, 2)
   playerButton.Power.Background:SetAllPoints()
   playerButton.Power.Background:SetTexture("Interface/Buttons/WHITE8X8")
-
-  function playerButton.Power:UpdateMinMaxValues(max)
-    -- `max` (UnitPowerMax of an enemy) can be a SECRET value in instanced PvP.
-    -- The old code compared it (max == self.maxValue) to skip redundant updates,
-    -- wrapped in pcall. But comparing a secret EMITS taint and is blocked, and
-    -- pcall does NOT suppress that taint — it only swallowed the error while the
-    -- taint (and its 50k+ taint.log spam) still happened. StatusBar:SetMinMaxValues
-    -- accepts secret values, so drop the comparison entirely and pass it through.
-    self:SetMinMaxValues(0, max)
-    self.maxValue = max
-  end
 
   function playerButton.Power:CheckForNewPowerColor(powerToken)
     if not powerToken then
@@ -300,11 +269,9 @@ function power:AttachToPlayerButton(playerButton)
     -- Set presumptive fill: resources that regen passively start full, others start empty
     if powerToken and fullByDefault[powerToken] then
       self:SetMinMaxValues(0, 1)
-      self.maxValue = 1
       self:SetValue(1)
     else
       self:SetMinMaxValues(0, 1)
-      self.maxValue = 1
       self:SetValue(0)
     end
   end

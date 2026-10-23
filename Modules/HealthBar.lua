@@ -228,6 +228,16 @@ function healthBar:AttachToPlayerButton(playerButton)
   playerButton.healthBar.Background:SetAllPoints()
   playerButton.healthBar.Background:SetTexture("Interface/Buttons/WHITE8X8")
 
+  function playerButton.healthBar:HideHealPrediction()
+    playerButton.myHealPrediction:Hide()
+    playerButton.otherHealPrediction:Hide()
+    playerButton.totalAbsorb:Hide()
+    playerButton.totalAbsorbOverlay:Hide()
+    playerButton.overAbsorbGlow:Hide()
+    playerButton.myHealAbsorb:Hide()
+    playerButton.overHealAbsorbGlow:Hide()
+  end
+
   function playerButton.healthBar:UpdateHealth(unitID, health, healthMissing, healthPercent, maxHealth)
     -- Fetch live health if arguments are missing. 12.0.7: UnitHealth/UnitHealthMax
     -- (UnitTokenPvPRestrictedForAddOns) return nil instead of erroring on
@@ -249,13 +259,7 @@ function healthBar:AttachToPlayerButton(playerButton)
         self._rangeBasisTok = unitID
       end
       self:SetValue(0)
-      playerButton.myHealPrediction:Hide()
-      playerButton.otherHealPrediction:Hide()
-      playerButton.totalAbsorb:Hide()
-      playerButton.totalAbsorbOverlay:Hide()
-      playerButton.overAbsorbGlow:Hide()
-      playerButton.myHealAbsorb:Hide()
-      playerButton.overHealAbsorbGlow:Hide()
+      self:HideHealPrediction()
       return
     end
 
@@ -285,7 +289,7 @@ function healthBar:AttachToPlayerButton(playerButton)
     self:SetValue(health)
 
     local calc = playerButton.healPredCalc
-    if unitID and calc and UnitGetDetailedHealPrediction then
+    if self.config.HealthPrediction_Enabled and unitID and calc and UnitGetDetailedHealPrediction then
       UnitGetDetailedHealPrediction(unitID, "player", calc)
 
       local max = calc:GetMaximumHealth()
@@ -351,13 +355,7 @@ function healthBar:AttachToPlayerButton(playerButton)
 
       playerButton.overHealAbsorbGlow:SetAlphaFromBoolean(healAbsorbClamped, 1, 0)
     else
-      playerButton.myHealPrediction:Hide()
-      playerButton.otherHealPrediction:Hide()
-      playerButton.totalAbsorb:Hide()
-      playerButton.totalAbsorbOverlay:Hide()
-      playerButton.overAbsorbGlow:Hide()
-      playerButton.myHealAbsorb:Hide()
-      playerButton.overHealAbsorbGlow:Hide()
+      self:HideHealPrediction()
     end
   end
 
@@ -410,6 +408,9 @@ function healthBar:AttachToPlayerButton(playerButton)
     -- the playerDetails early-return below so it fires whenever the texture swaps.
     self.predictionAnchorsSet = nil
     self.Background:SetVertexColor(unpack(config.Background))
+    if not config.HealthPrediction_Enabled then
+      self:HideHealPrediction()
+    end
 
     self:UpdateClassColor()
   end

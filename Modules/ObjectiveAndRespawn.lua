@@ -3,7 +3,6 @@ local BattleGroundEnemies = BattleGroundEnemies
 
 ---@class Data
 local Data = select(2, ...)
-local GetTime = GetTime
 local GetSpellTexture = C_Spell and C_Spell.GetSpellTexture or GetSpellTexture
 
 local IsCataClassic = WOW_PROJECT_ID == WOW_PROJECT_CATACLYSM_CLASSIC
@@ -1576,7 +1575,7 @@ function objectiveAndRespawn:AttachToPlayerButton(playerButton)
         end
       end
     end
-    self.Cooldown:SetCooldown(GetTime(), respawnTime)
+    self.Cooldown:SetCooldownDuration(respawnTime)
   end
 
   function frame:ArenaOpponentShown(eventArenaToken)
@@ -1806,7 +1805,7 @@ function objectiveAndRespawn:AttachToPlayerButton(playerButton)
       self.Icon:SetTexture(GetSpellTexture(8326))
       self:Show()
       self.ActiveRespawnTimer = true
-      self.Cooldown:SetCooldown(GetTime(), 16)
+      self.Cooldown:SetCooldownDuration(16)
     end
     -- roll >= 4: stay reset (no objective shown this tick).
   end

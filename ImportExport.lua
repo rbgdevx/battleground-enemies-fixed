@@ -11,11 +11,6 @@ local LibDeflate = LibStub("LibDeflate")
 local LibSerialize = LibStub("LibSerialize")
 
 local MergeTable = MergeTable
-  or function(destination, source)
-    for k, v in pairs(source) do
-      destination[k] = v
-    end
-  end
 
 local frameShown
 function BattleGroundEnemies:CreateAceGUIImportExportFrame(mode)

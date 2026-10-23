@@ -359,8 +359,7 @@ local function reconcileArenaDrInputs(container, tray)
   local changed = false
   local count = 0
   if tray then
-    for _, category in ipairs(tray.trayItemOrder) do
-      local source = tray:GetActiveTrayItemForCategory(category)
+    for source in tray.trayItemPool:EnumerateActive() do
       if source then
         count = count + 1
         local input = container.inputs[count]
