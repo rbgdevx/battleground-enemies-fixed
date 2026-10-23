@@ -330,8 +330,8 @@ local function attachToPlayerButton(playerButton)
       frame.PriorityIcon:Show()
       local iconToShow = highestPrioritySpell.icon or GetSpellTexture(118)
       frame.PriorityIcon:SetTexture(iconToShow)
-      frame.Cooldown:SetCooldown(
-        highestPrioritySpell.expirationTime - highestPrioritySpell.duration,
+      frame.Cooldown:SetCooldownFromExpirationTime(
+        highestPrioritySpell.expirationTime,
         highestPrioritySpell.duration
       )
     else

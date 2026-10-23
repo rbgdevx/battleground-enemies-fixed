@@ -655,15 +655,20 @@ end
 -- Hard gate: this addon is strictly PvP-only. A crash report involving raid bosses
 -- (Chimaerus) traced to module-level event handlers that kept processing outside
 -- PvP instances. IsInPvPInstance is the single source of truth consulted by every
--- OnEvent dispatcher below; PLAYER_LOGIN and PLAYER_ENTERING_WORLD are the only
--- events that must flow through regardless (they are what *detect* the zone).
+-- OnEvent dispatcher below. Zone detection and combat lifecycle events also run
+-- outside PvP so previews stop and deferred updates can finish.
 function BattleGroundEnemies:IsInPvPInstance()
   local _, zone = IsInInstance()
   return zone == "pvp" or zone == "arena"
 end
 
 BattleGroundEnemies:SetScript("OnEvent", function(self, event, ...)
-  if event ~= "PLAYER_LOGIN" and event ~= "PLAYER_ENTERING_WORLD" then
+  if
+    event ~= "PLAYER_LOGIN"
+    and event ~= "PLAYER_ENTERING_WORLD"
+    and event ~= "PLAYER_REGEN_ENABLED"
+    and event ~= "PLAYER_REGEN_DISABLED"
+  then
     if not self:IsInPvPInstance() then
       return
     end
@@ -1144,26 +1149,11 @@ function BattleGroundEnemies.MyCreateFontString(parent)
   return fontString
 end
 
----comment
----@param frame cooldown
----@return fontstring?
-function BattleGroundEnemies.GrabFontString(frame)
-  for _, region in pairs({ frame:GetRegions() }) do
-    if region:GetObjectType() == "FontString" then
-      return region
-    end
-  end
-end
-
 function BattleGroundEnemies.AttachCooldownSettings(cooldown)
   cooldown.ApplyCooldownSettings = ApplyCooldownSettings
-  -- Find fontstring of the cooldown
-  local fontstring = BattleGroundEnemies.GrabFontString(cooldown)
-  if fontstring then
-    ---@class MyFontString
-    cooldown.Text = fontstring
-    cooldown.Text.ApplyFontStringSettings = ApplyFontStringSettings
-  end
+  ---@class MyFontString
+  cooldown.Text = cooldown:GetCountdownFontString()
+  cooldown.Text.ApplyFontStringSettings = ApplyFontStringSettings
 end
 
 -- Registry of every Cooldown frame we create, so the test-mode animation toggle
