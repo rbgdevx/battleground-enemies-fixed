@@ -4,6 +4,7 @@ local Data = select(2, ...)
 local BattleGroundEnemies = BattleGroundEnemies
 local LSM = LibStub("LibSharedMedia-3.0")
 local L = Data.L
+local GetNumArenaOpponentSpecs = GetNumArenaOpponentSpecs
 local GetArenaOpponentIndex = BattleGroundEnemies.GetArenaOpponentIndex
 local GetArenaOpponentSpecDisplayInfo = UnitFrameUtil and UnitFrameUtil.GetArenaOpponentSpecDisplayInfo
 
@@ -421,7 +422,8 @@ function healthBar:AttachToPlayerButton(playerButton)
       return
     end
     local arenaIndex = GetArenaOpponentIndex(playerButton)
-    if arenaIndex and playerDetails.PlayerClass == "UNKNOWN" and GetArenaOpponentSpecDisplayInfo then
+    if arenaIndex and playerDetails.PlayerClass == "UNKNOWN"
+      and GetNumArenaOpponentSpecs() > 0 and GetArenaOpponentSpecDisplayInfo then
       local info = GetArenaOpponentSpecDisplayInfo(arenaIndex)
       self:SetStatusBarColor(info.barColorR, info.barColorG, info.barColorB)
     else
