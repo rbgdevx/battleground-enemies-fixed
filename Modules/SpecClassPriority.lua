@@ -7,6 +7,7 @@ local L = Data.L
 local CreateFrame = CreateFrame
 local GetSpellTexture = C_Spell and C_Spell.GetSpellTexture or GetSpellTexture
 local GetClassAtlas = GetClassAtlas
+local UnitClass = UnitClass
 local UpdateArenaOpponentSpecDisplay = UnitFrameUtil and UnitFrameUtil.UpdateArenaOpponentSpecDisplay
 local GetArenaOpponentIndex = BattleGroundEnemies.GetArenaOpponentIndex
 local GetBoundArenaOpponent = BattleGroundEnemies.GetBoundArenaOpponent
@@ -396,7 +397,14 @@ local function attachToPlayerButton(playerButton)
       self.SpecClassIcon:SetTexture(specData.specIcon)
       self.ShowsSpec = true
     else
-      local classIconAtlas = GetClassAtlas and GetClassAtlas(playerDetails.PlayerClass)
+      local class = playerDetails.PlayerClass
+      if arenaIndex and class == "UNKNOWN" then
+        local _, liveClass = UnitClass(playerDetails.PlayerArenaUnitID)
+        if liveClass then
+          class = liveClass
+        end
+      end
+      local classIconAtlas = GetClassAtlas and GetClassAtlas(class)
       if classIconAtlas then
         self.SpecClassIcon:SetAtlas(classIconAtlas)
       else

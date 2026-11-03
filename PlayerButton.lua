@@ -509,11 +509,13 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     self.Trinket:DisplayTrinket(spellId)
 
     if durationObj then
-      -- IsZero() returns a secret boolean — we can't do boolean tests on it.
-      -- SetAlphaFromBoolean accepts secret booleans: alpha 0 when IsZero (no
-      -- active cooldown / CDs reset between rounds), alpha 1 when not zero
-      -- (trinket was actually used). This mirrors Blizzard's enabled = duration > 0.
-      self.Trinket:SetAlphaFromBoolean(durationObj:IsZero(), 0, 1)
+      -- Arena discovery owns icon visibility; a ready cooldown clears only the swipe.
+      -- Preserve the existing cooldown-dependent visibility for objective carriers.
+      if BattleGroundEnemies.states.real.isInArena then
+        self.Trinket:SetAlpha(1)
+      else
+        self.Trinket:SetAlphaFromBoolean(durationObj:IsZero(), 0, 1)
+      end
 
       if self.Trinket.Cooldown.SetCooldownFromDurationObject then
         -- clearIfZero defaults to true — cooldown swipe clears when duration is zero
@@ -1588,8 +1590,6 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
   -- health bar its range basis is stale, then run the normal health path —
   -- it re-reads health + max from the same token and dispatches UpdateHealth,
   -- where the dirty flag makes SetMinMaxValues run with that fresh pair.
-  -- self:UNIT_HEALTH resolves at call time, so PerfHUD's profiling wrapper
-  -- around UNIT_HEALTH still counts the delegated work.
   function playerButton:UNIT_MAXHEALTH(unitID)
     if self.healthBar then
       self.healthBar._rangeDirty = true

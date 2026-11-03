@@ -3,7 +3,11 @@ local Data = select(2, ...)
 ---@class BattleGroundEnemies
 local BattleGroundEnemies = BattleGroundEnemies
 local L = Data.L
+local IsRetail = Data.IsRetail
+local GetArenaOpponentIndex = BattleGroundEnemies.GetArenaOpponentIndex
 local CreateFrame = CreateFrame
+local hooksecurefunc = hooksecurefunc
+local setmetatable = setmetatable
 local GetTime = GetTime
 local GetItemIconByID = C_Item.GetItemIconByID
 local GetSpellTexture = C_Spell and C_Spell.GetSpellTexture or GetSpellTexture
@@ -55,9 +59,38 @@ local trinket = BattleGroundEnemies:NewButtonModule({
   localizedModuleName = L.Trinket,
   defaultSettings = defaultSettings,
   options = options,
-  events = { "ArenaOpponentHidden" },
+  events = { "ArenaOpponentShown", "ArenaOpponentHidden" },
   enabledInThisExpansion = true,
 })
+
+local hookedArenaTrinkets = setmetatable({}, { __mode = "k" })
+
+local function getArenaTrinketSource(arenaIndex)
+  local arenaFrame = CompactArenaFrame
+  local member = arenaFrame and arenaFrame.memberUnitFrames[arenaIndex]
+  return member and member.CcRemoverFrame
+end
+
+local function copyArenaTrinketDisplay(frame, source)
+  frame.Icon:SetTexture(source.Icon:GetTexture())
+  frame.Icon:SetAlphaFromBoolean(source:IsShown(), 1, 0)
+  frame.Cooldown:SetAlphaFromBoolean(source:IsShown(), 1, 0)
+end
+
+local function hookArenaTrinketSource(arenaIndex, source)
+  if hookedArenaTrinkets[source] then
+    return
+  end
+  hookedArenaTrinkets[source] = true
+  local function refreshBoundArenaTrinket()
+    local row = BattleGroundEnemies.ArenaIDToPlayerButton["arena" .. arenaIndex]
+    if row and row.Trinket and row.Trinket.Enabled and GetArenaOpponentIndex(row) == arenaIndex then
+      copyArenaTrinketDisplay(row.Trinket, source)
+    end
+  end
+  hooksecurefunc(source.Icon, "SetTexture", refreshBoundArenaTrinket)
+  hooksecurefunc(source, "SetShown", refreshBoundArenaTrinket)
+end
 
 function trinket:AttachToPlayerButton(playerButton)
   local frame = CreateFrame("frame", nil, playerButton)
@@ -85,7 +118,32 @@ function trinket:AttachToPlayerButton(playerButton)
     end
   end
 
+  function frame:SyncArenaDisplay()
+    local arenaIndex = IsRetail and GetArenaOpponentIndex(playerButton)
+    if not arenaIndex then
+      return false
+    end
+    local source = getArenaTrinketSource(arenaIndex)
+    if source then
+      hookArenaTrinketSource(arenaIndex, source)
+      copyArenaTrinketDisplay(self, source)
+    else
+      self.Icon:SetTexture(nil)
+      self.Icon:SetAlpha(0)
+      self.Cooldown:SetAlpha(0)
+    end
+    return true
+  end
+
+  frame.ArenaOpponentShown = frame.SyncArenaDisplay
+
   function frame:DisplayTrinket(spellId, itemID)
+    if self:SyncArenaDisplay() then
+      self.spellId = spellId
+      return
+    end
+    self.Icon:SetAlpha(1)
+    self.Cooldown:SetAlpha(1)
     local texture
     local spellIdSecret = issecretvalue and spellId and issecretvalue(spellId)
     local itemIdSecret = issecretvalue and itemID and issecretvalue(itemID)
@@ -139,6 +197,8 @@ function trinket:AttachToPlayerButton(playerButton)
     self.spellId = false
     self:ResetFakeCooldown()
     self.Icon:SetTexture(nil)
+    self.Icon:SetAlpha(1)
+    self.Cooldown:SetAlpha(1)
     self.Cooldown:Clear()
   end
 
@@ -159,6 +219,7 @@ function trinket:AttachToPlayerButton(playerButton)
     self:Show()
     local moduleSettings = self.config
     self.Cooldown:ApplyCooldownSettings(moduleSettings.Cooldown, false, { 0, 0, 0, 0.5 })
+    self:SyncArenaDisplay()
   end
 
   playerButton.Trinket = frame

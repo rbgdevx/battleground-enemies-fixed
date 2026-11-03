@@ -1,11 +1,10 @@
 ## Interface: 120105, 16001
 ## Title: BattleGroundEnemiesFixed
-## Version: 12.1.5.2
+## Version: 12.1.5.3
 ## Author: RBGDEV
 ## Category: RBGDEV
 ## Notes: Credit to BattleGroundEnemies for the original code, author: Bullsei
-## SavedVariables: BattleGroundEnemiesDB, BattleGroundEnemiesPerfHUDLog
-## SavedVariablesPerCharacter: BattleGroundEnemiesPerfHUD
+## SavedVariables: BattleGroundEnemiesDB
 ## OptionalDeps: Blizzard_UnitFrame, Ace3, LibStub, LibRaces-1.0, UTF8, LibSharedMedia-3.0, AceGUI-3.0-SharedMediaWidgets
 ## IconTexture: Interface\AddOns\BattleGroundEnemiesFixed\bge_logo.tga
 ## X-Curse-Project-ID: 1444858
@@ -42,6 +41,5 @@ Modules\TargetIndicatorSymbolic.lua
 Modules\CombatIndicator.lua
 Modules\Trinket.lua
 Modules\DR.lua
-Modules\PerfHUD.lua
 
 Options.lua

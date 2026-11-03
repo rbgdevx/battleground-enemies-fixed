@@ -2504,13 +2504,12 @@ function BattleGroundEnemies:ARENA_CROWD_CONTROL_SPELL_UPDATE(unitID, ...)
   end
 
   if playerButton and playerButton.Trinket then
-    -- For allies: show the trinket icon so we can see what CC-break they have.
-    -- For enemies: do NOT show the icon here. This event only announces which
-    -- trinket the unit HAS, not that they used it. Showing it preemptively is
-    -- misleading (especially in solo shuffle where CDs reset between rounds).
-    -- Enemy trinket icons are set in ARENA_COOLDOWNS_UPDATE when actually used.
-    if not playerButton.PlayerIsEnemy then
+    -- Like Blizzard's arena frames, show a discovered trinket even before use.
+    if not playerButton.PlayerIsEnemy or self.states.real.isInArena then
       playerButton.Trinket:DisplayTrinket(spellId, itemID)
+      if playerButton.PlayerIsEnemy then
+        playerButton.Trinket:SetAlpha(1)
+      end
     end
   end
 
