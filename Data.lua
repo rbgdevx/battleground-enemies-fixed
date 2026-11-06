@@ -1,5 +1,6 @@
 ---@class Data
 local Data = select(2, ...)
+local print = Data.print
 
 if not Data.L then
   Data.L = setmetatable({}, {

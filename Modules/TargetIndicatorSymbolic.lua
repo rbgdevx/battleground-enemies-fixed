@@ -129,8 +129,6 @@ function symbolicTargetIndicator:AttachToPlayerButton(playerButton)
   end
 
   function playerButton.TargetIndicatorSymbolic:UpdateTargetIndicators()
-    self:GetConfig()
-
     -- Test mode drives rendering via OnTestmodeTick (fake players have no real
     -- TargetedByEnemy entries); don't let a live update blank the simulation.
     if BattleGroundEnemies:IsTestmodeActive() then
@@ -173,7 +171,6 @@ function symbolicTargetIndicator:AttachToPlayerButton(playerButton)
   end
 
   function playerButton.TargetIndicatorSymbolic:OnTestmodeTick()
-    self:GetConfig()
     local classColors = CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS
     local colorList = {}
     for i = 1, math.random(0, 4) do

@@ -989,6 +989,7 @@ local function CreateMainFrame(playerType)
       playerButton:Hide()
     end
 
+    playerButton.position = nil
     table_insert(self.InactivePlayerButtons, playerButton)
     local pname = playerButton.PlayerDetails and playerButton.PlayerDetails.PlayerName
     if pname then
@@ -1045,11 +1046,11 @@ local function CreateMainFrame(playerType)
     return newTargetIndex, self.CurrentPlayerOrder[newTargetIndex]
   end
 
-  function mainframe:SetUpBindings()
-    local maxPlayers = #self.CurrentPlayerOrder
+  function mainframe:SetUpBindings(orderedPlayers)
+    local maxPlayers = #orderedPlayers
     self:SetAttribute("maxUnits", maxPlayers)
-    for j = 1, #self.CurrentPlayerOrder do
-      local pname = self.CurrentPlayerOrder[j].PlayerDetails.PlayerName
+    for j = 1, maxPlayers do
+      local pname = orderedPlayers[j].PlayerDetails.PlayerName
       self:SetAttribute("playerName" .. j, pname or nil)
     end
 
@@ -1082,9 +1083,7 @@ local function CreateMainFrame(playerType)
     --button:SetAttribute("type1", "macro")
   end
 
-  function mainframe:ButtonPositioning()
-    local orderedPlayers = self.CurrentPlayerOrder
-
+  function mainframe:ButtonPositioning(orderedPlayers, forceRepositioning)
     local config = self.playerCountConfig
     if not config then
       return
@@ -1125,7 +1124,6 @@ local function CreateMainFrame(playerType)
     for i = 1, playerCount do
       local playerButton = orderedPlayers[i]
       if playerButton then --should never be nil
-        playerButton.position = i
         if column > 1 then
           offsetX = (column - 1) * (barWidth + horizontalSpacing) * offsetDirectionX
         else
@@ -1137,14 +1135,18 @@ local function CreateMainFrame(playerType)
         playerButton:ClearAllPoints()
         playerButton:SetPoint(point, self, point, offsetX, offsetY)
 
-        playerButton:ApplyButtonSettings()
+        -- A roster reorder keeps the settings of rows already laid out for this profile.
+        if forceRepositioning or not playerButton.position or playerButton.playerCountConfig ~= config then
+          playerButton:ApplyButtonSettings()
+        end
+        playerButton.position = i
         local buttonHeight = playerButton:GetHeight()
         firstButtonHeight = firstButtonHeight or buttonHeight
         hasVariableHeights = hasVariableHeights or buttonHeight ~= firstButtonHeight
         maxColumnHeight = math.max(maxColumnHeight, columnHeight + buttonHeight)
 
         if row < rowsPerColumn then
-          columnHeight = columnHeight + playerButton:GetHeight() + verticalSpacing
+          columnHeight = columnHeight + buttonHeight + verticalSpacing
           row = row + 1
         else
           column = column + 1
@@ -1677,7 +1679,9 @@ local function CreateMainFrame(playerType)
 
       local orderChanged = false
       for i = 1, math_max(#newPlayerOrder, #self.CurrentPlayerOrder) do --players can leave or join so #self.CurrentPlayerOrder can be unequal to #newPlayerOrder
-        if newPlayerOrder[i] ~= self.CurrentPlayerOrder[i] then
+        local playerButton = newPlayerOrder[i]
+        local needsInitialLayout = self.playerCountConfig and playerButton and not playerButton.position
+        if playerButton ~= self.CurrentPlayerOrder[i] or needsInitialLayout then
           orderChanged = true
           break
         end
@@ -1688,9 +1692,9 @@ local function CreateMainFrame(playerType)
         if inCombat then
           return BattleGroundEnemies:QueueForUpdateAfterCombat(self, "AfterPlayerSourceUpdate")
         end
+        self:ButtonPositioning(newPlayerOrder, forceRepositioning)
+        self:SetUpBindings(newPlayerOrder)
         self.CurrentPlayerOrder = newPlayerOrder
-        self:ButtonPositioning()
-        self:SetUpBindings()
       end
     end
   end

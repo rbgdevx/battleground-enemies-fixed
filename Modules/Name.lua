@@ -4,6 +4,9 @@ local BattleGroundEnemies = BattleGroundEnemies
 local Data = select(2, ...)
 
 local L = Data.L
+local CyrillicToRomanian = Data.CyrillicToRomanian
+
+local Transliterate = C_Intl and C_Intl.Transliterate
 
 local generalDefaults = {
   ShowRealmnames = false,
@@ -74,6 +77,29 @@ local name = BattleGroundEnemies:NewButtonModule({
   },
 })
 
+local function convertCyrillicName(playerName)
+  -- UTF-8 lead bytes for the Cyrillic block (U+0400–U+04FF).
+  if not playerName:find("[\208-\211]") then
+    return playerName
+  end
+
+  local transliterated = Transliterate and Transliterate(playerName, "Cyrillic-Latin")
+  if transliterated then
+    return transliterated
+  end
+
+  local converted = ""
+  for i = 1, playerName:utf8len() do
+    local character = playerName:utf8sub(i, i)
+    local replacement = CyrillicToRomanian[character]
+    if i == 1 and replacement then
+      replacement = replacement:gsub("^.", string.upper)
+    end
+    converted = converted .. (replacement or character)
+  end
+  return converted
+end
+
 function name:AttachToPlayerButton(playerButton)
   local container = CreateFrame("Frame", nil, playerButton)
   container.fs = BattleGroundEnemies.MyCreateFontString(container)
@@ -115,19 +141,7 @@ function name:AttachToPlayerButton(playerButton)
     end
 
     if BattleGroundEnemies.db.profile.ConvertCyrillic then
-      local converted = ""
-      for i = 1, resolvedName:utf8len() do
-        local c = resolvedName:utf8sub(i, i)
-        if Data.CyrillicToRomanian[c] then
-          converted = converted .. Data.CyrillicToRomanian[c]
-          if i == 1 then
-            converted = converted:gsub("^.", string.upper) --uppercase the first character
-          end
-        else
-          converted = converted .. c
-        end
-      end
-      resolvedName = converted
+      resolvedName = convertCyrillicName(resolvedName)
     end
 
     self.fs:SetText(resolvedName)
