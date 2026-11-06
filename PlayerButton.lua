@@ -215,6 +215,37 @@ local function isSpellInRange(unitID, myClass)
   return false
 end
 
+local playerHighlightBackdrops = {}
+
+local function applyPlayerHighlightSettings(frame, borderSize, color)
+  if not frame:IsShown() then
+    return
+  end
+
+  local backdrop = playerHighlightBackdrops[borderSize]
+  if not backdrop then
+    backdrop = {
+      bgFile = "Interface/Buttons/WHITE8X8",
+      edgeFile = "Interface/Buttons/WHITE8X8",
+      edgeSize = borderSize,
+    }
+    playerHighlightBackdrops[borderSize] = backdrop
+  end
+  frame:SetBackdrop(backdrop)
+  frame:SetBackdropColor(0, 0, 0, 0)
+  frame:SetBackdropBorderColor(unpack(color))
+end
+
+local function createPlayerHighlight(playerButton, settingName)
+  local frame = CreateFrame("Frame", nil, playerButton, BackdropTemplateMixin and "BackdropTemplate")
+  frame:Hide()
+  frame:SetScript("OnShow", function(self)
+    local profile = BattleGroundEnemies.db.profile
+    applyPlayerHighlightSettings(self, profile[settingName .. "_BorderSize"], profile[settingName .. "_Color"])
+  end)
+  return frame
+end
+
 ---@class UnitIds
 ---@field Arena UnitToken?
 ---@field Nameplate UnitToken?
@@ -1026,22 +1057,14 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     -- auras on spec
 
     --MyTarget, indicating the current target of the player
-    self.MyTarget:SetBackdrop({
-      bgFile = "Interface/Buttons/WHITE8X8", --drawlayer "BACKGROUND"
-      edgeFile = "Interface/Buttons/WHITE8X8", --drawlayer "BORDER"
-      edgeSize = BattleGroundEnemies.db.profile.MyTarget_BorderSize,
-    })
-    self.MyTarget:SetBackdropColor(0, 0, 0, 0)
-    self.MyTarget:SetBackdropBorderColor(unpack(BattleGroundEnemies.db.profile.MyTarget_Color))
+    applyPlayerHighlightSettings(
+      self.MyTarget, BattleGroundEnemies.db.profile.MyTarget_BorderSize, BattleGroundEnemies.db.profile.MyTarget_Color
+    )
 
     --MyFocus, indicating the current focus of the player
-    self.MyFocus:SetBackdrop({
-      bgFile = "Interface/Buttons/WHITE8X8", --drawlayer "BACKGROUND"
-      edgeFile = "Interface/Buttons/WHITE8X8", --drawlayer "BORDER"
-      edgeSize = BattleGroundEnemies.db.profile.MyFocus_BorderSize,
-    })
-    self.MyFocus:SetBackdropColor(0, 0, 0, 0)
-    self.MyFocus:SetBackdropBorderColor(unpack(BattleGroundEnemies.db.profile.MyFocus_Color))
+    applyPlayerHighlightSettings(
+      self.MyFocus, BattleGroundEnemies.db.profile.MyFocus_BorderSize, BattleGroundEnemies.db.profile.MyFocus_Color
+    )
 
     self:SetModulePositions()
     self:ApplyModuleSettings()
@@ -1825,19 +1848,10 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
   playerButton:SetScript("OnDragStop", playerButton.OnDragStop)
 
   --MyTarget, indicating the current target of the player
-  playerButton.MyTarget = CreateFrame("Frame", nil, playerButton, BackdropTemplateMixin and "BackdropTemplate")
-
-  playerButton.MyTarget:Hide()
+  playerButton.MyTarget = createPlayerHighlight(playerButton, "MyTarget")
 
   --MyFocus, indicating the current focus of the player
-  playerButton.MyFocus = CreateFrame("Frame", nil, playerButton, BackdropTemplateMixin and "BackdropTemplate")
-  playerButton.MyFocus:SetBackdrop({
-    bgFile = "Interface/Buttons/WHITE8X8", --drawlayer "BACKGROUND"
-    edgeFile = "Interface/Buttons/WHITE8X8", --drawlayer "BORDER"
-    edgeSize = 1,
-  })
-  playerButton.MyFocus:SetBackdropColor(0, 0, 0, 0)
-  playerButton.MyFocus:Hide()
+  playerButton.MyFocus = createPlayerHighlight(playerButton, "MyFocus")
 
   playerButton.ButtonModules = {}
   for moduleName, moduleFrame in pairs(BattleGroundEnemies.ButtonModules) do

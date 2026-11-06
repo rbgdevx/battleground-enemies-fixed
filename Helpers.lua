@@ -4,6 +4,12 @@ local Data = select(2, ...)
 Data.Helpers = {}
 
 local tAppendAll = tAppendAll
+local strjoin = strjoin
+local tostringall = tostringall
+
+Data.print = function(...)
+  DEFAULT_CHAT_FRAME:AddMessage(strjoin(" ", tostringall(...)))
+end
 
 --[[
     Generates all permutations of the given input array.

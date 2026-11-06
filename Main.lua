@@ -1,5 +1,6 @@
 ---@class Data
 local Data = select(2, ...)
+local print = Data.print
 if not Data.L then
   Data.L = setmetatable({}, {
     __index = function(_, k)
@@ -21,7 +22,6 @@ local _G = _G
 local math_random = math.random
 local math_min = math.min
 local pairs = pairs
--- local print = print
 local time = time
 local tonumber = tonumber
 local type = type
@@ -4075,7 +4075,6 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
   if numEnemies and self._lastEnemyCount == numEnemies then
     return
   end
-  self._lastEnemyCount = numEnemies
 
   -- #10a: wipe the scoreboard source FIRST (this drops last tick's references to
   -- the pooled row tables in self.PlayerSources[Scoreboard]), THEN parse each row
@@ -4121,6 +4120,7 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
   end
 
   BattleGroundEnemies.Enemies:AfterPlayerSourceUpdate()
+  self._lastEnemyCount = numEnemies
 
   -- Land scoreboard specs on allies: when the map gains entries (specs become
   -- readable over the first few score ticks), re-run the ally roster build -- the

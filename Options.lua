@@ -2,6 +2,7 @@
 local AddonName = ...
 ---@class Data
 local Data = select(2, ...)
+local print = Data.print
 local GetAddOnMetadata = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
 
 local L = Data.L
