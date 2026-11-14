@@ -741,6 +741,9 @@ function dRTracking:AttachToPlayerButton(playerButton)
   -- LoC polling fallback — dispatched from UpdateAll() every 0.1s via PeriodicUpdate event
   ---------------------------------------------------------------------------
   function container:PeriodicUpdate(unitID)
+    if unitID == "player" then
+      return
+    end
     if (IsRetail and GetArenaOpponentIndex(playerButton)) then
       return
     end
