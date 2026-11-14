@@ -7,6 +7,7 @@ local GetArenaOpponentIndex = BattleGroundEnemies.GetArenaOpponentIndex
 local MyCreateFontString = BattleGroundEnemies.MyCreateFontString
 local IsRetail = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
 
+local CreateColor = CreateColor
 local CreateFrame = CreateFrame
 local BackdropTemplateMixin = BackdropTemplateMixin
 local GetTime = GetTime
@@ -308,28 +309,61 @@ local dRTracking = BattleGroundEnemies:NewButtonModule({
 -- Frame creation & setup (ported from OG DR.lua, adapted for C_SpellDiminish)
 ---------------------------------------------------------------------------
 
+local arenaDrBorderPieces = {
+  "TopLeftCorner",
+  "TopRightCorner",
+  "BottomLeftCorner",
+  "BottomRightCorner",
+  "TopEdge",
+  "BottomEdge",
+  "LeftEdge",
+  "RightEdge",
+}
+
+local arenaHalfDrColor = IsRetail and CreateColor(unpack(dRstates[1]))
+local arenaImmuneDrColor = IsRetail and CreateColor(unpack(dRstates[2]))
+
 local function createArenaDrRegions(drFrame)
   drFrame.ArenaCountdown = MyCreateFontString(drFrame)
   drFrame.ArenaCountdown:SetPoint("CENTER")
-  drFrame.ArenaImmunity = drFrame:CreateTexture(nil, "OVERLAY")
-  drFrame.ArenaImmunity:SetAtlas("GM-icon-role-tank")
-  drFrame.ArenaImmunity:SetSize(16, 16)
-  drFrame.ArenaImmunity:SetPoint("CENTER", drFrame, "TOP")
+
+  drFrame.ArenaImmuneText = drFrame.StatusBG:CreateFontString(nil, "OVERLAY")
+  drFrame.ArenaImmuneText:SetFont(drFrame.StatusText:GetFont())
+  drFrame.ArenaImmuneText:SetPoint("CENTER", drFrame.StatusText)
+  drFrame.ArenaImmuneText:SetText("2/2")
 end
 
 local function applyArenaDrFrameSettings(drFrame)
   if not drFrame.ArenaCountdown then
     createArenaDrRegions(drFrame)
   end
-  drFrame.ArenaCountdown:ApplyFontStringSettings(drFrame.Container.config.Cooldown, true)
+  local config = drFrame.Container.config
+  drFrame.ArenaCountdown:ApplyFontStringSettings(config.Cooldown, true)
+  drFrame.ArenaCountdown:SetTextColor(1, 1, 1, 1)
   drFrame.Cooldown:Hide()
-  drFrame.StatusBG:Hide()
   drFrame:SetBackdropBorderColor(0, 0, 0, 0)
-  local showNumber = drFrame.Container.config.Cooldown.ShowNumber
+
+  updateStatusCounter(drFrame, 1)
+  drFrame.ArenaImmuneText:SetShown(config.Cooldown.ShowDRCount == true)
+
+  local showNumber = config.Cooldown.ShowNumber
   if showNumber == nil then
     showNumber = BattleGroundEnemies.db.profile.Cooldown.ShowNumber
   end
   drFrame.ArenaCountdown:SetShown(showNumber)
+end
+
+local function updateArenaDrStyle(drFrame, isImmune)
+  drFrame.StatusText:SetAlphaFromBoolean(isImmune, 0, 1)
+  drFrame.ArenaImmuneText:SetAlphaFromBoolean(isImmune, 1, 0)
+
+  if drFrame.Container.config.DisplayType == "Frame" then
+    for _, piece in ipairs(arenaDrBorderPieces) do
+      drFrame[piece]:SetVertexColorFromBoolean(isImmune, arenaImmuneDrColor, arenaHalfDrColor)
+    end
+  else
+    drFrame.ArenaCountdown:SetVertexColorFromBoolean(isImmune, arenaImmuneDrColor, arenaHalfDrColor)
+  end
 end
 
 local function copyArenaDrDisplay(drFrame, source)
@@ -337,7 +371,7 @@ local function copyArenaDrDisplay(drFrame, source)
   local countdown = source.Cooldown:GetCountdownFontString()
   drFrame.ArenaCountdown:SetText(countdown:GetText())
   drFrame.ArenaCountdown:SetAlphaFromBoolean(countdown:IsShown(), 1, 0)
-  drFrame.ArenaImmunity:SetAlphaFromBoolean(source.ImmunityIndicator:IsShown(), 1, 0)
+  updateArenaDrStyle(drFrame, source.ImmunityIndicator:IsShown())
   drFrame:SetAlphaFromBoolean(source:IsShown(), 1, 0)
 end
 
@@ -455,7 +489,8 @@ local function setupDrFrame(container, drFrame, drDetails)
   drFrame.Cooldown:Show()
   if drFrame.ArenaCountdown then
     drFrame.ArenaCountdown:Hide()
-    drFrame.ArenaImmunity:SetAlpha(0)
+    drFrame.ArenaImmuneText:Hide()
+    drFrame.StatusText:SetAlpha(1)
   end
   drFrame:SetStatus()
 
