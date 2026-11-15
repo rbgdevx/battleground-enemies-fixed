@@ -2,12 +2,12 @@
 local Data = select(2, ...)
 
 local allieDefaults15man = {
-  Enabled = false,
+  Enabled = true,
   minPlayerCount = 6,
   maxPlayerCount = 15,
 
-  Position_X = 300,
-  Position_Y = 600,
+  Position_X = 181.70324040547709,
+  Position_Y = 622.80451511953288,
   BarWidth = 185,
   BarHeight = 32,
   BarVerticalGrowdirection = "downwards",
@@ -21,6 +21,18 @@ local allieDefaults15man = {
   },
 
   ButtonModules = {
+    CastBar = {
+      Enabled = false,
+      Points = {
+        {
+          Point = "LEFT",
+          RelativeFrame = "SpecClassPriority",
+          RelativePoint = "RIGHT",
+          OffsetX = 20,
+        },
+      },
+      Style = "Arena",
+    },
     DRTracking = {
       Enabled = true,
       Parent = "Button",
@@ -219,8 +231,8 @@ local enemyDefault15man = {
   minPlayerCount = 6,
   maxPlayerCount = 15,
 
-  Position_X = 900,
-  Position_Y = 600,
+  Position_X = 789.95626985270064,
+  Position_Y = 629.56068247425719,
   BarWidth = 185,
   BarHeight = 32,
   BarVerticalGrowdirection = "downwards",
@@ -234,6 +246,18 @@ local enemyDefault15man = {
   },
 
   ButtonModules = {
+    CastBar = {
+      Enabled = false,
+      Points = {
+        {
+          Point = "RIGHT",
+          RelativeFrame = "SpecClassPriority",
+          RelativePoint = "LEFT",
+          OffsetX = -20,
+        },
+      },
+      Style = "Arena",
+    },
     DRTracking = {
       Enabled = true,
       Parent = "Button",
@@ -436,13 +460,13 @@ Data.defaultSettings = {
     DebugToChat = false,
     DebugToChat_AddTimestamp = false,
 
-    DisableArenaFramesInArena = false,
-    DisableArenaFramesInBattleground = false,
+    DisableArenaFramesInArena = true,
+    DisableArenaFramesInBattleground = true,
 
-    DisableRaidFramesInArena = false,
-    DisableRaidFramesInBattleground = false,
+    DisableRaidFramesInArena = true,
+    DisableRaidFramesInBattleground = true,
 
-    ShowBGEInArena = false,
+    ShowBGEInArena = true,
     ShowBGEInBattleground = true,
 
     MyTarget_Color = { 1, 1, 1, 1 },
@@ -513,12 +537,12 @@ Data.defaultSettings = {
 
       playerCountConfigs = {
         {
-          Enabled = false,
+          Enabled = true,
           minPlayerCount = 1,
           maxPlayerCount = 5,
 
-          Position_X = 900,
-          Position_Y = 600,
+          Position_X = 773.07134615562973,
+          Position_Y = 607.63179228739318,
           BarWidth = 185,
           BarHeight = 50,
           BarVerticalGrowdirection = "downwards",
@@ -532,6 +556,18 @@ Data.defaultSettings = {
           },
 
           ButtonModules = {
+            CastBar = {
+              Enabled = true,
+              Points = {
+                {
+                  Point = "RIGHT",
+                  RelativeFrame = "SpecClassPriority",
+                  RelativePoint = "LEFT",
+                  OffsetX = -20,
+                  OffsetY = -10,
+                },
+              },
+            },
             DRTracking = {
               Enabled = true,
               Parent = "Button",
@@ -541,21 +577,22 @@ Data.defaultSettings = {
                   Point = "RIGHT",
                   RelativeFrame = "SpecClassPriority",
                   RelativePoint = "LEFT",
-                  OffsetX = 0,
+                  OffsetX = -20,
+                  OffsetY = 10,
                 },
               },
               IconSize = 20,
               Cooldown = {
-                FontSize = 13,
+                FontSize = 18,
                 FontOutline = "OUTLINE",
                 ShowDRCount = true,
               },
               Container = {
-                UseButtonHeightAsSize = true,
-                IconSize = 15,
+                UseButtonHeightAsSize = false,
+                IconSize = 30,
                 IconsPerRow = 10,
                 HorizontalGrowDirection = "leftwards",
-                HorizontalSpacing = 2,
+                HorizontalSpacing = 1,
                 VerticalGrowdirection = "downwards",
                 VerticalSpacing = 1,
               },
@@ -608,6 +645,9 @@ Data.defaultSettings = {
               },
               UseButtonHeightAsHeight = true,
               UseButtonHeightAsWidth = true,
+              Cooldown = {
+                FontSize = 18,
+              },
             },
             healthBar = {
               Enabled = true,
@@ -730,8 +770,8 @@ Data.defaultSettings = {
           minPlayerCount = 16,
           maxPlayerCount = 40,
 
-          Position_X = 800,
-          Position_Y = 600,
+          Position_X = 686.13305588747608,
+          Position_Y = 591.39314725314034,
           BarWidth = 160,
           BarHeight = 30,
           BarVerticalGrowdirection = "downwards",
@@ -745,6 +785,18 @@ Data.defaultSettings = {
           },
 
           ButtonModules = {
+            CastBar = {
+              Enabled = false,
+              Points = {
+                {
+                  Point = "RIGHT",
+                  RelativeFrame = "SpecClassPriority",
+                  RelativePoint = "LEFT",
+                  OffsetX = -20,
+                },
+              },
+              Style = "Arena",
+            },
             DRTracking = {
               Enabled = false,
               Parent = "Button",
@@ -972,7 +1024,7 @@ Data.defaultSettings = {
 
       playerCountConfigs = {
         {
-          Enabled = false,
+          Enabled = true,
           minPlayerCount = 1,
           maxPlayerCount = 5,
 
@@ -991,8 +1043,19 @@ Data.defaultSettings = {
           },
 
           ButtonModules = {
-            DRTracking = {
+            CastBar = {
               Enabled = true,
+              Points = {
+                {
+                  Point = "LEFT",
+                  RelativeFrame = "SpecClassPriority",
+                  RelativePoint = "RIGHT",
+                  OffsetX = 20,
+                },
+              },
+            },
+            DRTracking = {
+              Enabled = false,
               Parent = "Button",
               ActivePoints = 1,
               Points = {
@@ -1005,7 +1068,7 @@ Data.defaultSettings = {
               },
               IconSize = 20,
               Cooldown = {
-                FontSize = 13,
+                FontSize = 18,
                 FontOutline = "OUTLINE",
                 ShowDRCount = true,
               },
@@ -1067,6 +1130,9 @@ Data.defaultSettings = {
               },
               UseButtonHeightAsHeight = true,
               UseButtonHeightAsWidth = true,
+              Cooldown = {
+                FontSize = 18,
+              },
             },
             healthBar = {
               Enabled = true,
@@ -1185,12 +1251,12 @@ Data.defaultSettings = {
         },
         allieDefaults15man,
         {
-          Enabled = false,
+          Enabled = true,
           minPlayerCount = 16,
           maxPlayerCount = 40,
 
-          Position_X = 200,
-          Position_Y = 600,
+          Position_X = 36.854835989481217,
+          Position_Y = 583.5409698067815,
           BarWidth = 160,
           BarHeight = 30,
           BarVerticalGrowdirection = "downwards",
@@ -1204,6 +1270,18 @@ Data.defaultSettings = {
           },
 
           ButtonModules = {
+            CastBar = {
+              Enabled = false,
+              Points = {
+                {
+                  Point = "LEFT",
+                  RelativeFrame = "SpecClassPriority",
+                  RelativePoint = "RIGHT",
+                  OffsetX = 20,
+                },
+              },
+              Style = "Arena",
+            },
             DRTracking = {
               Enabled = false,
               Parent = "Button",

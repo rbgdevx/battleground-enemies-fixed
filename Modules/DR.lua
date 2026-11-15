@@ -793,6 +793,9 @@ function dRTracking:AttachToPlayerButton(playerButton)
   end
 
   function container:OnTestmodeTick()
+    if not playerButton.PlayerIsEnemy then
+      return
+    end
     if (BattleGroundEnemies.Testmode.PlayerCountTestmode or 5) > 5 then
       if #self.inputs > 0 then
         self:Reset()

@@ -782,7 +782,8 @@ function BattleGroundEnemies:AddModulesSettings(location, playerCountConfigDefau
 
     local moduleOptions = BattleGroundEnemies:GetModuleOptions(locationn, moduleFrame.options)
 
-    if condidtionFunc(moduleFrame) and not moduleFrame.flags.HiddenFromPerPlayerCountUI then
+    local hiddenForAllies = playerType == "Allies" and moduleName == "DRTracking"
+    if not hiddenForAllies and condidtionFunc(moduleFrame) and not moduleFrame.flags.HiddenFromPerPlayerCountUI then
       -- DR Tracking and Trinket are only useful in arena (1-5 players)
       local disabledInBracket = (moduleName == "DRTracking" or moduleName == "Trinket")
         and location.minPlayerCount
