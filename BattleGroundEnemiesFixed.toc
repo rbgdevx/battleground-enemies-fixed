@@ -1,6 +1,6 @@
 ## Interface: 120105, 16001
 ## Title: BattleGroundEnemiesFixed
-## Version: 12.1.5.5
+## Version: 12.1.5.6
 ## Author: RBGDEV
 ## Category: RBGDEV
 ## Notes: Credit to BattleGroundEnemies for the original code, author: Bullsei
@@ -27,6 +27,7 @@ Mainframe.lua
 PlayerButton.lua
 
 Modules\ContainerTemplate.lua
+Modules\CastBar.lua
 Modules\HealthBar.lua
 Modules\Level.lua
 Modules\Name.lua
