@@ -2,12 +2,12 @@
 local Data = select(2, ...)
 
 local allieDefaults15man = {
-  Enabled = true,
+  Enabled = false,
   minPlayerCount = 6,
   maxPlayerCount = 15,
 
-  Position_X = 181.70324040547709,
-  Position_Y = 622.80451511953288,
+  Position_X = 300,
+  Position_Y = 600,
   BarWidth = 185,
   BarHeight = 32,
   BarVerticalGrowdirection = "downwards",
@@ -231,8 +231,8 @@ local enemyDefault15man = {
   minPlayerCount = 6,
   maxPlayerCount = 15,
 
-  Position_X = 789.95626985270064,
-  Position_Y = 629.56068247425719,
+  Position_X = 900,
+  Position_Y = 600,
   BarWidth = 185,
   BarHeight = 32,
   BarVerticalGrowdirection = "downwards",
@@ -460,13 +460,13 @@ Data.defaultSettings = {
     DebugToChat = false,
     DebugToChat_AddTimestamp = false,
 
-    DisableArenaFramesInArena = true,
-    DisableArenaFramesInBattleground = true,
+    DisableArenaFramesInArena = false,
+    DisableArenaFramesInBattleground = false,
 
-    DisableRaidFramesInArena = true,
-    DisableRaidFramesInBattleground = true,
+    DisableRaidFramesInArena = false,
+    DisableRaidFramesInBattleground = false,
 
-    ShowBGEInArena = true,
+    ShowBGEInArena = false,
     ShowBGEInBattleground = true,
 
     MyTarget_Color = { 1, 1, 1, 1 },
@@ -537,12 +537,12 @@ Data.defaultSettings = {
 
       playerCountConfigs = {
         {
-          Enabled = true,
+          Enabled = false,
           minPlayerCount = 1,
           maxPlayerCount = 5,
 
-          Position_X = 773.07134615562973,
-          Position_Y = 607.63179228739318,
+          Position_X = 900,
+          Position_Y = 600,
           BarWidth = 185,
           BarHeight = 50,
           BarVerticalGrowdirection = "downwards",
@@ -645,9 +645,6 @@ Data.defaultSettings = {
               },
               UseButtonHeightAsHeight = true,
               UseButtonHeightAsWidth = true,
-              Cooldown = {
-                FontSize = 18,
-              },
             },
             healthBar = {
               Enabled = true,
@@ -770,8 +767,8 @@ Data.defaultSettings = {
           minPlayerCount = 16,
           maxPlayerCount = 40,
 
-          Position_X = 686.13305588747608,
-          Position_Y = 591.39314725314034,
+          Position_X = 800,
+          Position_Y = 600,
           BarWidth = 160,
           BarHeight = 30,
           BarVerticalGrowdirection = "downwards",
@@ -1024,7 +1021,7 @@ Data.defaultSettings = {
 
       playerCountConfigs = {
         {
-          Enabled = true,
+          Enabled = false,
           minPlayerCount = 1,
           maxPlayerCount = 5,
 
@@ -1130,9 +1127,6 @@ Data.defaultSettings = {
               },
               UseButtonHeightAsHeight = true,
               UseButtonHeightAsWidth = true,
-              Cooldown = {
-                FontSize = 18,
-              },
             },
             healthBar = {
               Enabled = true,
@@ -1251,12 +1245,12 @@ Data.defaultSettings = {
         },
         allieDefaults15man,
         {
-          Enabled = true,
+          Enabled = false,
           minPlayerCount = 16,
           maxPlayerCount = 40,
 
-          Position_X = 36.854835989481217,
-          Position_Y = 583.5409698067815,
+          Position_X = 200,
+          Position_Y = 600,
           BarWidth = 160,
           BarHeight = 30,
           BarVerticalGrowdirection = "downwards",
