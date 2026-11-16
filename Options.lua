@@ -945,6 +945,32 @@ local function createPositionInput(location, key, axis, order)
   }
 end
 
+local playerCountSettingsSections = { "MainFrameSettings", "ButtonSettings", "ModuleSettings" }
+
+local function addBracketDisabledCondition(options, isBracketDisabled)
+  local guardedOptions = {}
+  for key, option in pairs(options) do
+    local disabled = option.disabled
+    local hasCondition = type(disabled) == "function" or disabled == false
+    if hasCondition or option.args then
+      option = CopyTable(option, true)
+      -- AceConfig uses the closest disabled rule in the tree.
+      if type(disabled) == "function" then
+        option.disabled = function(info)
+          return isBracketDisabled() or disabled(info)
+        end
+      elseif disabled == false then
+        option.disabled = isBracketDisabled
+      end
+      if option.args then
+        option.args = addBracketDisabledCondition(option.args, isBracketDisabled)
+      end
+    end
+    guardedOptions[key] = option
+  end
+  return guardedOptions
+end
+
 local function addEnemyAndAllySettings(self, mainFrame)
   local playerType = mainFrame.PlayerType
   local oppositePlayerType = playerType == "Enemies" and "Allies" or "Enemies"
@@ -1360,13 +1386,19 @@ local function addEnemyAndAllySettings(self, mainFrame)
       MaxPlayerCount = playerCountLocation.maxPlayerCount,
     }
 
-    settings[BattleGroundEnemies:GetPlayerCountConfigName(playerCountLocation)] = {
+    local function isBracketUnavailable()
+      return not mainFrame.playerTypeConfig.Enabled or isCustomProfileEnabled and not isCustomProfile
+    end
+
+    local function isBracketDisabled()
+      return isBracketUnavailable() or not playerCountLocation.Enabled
+    end
+
+    local bracketOptions = {
       type = "group",
       name = currentProfileName,
       desc = currentProfileName .. "desc",
-      disabled = function()
-        return not mainFrame.playerTypeConfig.Enabled or isCustomProfileEnabled and not isCustomProfile
-      end,
+      disabled = isBracketUnavailable,
       get = function(option)
         return Data.GetOption(playerCountLocation, option)
       end,
@@ -1545,9 +1577,6 @@ local function addEnemyAndAllySettings(self, mainFrame)
           type = "group",
           name = L.MainFrameSettings,
           desc = L.MainFrameSettings_Desc:format(L[playerType == "Enemies" and "enemies" or "allies"]),
-          disabled = function()
-            return not playerCountLocation.Enabled
-          end,
           --childGroups = "tab",
           order = 6,
           args = {
@@ -1596,9 +1625,6 @@ local function addEnemyAndAllySettings(self, mainFrame)
         ButtonSettings = {
           type = "group",
           name = L.Button,
-          disabled = function()
-            return not playerCountLocation.Enabled
-          end,
           --childGroups = "tab",
           order = 7,
           args = {
@@ -1694,11 +1720,17 @@ local function addEnemyAndAllySettings(self, mainFrame)
       },
     }
     Mixin(
-      settings[BattleGroundEnemies:GetPlayerCountConfigName(playerCountLocation)].args.ButtonSettings.args,
+      bracketOptions.args.ButtonSettings.args,
       self:AddModulesSettings(playerCountLocation, playerCountConfigDefault, playerType, function(options)
         return options.attachSettingsToButton
       end)
     )
+    for _, sectionName in ipairs(playerCountSettingsSections) do
+      local section = bracketOptions.args[sectionName]
+      section.disabled = isBracketDisabled
+      section.args = addBracketDisabledCondition(section.args, isBracketDisabled)
+    end
+    settings[BattleGroundEnemies:GetPlayerCountConfigName(playerCountLocation)] = bracketOptions
   end
 
   local inputs = {
