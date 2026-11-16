@@ -60,6 +60,7 @@ local L = {
 	reset = "Reset Profile",
 	reset_desc = "Reset the current profile back to its default values, in case your configuration is broken, or you simply want to start over.",
 	reset_sub = "Reset the current profile to the default",
+	transfer_desc = "Import a profile or export your current one.",
 }
 
 local LOCALE = GetLocale()
@@ -84,6 +85,7 @@ if LOCALE == "deDE" then
 	L["reset"] = "Profil zurücksetzen"
 	L["reset_desc"] = "Setzt das momentane Profil auf Standardwerte zurück, für den Fall, dass mit der Konfiguration etwas schief lief oder weil du einfach neu starten willst."
 	L["reset_sub"] = "Das aktuelle Profil auf Standard zurücksetzen."
+	L["transfer_desc"] = "Importiere ein Profil oder exportiere das aktuelle."
 elseif LOCALE == "frFR" then
 	L["choose"] = "Profils existants"
 	L["choose_desc"] = "Vous pouvez créer un nouveau profil en entrant un nouveau nom dans la boîte de saisie, ou en choississant un des profils déjà existants."
@@ -105,6 +107,7 @@ elseif LOCALE == "frFR" then
 	L["reset"] = "Réinitialiser le profil"
 	L["reset_desc"] = "Réinitialise le profil actuel au cas où votre configuration est corrompue ou si vous voulez tout simplement faire table rase."
 	L["reset_sub"] = "Réinitialise le profil actuel avec les paramètres par défaut."
+	L["transfer_desc"] = "Importez un profil ou exportez le profil actuel."
 elseif LOCALE == "koKR" then
 	L["choose"] = "기존 프로필"
 	L["choose_desc"] = "편집 상자에 이름을 입력하여 새로운 프로필을 만들거나 이미 존재하는 프로필 중 하나를 선택할 수 있습니다."
@@ -126,6 +129,7 @@ elseif LOCALE == "koKR" then
 	L["reset"] = "프로필 재설정"
 	L["reset_desc"] = "구성이 손상되었거나 처음부터 다시 시작하고 싶은 경우 현재 프로필을 기본값으로 재설정하세요."
 	L["reset_sub"] = "현재 프로필을 기본값으로 재설정합니다"
+	L["transfer_desc"] = "프로필을 가져오거나 현재 프로필을 내보냅니다."
 elseif LOCALE == "esES" or LOCALE == "esMX" then
 	L["choose"] = "Perfiles existentes"
 	L["choose_desc"] = "Puedes crear un nuevo perfil introduciendo un nombre en el recuadro o puedes seleccionar un perfil de los ya existentes."
@@ -147,6 +151,7 @@ elseif LOCALE == "esES" or LOCALE == "esMX" then
 	L["reset"] = "Reiniciar Perfil"
 	L["reset_desc"] = "Reinicia el perfil actual a los valores por defectos, en caso de que se haya estropeado la configuración o quieras volver a empezar de nuevo."
 	L["reset_sub"] = "Reinicar el perfil actual al de por defecto"
+	L["transfer_desc"] = "Importa un perfil o exporta el actual."
 elseif LOCALE == "zhTW" then
 	L["choose"] = "現有的設定檔"
 	L["choose_desc"] = "您可以在文字方塊內輸入名字以建立新的設定檔，或是選擇一個現有的設定檔使用。"
@@ -168,6 +173,7 @@ elseif LOCALE == "zhTW" then
 	L["reset"] = "重置設定檔"
 	L["reset_desc"] = "將現用的設定檔重置為預設值；用於設定檔損壞，或者單純想要重來的情況。"
 	L["reset_sub"] = "將目前的設定檔重置為預設值"
+	L["transfer_desc"] = "匯入設定檔或匯出目前的設定檔。"
 elseif LOCALE == "zhCN" then
 	L["choose"] = "现有的配置文件"
 	L["choose_desc"] = "你可以通过在文本框内输入一个名字创立一个新的配置文件，也可以选择一个已经存在的配置文件。"
@@ -189,6 +195,7 @@ elseif LOCALE == "zhCN" then
 	L["reset"] = "重置配置文件"
 	L["reset_desc"] = "将当前的配置文件恢复到它的默认值，用于你的配置文件损坏，或者你只是想重来的情况。"
 	L["reset_sub"] = "将当前的配置文件恢复为默认值"
+	L["transfer_desc"] = "导入配置文件或导出当前配置文件。"
 elseif LOCALE == "ruRU" then
 	L["choose"] = "Существующие профили"
 	L["choose_desc"] = "Вы можете создать новый профиль, введя название в поле ввода, или выбрать один из уже существующих профилей."
@@ -210,6 +217,7 @@ elseif LOCALE == "ruRU" then
 	L["reset"] = "Сбросить профиль"
 	L["reset_desc"] = "Сброс текущего профиля к стандартным настройкам, если Ваша конфигурация испорчена или Вы хотите настроить все заново."
 	L["reset_sub"] = "Сброс текущего профиля на стандартный"
+	L["transfer_desc"] = "Импортируйте профиль или экспортируйте текущий."
 elseif LOCALE == "itIT" then
 	L["choose"] = "Profili Esistenti"
 	L["choose_desc"] = "Puoi creare un nuovo profilo digitando il nome della casella di testo, oppure scegliendone uno tra i profili già esistenti."
@@ -231,6 +239,7 @@ elseif LOCALE == "itIT" then
 	L["reset"] = "Reimposta Profilo"
 	L["reset_desc"] = "Riporta il tuo profilo attivo alle sue impostazioni predefinite, nel caso in cui la tua configurazione si sia corrotta, o semplicemente tu voglia re-inizializzarla."
 	L["reset_sub"] = "Reimposta il profilo ai suoi valori predefiniti."
+	L["transfer_desc"] = "Importa un profilo o esporta quello attuale."
 elseif LOCALE == "ptBR" then
 	L["choose"] = "Perfis Existentes"
 	L["choose_desc"] = "Você pode tanto criar um perfil novo tanto digitando um nome na caixa de texto, quanto escolher um dos perfis já existentes."
@@ -252,6 +261,7 @@ elseif LOCALE == "ptBR" then
 	L["reset"] = "Resetar Perfil"
 	L["reset_desc"] = "Reseta o perfil atual para os valores padrões, no caso de sua configuração estar quebrada, ou simplesmente se deseja começar novamente."
 	L["reset_sub"] = "Resetar o perfil atual ao padrão"
+	L["transfer_desc"] = "Importe um perfil ou exporte o atual."
 end
 
 -- stylua: ignore end
@@ -398,6 +408,11 @@ local options = {
     confirm = true,
     confirmText = L["delete_confirm"],
     width = 2,
+  },
+  transferdesc = {
+    order = 85,
+    type = "description",
+    name = "\n" .. L["transfer_desc"],
   },
   transfer = {
     type = "group",
