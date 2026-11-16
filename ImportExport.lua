@@ -5,6 +5,7 @@ local Data = select(2, ...)
 ---@class BattleGroundEnemies
 local BattleGroundEnemies = BattleGroundEnemies
 local L = Data.L
+local UpgradeProfile = Data.UpgradeProfile
 
 local AceGUI = LibStub("AceGUI-3.0")
 local LibDeflate = LibStub("LibDeflate")
@@ -66,6 +67,7 @@ function BattleGroundEnemies:CreateAceGUIImportExportFrame(mode)
         if error then
           return BattleGroundEnemies:Information(error)
         end
+        UpgradeProfile(data)
         MergeTable(BattleGroundEnemies.db.profile, data)
 
         -- An import replaces the live profile wholesale — the same

@@ -717,8 +717,7 @@ local stackFlagIntervalSaved = false -- flags: interval came from a validated re
 local stackStateTrusted = false
 local stackTicker
 
--- The SavedVariable lives in db.global alongside ObjectiveCarriers. Created
--- lazily (AceDB only copies declared defaults; dynamic keys persist fine).
+-- Create the SavedVariable lazily in db.global alongside ObjectiveCarriers.
 local function GetStackSV()
   local db = BattleGroundEnemies.db
   if not (db and db.global) then
