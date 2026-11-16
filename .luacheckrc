@@ -13,7 +13,7 @@ exclude_files = {
   ".libraries", ".claude", ".vscode",
   -- External embedded libraries (NOT ours). PerfHUD-1.0 is our own lib, so it
   -- is deliberately absent here and stays linted.
-  "libs/AceConfig-3.0", "libs/AceDB-3.0",
+  "libs/AceConfig-3.0",
   "libs/AceGUI-3.0", "libs/AceGUI-3.0-SharedMediaWidgets",
   "libs/CallbackHandler-1.0", "libs/LibDeflate", "libs/LibRangeCheck-3.0",
   "libs/LibSerialize", "libs/LibSharedMedia-3.0", "libs/LibSpellIconSelector",
