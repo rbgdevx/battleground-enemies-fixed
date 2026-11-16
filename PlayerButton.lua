@@ -130,6 +130,7 @@ local function endDrag()
 end
 
 --Libs
+local AceConfigRegistry = LibStub("AceConfigRegistry-3.0")
 local LRC = LibStub("LibRangeCheck-3.0")
 
 -- One baseline harm spell per class for C_Spell.IsSpellInRange.
@@ -394,6 +395,7 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     else
       self.playerCountConfig.Position_X = parent:GetRight() * scale
     end
+    AceConfigRegistry:NotifyChange("BattleGroundEnemiesFixed")
   end
 
   function playerButton:UpdateAll(temporaryUnitID, skipSnapshot)

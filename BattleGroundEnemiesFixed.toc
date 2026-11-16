@@ -1,6 +1,6 @@
 ## Interface: 120105, 16001
 ## Title: BattleGroundEnemiesFixed
-## Version: 12.1.5.7
+## Version: 12.1.5.8
 ## Author: RBGDEV
 ## Category: RBGDEV
 ## Notes: Credit to BattleGroundEnemies for the original code, author: Bullsei
@@ -20,8 +20,9 @@ Locales.lua
 Helpers.lua
 Data.lua
 Defaults.lua
-Main.lua
 dbupgrades.lua
+Database.lua
+Main.lua
 ImportExport.lua
 Mainframe.lua
 PlayerButton.lua
@@ -43,4 +44,5 @@ Modules\CombatIndicator.lua
 Modules\Trinket.lua
 Modules\DR.lua
 
+ProfileOptions.lua
 Options.lua

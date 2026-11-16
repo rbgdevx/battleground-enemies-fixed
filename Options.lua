@@ -2,6 +2,7 @@
 local AddonName = ...
 ---@class Data
 local Data = select(2, ...)
+local CreateProfileOptions = Data.CreateProfileOptions
 local print = Data.print
 local GetAddOnMetadata = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
 
@@ -924,6 +925,26 @@ function BattleGroundEnemies:AddGeneralModuleSettings()
   return temp
 end
 
+local function createPositionInput(location, key, axis, order)
+  return {
+    type = "input",
+    name = L.Position .. " " .. axis,
+    desc = L.NotAvailableInCombat,
+    order = order,
+    disabled = InCombatLockdown,
+    get = function()
+      return tostring(location[key])
+    end,
+    validate = function(_, value)
+      local position = tonumber(value)
+      return position ~= nil and position > -math.huge and position < math.huge
+    end,
+    set = function(info, value)
+      Data.SetOption(location, info, tonumber(value))
+    end,
+  }
+end
+
 local function addEnemyAndAllySettings(self, mainFrame)
   local playerType = mainFrame.PlayerType
   local oppositePlayerType = playerType == "Enemies" and "Allies" or "Enemies"
@@ -1023,8 +1044,9 @@ local function addEnemyAndAllySettings(self, mainFrame)
         type = "execute",
         name = SETTINGS_DEFAULTS,
         func = function()
-          BattleGroundEnemies.db.profile[playerType] =
-            CopyTable(BattleGroundEnemies.db.defaults.profile[playerType], false)
+          local defaults = CopyTable(BattleGroundEnemies.db.defaults.profile[playerType], false)
+          defaults.customPlayerCountConfigs = {}
+          BattleGroundEnemies.db.profile[playerType] = defaults
           BattleGroundEnemies:NotifyChange()
         end,
         confirm = function()
@@ -1529,6 +1551,16 @@ local function addEnemyAndAllySettings(self, mainFrame)
           --childGroups = "tab",
           order = 6,
           args = {
+            Position = {
+              type = "group",
+              name = "",
+              inline = true,
+              order = 1,
+              args = {
+                Position_X = createPositionInput(playerCountLocation, "Position_X", "x", 1),
+                Position_Y = createPositionInput(playerCountLocation, "Position_Y", "y", 2),
+              },
+            },
             Framescale = {
               type = "range",
               name = L.Framescale,
@@ -1537,7 +1569,7 @@ local function addEnemyAndAllySettings(self, mainFrame)
               min = 0.3,
               max = 2,
               step = 0.05,
-              order = 1,
+              order = 2,
             },
             PlayerCount = {
               type = "group",
@@ -1548,7 +1580,7 @@ local function addEnemyAndAllySettings(self, mainFrame)
               set = function(option, ...)
                 return Data.SetOption(playerCountLocation.PlayerCount, option, ...)
               end,
-              order = 2,
+              order = 3,
               inline = true,
               args = {
                 Enabled = {
@@ -2302,7 +2334,7 @@ function BattleGroundEnemies:SetupOptions()
   AceConfigRegistry:RegisterOptionsTable("BattleGroundEnemiesFixed", self.options)
 
   --add profile tab to the options
-  self.options.args.profiles = LibStub("AceDBOptions-3.0"):GetOptionsTable(self.db)
+  self.options.args.profiles = CreateProfileOptions(self.db)
   self.options.args.profiles.order = 7 -- before More Profile Options (order 8)
   self.options.args.profiles.disabled = InCombatLockdown
 end

@@ -1,25 +1,42 @@
---- AceDBOptions-3.0 provides a universal AceConfig options screen for managing AceDB-3.0 profiles.
--- @class file
--- @name AceDBOptions-3.0
--- @release $Id$
-local ACEDBO_MAJOR, ACEDBO_MINOR = "AceDBOptions-3.0", 17
-local AceDBOptions = LibStub:NewLibrary(ACEDBO_MAJOR, ACEDBO_MINOR)
-
-if not AceDBOptions then return end -- No upgrade needed
-
--- Lua APIs
-local pairs, next = pairs, next
-
--- WoW APIs
-local UnitClass = UnitClass
-
-AceDBOptions.optionTables = AceDBOptions.optionTables or {}
-AceDBOptions.handlers = AceDBOptions.handlers or {}
-
+-- Profile menu and translations adapted from AceDBOptions-3.0.
 --[[
-	Localization of AceDBOptions-3.0
+Copyright (c) 2007, Ace3 Development Team
+
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+    * Redistributions of source code must retain the above copyright notice,
+      this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above copyright notice,
+      this list of conditions and the following disclaimer in the documentation
+      and/or other materials provided with the distribution.
+    * Redistribution of a stand alone version is strictly prohibited without
+      prior written authorization from the Lead of the Ace3 Development Team.
+    * Neither the name of the Ace3 Development Team nor the names of its contributors
+      may be used to endorse or promote products derived from this software without
+      specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ]]
 
+local _, Data = ...
+
+local UnitClass = UnitClass
+local strlenutf8 = _G.strlenutf8
+
+-- stylua: ignore start
 local L = {
 	choose = "Existing Profiles",
 	choose_desc = "You can either create a new profile by entering a name in the editbox, or choose one of the already existing profiles.",
@@ -235,245 +252,165 @@ elseif LOCALE == "ptBR" then
 	L["reset_sub"] = "Resetar o perfil atual ao padrão"
 end
 
-local defaultProfiles
-local tmpprofiles = {}
+-- stylua: ignore end
 
--- Get a list of available profiles for the specified database.
--- You can specify which profiles to include/exclude in the list using the two boolean parameters listed below.
--- @param db The db object to retrieve the profiles from
--- @param common If true, getProfileList will add the default profiles to the return list, even if they have not been created yet
--- @param nocurrent If true, then getProfileList will not display the current profile in the list
--- @return Hashtable of all profiles with the internal name as keys and the display name as value.
-local function getProfileList(db, common, nocurrent)
-	local profiles = {}
+local function getProfileList(db, commonProfiles, excludeCurrent)
+  local profiles = {}
+  local currentProfile = db:GetCurrentProfile()
+  for _, name in ipairs(db:GetProfiles()) do
+    if not excludeCurrent or name ~= currentProfile then
+      profiles[name] = name
+    end
+  end
 
-	-- copy existing profiles into the table
-	local currentProfile = db:GetCurrentProfile()
-	for i,v in pairs(db:GetProfiles(tmpprofiles)) do
-		if not (nocurrent and v == currentProfile) then
-			profiles[v] = v
-		end
-	end
+  for name, label in pairs(commonProfiles) do
+    if not excludeCurrent or profiles[name] then
+      profiles[name] = label
+    end
+  end
 
-	-- add our default profiles to choose from ( or rename existing profiles)
-	for k,v in pairs(defaultProfiles) do
-		if (common or profiles[k]) and not (nocurrent and k == currentProfile) then
-			profiles[k] = v
-		end
-	end
-
-	return profiles
+  return profiles
 end
 
---[[
-	OptionsHandlerPrototype
-	prototype class for handling the options in a sane way
-]]
-local OptionsHandlerPrototype = {}
+local ProfileOptions = {}
 
---[[ Reset the profile ]]
-function OptionsHandlerPrototype:Reset()
-	self.db:ResetProfile()
+function ProfileOptions:Reset()
+  self.db:ResetProfile()
 end
 
---[[ Set the profile to value ]]
-function OptionsHandlerPrototype:SetProfile(info, value)
-	self.db:SetProfile(value)
+function ProfileOptions:SetProfile(_, value)
+  self.db:SetProfile(value)
 end
 
---[[ returns the currently active profile ]]
-function OptionsHandlerPrototype:GetCurrentProfile()
-	return self.db:GetCurrentProfile()
+function ProfileOptions:GetCurrentProfile()
+  return self.db:GetCurrentProfile()
 end
 
---[[
-	List all active profiles
-	you can control the output with the .arg variable
-	currently four modes are supported
-
-	(empty) - return all available profiles
-	"nocurrent" - returns all available profiles except the currently active profile
-	"common" - returns all avaialble profiles + some commonly used profiles ("char - realm", "realm", "class", "Default")
-	"both" - common except the active profile
-]]
-function OptionsHandlerPrototype:ListProfiles(info)
-	local arg = info.arg
-	local profiles
-	if arg == "common" and not self.noDefaultProfiles then
-		profiles = getProfileList(self.db, true, nil)
-	elseif arg == "nocurrent" then
-		profiles = getProfileList(self.db, nil, true)
-	elseif arg == "both" then -- currently not used
-		profiles = getProfileList(self.db, (not self.noDefaultProfiles) and true, true)
-	else
-		profiles = getProfileList(self.db)
-	end
-
-	return profiles
+function ProfileOptions:ListProfiles(info)
+  return getProfileList(self.db, self.commonProfiles, info.arg == "nocurrent")
 end
 
-function OptionsHandlerPrototype:HasNoProfiles(info)
-	local profiles = self:ListProfiles(info)
-	return ((not next(profiles)) and true or false)
+function ProfileOptions:HasNoProfiles(info)
+  return next(self:ListProfiles(info)) == nil
 end
 
---[[ Copy a profile ]]
-function OptionsHandlerPrototype:CopyProfile(info, value)
-	self.db:CopyProfile(value)
+function ProfileOptions:CopyProfile(_, value)
+  self.db:CopyProfile(value)
 end
 
---[[ Delete a profile from the db ]]
-function OptionsHandlerPrototype:DeleteProfile(info, value)
-	self.db:DeleteProfile(value)
+function ProfileOptions:DeleteProfile(_, value)
+  self.db:DeleteProfile(value)
 end
 
---[[ fill defaultProfiles with some generic values ]]
-local function generateDefaultProfiles(db)
-	defaultProfiles = {
-		["Default"] = L["default"],
-		[db.keys.char] = db.keys.char,
-		[db.keys.realm] = db.keys.realm,
-		[db.keys.class] = UnitClass("player")
-	}
-end
-
---[[ create and return a handler object for the db, or upgrade it if it already existed ]]
-local function getOptionsHandler(db, noDefaultProfiles)
-	if not defaultProfiles then
-		generateDefaultProfiles(db)
-	end
-
-	local handler = AceDBOptions.handlers[db] or { db = db, noDefaultProfiles = noDefaultProfiles }
-
-	for k,v in pairs(OptionsHandlerPrototype) do
-		handler[k] = v
-	end
-
-	AceDBOptions.handlers[db] = handler
-	return handler
-end
-
---[[
-	the real options table
-]]
-local strlenutf8 = strlenutf8
-local optionsTable = {
-	desc = {
-		order = 1,
-		type = "description",
-		name = L["intro"] .. "\n",
-	},
-	descreset = {
-		order = 9,
-		type = "description",
-		name = L["reset_desc"],
-	},
-	reset = {
-		order = 10,
-		type = "execute",
-		name = L["reset"],
-		desc = L["reset_sub"],
-		func = "Reset",
-	},
-	current = {
-		order = 11,
-		type = "description",
-		name = function(info) return L["current"] .. " " .. NORMAL_FONT_COLOR_CODE .. info.handler:GetCurrentProfile() .. FONT_COLOR_CODE_CLOSE end,
-		width = "default",
-	},
-	choosedesc = {
-		order = 20,
-		type = "description",
-		name = "\n" .. L["choose_desc"],
-	},
-	new = {
-		name = L["new"],
-		desc = L["new_sub"],
-		type = "input",
-		order = 30,
-		get = false,
-		set = "SetProfile",
-		usage = L["name_too_long"],
-		validate = function(_, text)
-			local length = strlenutf8(text)
-			if length > 50 or length == 0 or text:find("^ +$") then
-				return false
-			end
-			return true
-		end,
-		width = 2,
-	},
-	choose = {
-		name = L["choose"],
-		desc = L["choose_sub"],
-		type = "select",
-		order = 40,
-		get = "GetCurrentProfile",
-		set = "SetProfile",
-		values = "ListProfiles",
-		arg = "common",
-		width = 2,
-	},
-	copydesc = {
-		order = 50,
-		type = "description",
-		name = "\n" .. L["copy_desc"],
-	},
-	copyfrom = {
-		order = 60,
-		type = "select",
-		name = L["copy"],
-		desc = L["copy_desc"],
-		get = false,
-		set = "CopyProfile",
-		values = "ListProfiles",
-		disabled = "HasNoProfiles",
-		arg = "nocurrent",
-		width = 2,
-	},
-	deldesc = {
-		order = 70,
-		type = "description",
-		name = "\n" .. L["delete_desc"],
-	},
-	delete = {
-		order = 80,
-		type = "select",
-		name = L["delete"],
-		desc = L["delete_sub"],
-		get = false,
-		set = "DeleteProfile",
-		values = "ListProfiles",
-		disabled = "HasNoProfiles",
-		arg = "nocurrent",
-		confirm = true,
-		confirmText = L["delete_confirm"],
-		width = 2,
-	},
+local options = {
+  desc = {
+    order = 1,
+    type = "description",
+    name = L["intro"] .. "\n",
+  },
+  descreset = {
+    order = 9,
+    type = "description",
+    name = L["reset_desc"],
+  },
+  reset = {
+    order = 10,
+    type = "execute",
+    name = L["reset"],
+    desc = L["reset_sub"],
+    func = "Reset",
+  },
+  current = {
+    order = 11,
+    type = "description",
+    name = function(info)
+      return L["current"] .. " " .. NORMAL_FONT_COLOR_CODE .. info.handler:GetCurrentProfile() .. FONT_COLOR_CODE_CLOSE
+    end,
+    width = "default",
+  },
+  choosedesc = {
+    order = 20,
+    type = "description",
+    name = "\n" .. L["choose_desc"],
+  },
+  new = {
+    name = L["new"],
+    desc = L["new_sub"],
+    type = "input",
+    order = 30,
+    get = false,
+    set = "SetProfile",
+    usage = L["name_too_long"],
+    validate = function(_, text)
+      local length = strlenutf8(text)
+      if length > 50 or length == 0 or text:find("^ +$") then
+        return false
+      end
+      return true
+    end,
+    width = 2,
+  },
+  choose = {
+    name = L["choose"],
+    desc = L["choose_sub"],
+    type = "select",
+    order = 40,
+    get = "GetCurrentProfile",
+    set = "SetProfile",
+    values = "ListProfiles",
+    arg = "common",
+    width = 2,
+  },
+  copydesc = {
+    order = 50,
+    type = "description",
+    name = "\n" .. L["copy_desc"],
+  },
+  copyfrom = {
+    order = 60,
+    type = "select",
+    name = L["copy"],
+    desc = L["copy_desc"],
+    get = false,
+    set = "CopyProfile",
+    values = "ListProfiles",
+    disabled = "HasNoProfiles",
+    arg = "nocurrent",
+    width = 2,
+  },
+  deldesc = {
+    order = 70,
+    type = "description",
+    name = "\n" .. L["delete_desc"],
+  },
+  delete = {
+    order = 80,
+    type = "select",
+    name = L["delete"],
+    desc = L["delete_sub"],
+    get = false,
+    set = "DeleteProfile",
+    values = "ListProfiles",
+    disabled = "HasNoProfiles",
+    arg = "nocurrent",
+    confirm = true,
+    confirmText = L["delete_confirm"],
+    width = 2,
+  },
 }
 
---- Get/Create a option table that you can use in your addon to control the profiles of AceDB-3.0.
--- @param db The database object to create the options table for.
--- @return The options table to be used in AceConfig-3.0
--- @usage
--- -- Assuming `options` is your top-level options table and `self.db` is your database:
--- options.args.profiles = LibStub("AceDBOptions-3.0"):GetOptionsTable(self.db)
-function AceDBOptions:GetOptionsTable(db, noDefaultProfiles)
-	local tbl = AceDBOptions.optionTables[db] or {
-			type = "group",
-			name = L["profiles"],
-			desc = L["profiles_sub"],
-		}
-
-	tbl.handler = getOptionsHandler(db, noDefaultProfiles)
-	tbl.args = optionsTable
-
-	AceDBOptions.optionTables[db] = tbl
-	return tbl
-end
-
--- upgrade existing tables
-for db,tbl in pairs(AceDBOptions.optionTables) do
-	tbl.handler = getOptionsHandler(db)
-	tbl.args = optionsTable
+function Data.CreateProfileOptions(db)
+  local commonProfiles = {
+    Default = L["default"],
+    [db.keys.char] = db.keys.char,
+    [db.keys.realm] = db.keys.realm,
+    [db.keys.class] = UnitClass("player"),
+  }
+  return {
+    type = "group",
+    name = L["profiles"],
+    desc = L["profiles_sub"],
+    handler = setmetatable({ db = db, commonProfiles = commonProfiles }, { __index = ProfileOptions }),
+    args = options,
+  }
 end

@@ -1,5 +1,6 @@
 ---@class Data
 local Data = select(2, ...)
+local Database = Data.Database
 local print = Data.print
 if not Data.L then
   Data.L = setmetatable({}, {
@@ -1381,11 +1382,7 @@ function BattleGroundEnemies:PLAYER_LOGIN()
     GUID = UnitGUID("player"),
   }
 
-  self.db = LibStub("AceDB-3.0"):New("BattleGroundEnemiesDB", Data.defaultSettings, true)
-
-  self.db.RegisterCallback(self, "OnProfileChanged", "ProfileChanged")
-  self.db.RegisterCallback(self, "OnProfileCopied", "ProfileChanged")
-  self.db.RegisterCallback(self, "OnProfileReset", "ProfileReset")
+  self.db = Database:Initialize(self)
 
   -- Prune stale PlayerHistory entries (>6mo unseen). Bounds the SavedVariables
   -- file from growing forever. 6 months covers ~1 PvP season (TWW seasons run
@@ -1407,10 +1404,6 @@ function BattleGroundEnemies:PLAYER_LOGIN()
       self.db.profile.log = nil
     end
   end
-
-  BattleGroundEnemies:UpgradeProfiles(self.db)
-
-  BattleGroundEnemies:UpgradeProfiles(self.db)
 
   if self.ApplyAllSettings then
     self:ApplyAllSettings()
@@ -1439,8 +1432,6 @@ function BattleGroundEnemies:PLAYER_LOGIN()
   if PVPMatchScoreboard then -- for TBCC, IsTBCC
     PVPMatchScoreboard:HookScript("OnHide", PVPMatchScoreboard_OnHide)
   end
-
-  --DBObjectLib:ResetProfile(noChildren, noCallbacks)
 
   self:GROUP_ROSTER_UPDATE() --Scan again, the user could have reloaded the UI so GROUP_ROSTER_UPDATE didnt fire
 
@@ -1471,13 +1462,11 @@ function BattleGroundEnemies:NotifyChange()
 end
 
 function BattleGroundEnemies:ProfileChanged()
-  self:UpgradeProfile(self.db.profile, self.db:GetCurrentProfile())
   self:SetupOptions()
   self:ApplyAllSettings()
 end
 
 function BattleGroundEnemies:ProfileReset()
-  self:SetCurrentDbVerion(self.db.profile)
   BattleGroundEnemies:NotifyChange()
 end
 
@@ -3023,12 +3012,21 @@ local function changeVisibility(frame, visible)
   end
 end
 
+local function shouldHideBlizzardFrames(states, profile, arenaKey, battlegroundKey)
+  return (states.isInArena and profile.ShowBGEInArena and profile[arenaKey])
+    or (states.isInBattleground and profile.ShowBGEInBattleground and profile[battlegroundKey])
+end
+
 function BattleGroundEnemies:ToggleArenaFrames()
   if InCombatLockdown() then
     return self:QueueForUpdateAfterCombat(self, "ToggleArenaFrames")
   end
-  local hidden = (self.states.real.isInArena and self.db.profile.DisableArenaFramesInArena)
-    or (self.states.real.isInBattleground and self.db.profile.DisableArenaFramesInBattleground)
+  local hidden = shouldHideBlizzardFrames(
+    self.states.real,
+    self.db.profile,
+    "DisableArenaFramesInArena",
+    "DisableArenaFramesInBattleground"
+  )
   changeVisibility(ArenaEnemyFrames, not hidden)
   changeVisibility(ArenaEnemyFramesContainer, not hidden)
   changeVisibility(CompactArenaFrame, not hidden)
@@ -3038,8 +3036,12 @@ function BattleGroundEnemies:ToggleRaidFrames()
   if InCombatLockdown() then
     return self:QueueForUpdateAfterCombat(self, "ToggleRaidFrames")
   end
-  local hidden = (self.states.real.isInArena and self.db.profile.DisableRaidFramesInArena)
-    or (self.states.real.isInBattleground and self.db.profile.DisableRaidFramesInBattleground)
+  local hidden = shouldHideBlizzardFrames(
+    self.states.real,
+    self.db.profile,
+    "DisableRaidFramesInArena",
+    "DisableRaidFramesInBattleground"
+  )
   -- Retail uses both compact raid-style party frames and the normal party
   -- frame. raidOptionIsShown no longer controls these surfaces.
   changeVisibility(CompactRaidFrameContainer, not hidden)
