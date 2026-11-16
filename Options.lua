@@ -2260,32 +2260,6 @@ function BattleGroundEnemies:SetupOptions()
         args = addEnemyAndAllySettings(self, self.Allies),
       },
 
-      MoreProfileOptions = {
-        type = "group",
-        name = L.MoreProfileOptions,
-        childGroups = "tab",
-        order = 8, -- after the Profiles tab (order 7)
-        args = {
-          ImportButton = {
-            type = "execute",
-            name = L.ImportButton,
-            desc = L.ImportButton_Desc,
-            func = function()
-              BattleGroundEnemies:ImportExportFrameSetupForMode("Import")
-            end,
-            order = 1,
-          },
-          ExportButton = {
-            type = "execute",
-            name = L.ExportButton,
-            desc = L.ExportButton_Desc,
-            func = function()
-              return BattleGroundEnemies:ExportButtonPressed()
-            end,
-            order = 2,
-          },
-        },
-      },
       -- DebugOptions = {
       --   type = "group",
       --   name = "Debug",
@@ -2367,7 +2341,7 @@ function BattleGroundEnemies:SetupOptions()
 
   --add profile tab to the options
   self.options.args.profiles = CreateProfileOptions(self.db)
-  self.options.args.profiles.order = 7 -- before More Profile Options (order 8)
+  self.options.args.profiles.order = 7
   self.options.args.profiles.disabled = InCombatLockdown
 end
 

@@ -33,6 +33,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 local _, Data = ...
 
+local BattleGroundEnemies = BattleGroundEnemies
+local addonLocale = Data.L
 local UnitClass = UnitClass
 local strlenutf8 = _G.strlenutf8
 
@@ -396,6 +398,32 @@ local options = {
     confirm = true,
     confirmText = L["delete_confirm"],
     width = 2,
+  },
+  transfer = {
+    type = "group",
+    name = "",
+    inline = true,
+    order = 90,
+    args = {
+      ImportButton = {
+        type = "execute",
+        name = addonLocale.ImportButton,
+        desc = addonLocale.ImportButton_Desc,
+        func = function()
+          BattleGroundEnemies:ImportExportFrameSetupForMode("Import")
+        end,
+        order = 1,
+      },
+      ExportButton = {
+        type = "execute",
+        name = addonLocale.ExportButton,
+        desc = addonLocale.ExportButton_Desc,
+        func = function()
+          return BattleGroundEnemies:ExportButtonPressed()
+        end,
+        order = 2,
+      },
+    },
   },
 }
 
