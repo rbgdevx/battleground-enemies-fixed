@@ -1,6 +1,6 @@
-## Interface: 120105, 16001
+## Interface: 120105, 16001, 50504
 ## Title: BattleGroundEnemiesFixed
-## Version: 12.1.5.8
+## Version: 12.1.5.9
 ## Author: RBGDEV
 ## Category: RBGDEV
 ## Notes: Credit to BattleGroundEnemies for the original code, author: Bullsei
@@ -42,6 +42,7 @@ Modules\TargetIndicatorNumeric.lua
 Modules\TargetIndicatorSymbolic.lua
 Modules\CombatIndicator.lua
 Modules\Trinket.lua
+libs\DRList-1.0\DRList-1.0.xml [AllowLoadGameType mists]
 Modules\DR.lua
 
 ProfileOptions.lua

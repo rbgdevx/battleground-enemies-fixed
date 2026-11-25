@@ -8,7 +8,8 @@ local GetArenaOpponentIndex = BattleGroundEnemies.GetArenaOpponentIndex
 local GetActiveMatchState = C_PvP.GetActiveMatchState
 local PvPMatchState = Enum.PvPMatchState
 local IsRetail = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
-local ArenaUnitExists = IsRetail and ArenaUtil.UnitExists
+local isMopClassic = WOW_PROJECT_ID == WOW_PROJECT_MISTS_CLASSIC
+local ArenaUnitExists = (IsRetail or isMopClassic) and ArenaUtil.UnitExists
 local After = C_Timer.After
 
 local PowerBarColor = PowerBarColor --table
@@ -146,7 +147,7 @@ local function refreshArenaPowerVisibility(unitID)
   end
 end
 
-if IsRetail then
+if IsRetail or isMopClassic then
   power:RegisterEvent("ARENA_OPPONENT_UPDATE")
   power:SetScript("OnEvent", function(_, _, unitID)
     -- Let Blizzard's ArenaUtil process its unseen override before reading it.
@@ -210,6 +211,9 @@ function power:AttachToPlayerButton(playerButton)
 
   function playerButton.Power:ShouldShowInArena()
     local arenaIndex = GetArenaOpponentIndex(playerButton)
+    if isMopClassic and arenaIndex then
+      return ArenaUnitExists("arena" .. arenaIndex)
+    end
     return not arenaIndex or (GetActiveMatchState() == PvPMatchState.Engaged
       and (not IsRetail or ArenaUnitExists("arena" .. arenaIndex)))
   end

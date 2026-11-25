@@ -9,8 +9,12 @@ local LSM = LibStub("LibSharedMedia-3.0")
 local UpdateArenaOpponentSpecDisplay = UnitFrameUtil and UnitFrameUtil.UpdateArenaOpponentSpecDisplay
 local GetArenaOpponentIndex = BattleGroundEnemies.GetArenaOpponentIndex
 local IsRetail = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+local isMopClassic = WOW_PROJECT_ID == WOW_PROJECT_MISTS_CLASSIC
+local GetSpecialization = isMopClassic and C_SpecializationInfo.GetSpecialization
+local GetSpecializationInfo = isMopClassic and C_SpecializationInfo.GetSpecializationInfo
 local GetPlayerSpecName = IsRetail and PlayerUtil.GetSpecName
-local GetInspectSpecialization = IsRetail and C_SpecializationInfo.GetInspectSpecialization
+local GetInspectSpecialization = isMopClassic and GetInspectSpecialization
+  or (IsRetail and C_SpecializationInfo.GetInspectSpecialization)
 local GetSpecializationNameForSpecID = GetSpecializationNameForSpecID
 local CanInspect = CanInspect
 local NotifyInspect = NotifyInspect
@@ -24,6 +28,16 @@ local wipe = wipe
 local After = C_Timer.After
 local IsTestmodeActive = BattleGroundEnemies.IsTestmodeActive
 local QueueForUpdateAfterCombat = BattleGroundEnemies.QueueForUpdateAfterCombat
+
+if isMopClassic then
+  GetPlayerSpecName = function()
+    local index = GetSpecialization()
+    if index then
+      local _, name = GetSpecializationInfo(index)
+      return name
+    end
+  end
+end
 
 local defaultSettings = {
   Enabled = true,
@@ -87,7 +101,7 @@ local nextInspectCheck = 0
 local layoutRefreshQueued = false
 
 local function isFriendlyArenaRow(playerButton)
-  return IsRetail and BattleGroundEnemies.states.real.isInArena
+  return (IsRetail or isMopClassic) and BattleGroundEnemies.states.real.isInArena
     and not IsTestmodeActive(BattleGroundEnemies) and not playerButton.PlayerIsEnemy
 end
 
@@ -276,7 +290,7 @@ local function receiveFriendlyInspection(guid)
   local resolved = false
   if unit then
     local specID = GetInspectSpecialization(unit)
-    if not issecretvalue(specID) and specID > 0 then
+    if specID and not issecretvalue(specID) and specID > 0 then
       local name = GetSpecializationNameForSpecID(specID, UnitSex(unit))
       if name and name ~= "" then
         friendlySpecs[guid] = name
@@ -312,7 +326,7 @@ local function pruneFriendlyInspections()
   end
 end
 
-if IsRetail then
+if IsRetail or isMopClassic then
   specName:RegisterEvent("INSPECT_READY")
   specName:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
   specName:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -355,6 +369,9 @@ end
 local measureFontString
 function BattleGroundEnemies:GetSpecNameReservedHeight(playerCountConfig, playerButton)
   if not playerCountConfig then
+    return 0
+  end
+  if isMopClassic and not self.states.real.isInArena and not IsTestmodeActive(self) then
     return 0
   end
   local moduleConfig = playerCountConfig.ButtonModules and playerCountConfig.ButtonModules.SpecName

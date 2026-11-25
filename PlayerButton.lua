@@ -40,6 +40,8 @@ local FAKE_TRINKET_SPELL = 208683 -- Gladiator's Medallion (for icon texture)
 
 --WoW API
 local C_PvP = C_PvP
+local isMopClassic = WOW_PROJECT_ID == WOW_PROJECT_MISTS_CLASSIC
+local GetArenaCrowdControlInfo = C_PvP.GetArenaCrowdControlInfo
 local CreateFrame = CreateFrame
 local GetTime = GetTime
 local InCombatLockdown = InCombatLockdown
@@ -524,11 +526,28 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     self:DispatchEvent("UpdateRaidTargetIcon", self.RaidTargetIconIndex)
   end
 
+  local function updateArenaTrinket(trinket, unitID)
+    if not trinket then
+      return false
+    end
+    local spellID, itemID, startTimeMs, durationMs = GetArenaCrowdControlInfo(unitID)
+    if not spellID then
+      return false
+    end
+    trinket:DisplayTrinket(spellID, itemID)
+    trinket:SetAlpha(1)
+    trinket:SetTrinketCooldown(startTimeMs / 1000, durationMs / 1000)
+    return true
+  end
+
   -- Query the API for real trinket cooldown data and apply it.
   -- Returns true if the API returned real data, false otherwise.
   -- Uses GetArenaCrowdControlInfo for the spellId and GetArenaCrowdControlDuration
   -- for the DurationObject — avoids arithmetic on secret millisecond values entirely.
   function playerButton:UpdateCrowdControlCooldown(unitID)
+    if isMopClassic then
+      return updateArenaTrinket(self.Trinket, unitID)
+    end
     -- Get spell ID from GetArenaCrowdControlInfo (only need the first return value)
     local spellId = C_PvP.GetArenaCrowdControlInfo(unitID)
     -- Get duration as a LuaDurationObject — no secret value arithmetic needed
@@ -565,6 +584,9 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
   -- with .Duration/.Start/.SpellId fields). Use SetCooldownFromDurationObject — no arithmetic
   -- on secret timing values needed.
   function playerButton:UpdateAllyCrowdControlCooldown(unitID)
+    if isMopClassic then
+      return updateArenaTrinket(self.Trinket, unitID)
+    end
     if not self.Trinket or not C_PvP.GetArenaCrowdControlDuration then
       return
     end
@@ -585,7 +607,7 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
   -- (e.g. ARENA_CROWD_CONTROL_SPELL_UPDATE fired but GetArenaCrowdControlInfo
   -- returned no real cooldown data). Uses estimated durations.
   function playerButton:ApplyFakeTrinketCooldown()
-    if not FAKE_TRINKET or not self.Trinket then
+    if isMopClassic or not FAKE_TRINKET or not self.Trinket then
       return
     end
     local duration = FAKE_TRINKET_DURATION
@@ -1088,15 +1110,9 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       --use a table to track changes and compare them to GetAttribute
       --set baseline
 
-      -- Enemy click `unit`: arena/flag/orb carriers get their STABLE arenaN token
-      -- (PlayerArenaUnitID) for secure target/focus below; all OTHER enemies carry
-      -- no `unit` and click via the /targetexact <PlayerName> macrotext. This is the
-      -- original pre-208f4bb behaviour. 208f4bb had GENERALISED the token to also
-      -- cover nameplateN/raidNtarget, which churn / go stale in combat and tripped
-      -- WoW's secure-click UnitExists veto (SecureTemplates.lua) — that's what broke
-      -- click-target/focus mid-fight. Only the nameplate generalisation is reverted;
-      -- the stable-arena-token carrier path is restored unchanged (arenaN never
-      -- churns, UnitExists(arenaN) holds, so it was never the problem).
+      -- Battleground carrier slots can change players during combat, when
+      -- protected click attributes cannot be rebound. Keep battleground clicks
+      -- on the exact-name macro path; only real arena opponents use arenaN.
       local newAttributes = {
         unit = not self.PlayerIsEnemy and self.unit or false,
         type1 = false,
@@ -1122,7 +1138,7 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       end
 
       if self.PlayerIsEnemy then
-        if self.PlayerDetails.PlayerArenaUnitID then --its a arena enemy / flag/orb carrier
+        if BattleGroundEnemies.states.real.isInArena and self.PlayerDetails.PlayerArenaUnitID then
           -- Secure unit-action targeting via the arenaN token. Works in combat,
           -- no macrotext / no PlayerName needed (and PlayerName is secret
           -- post-12.0.5 anyway). Left-click targets, right-click focuses.

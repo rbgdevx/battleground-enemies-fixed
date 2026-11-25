@@ -17,6 +17,7 @@
 #   .vscode/      — editor config
 #   .luarc.json   — lua-language-server config
 #   .libraries/   — Blizzard UI reference source (read-only docs for devs)
+#   .previews/    — repository screenshots
 #   AGENTS.md     — agent instructions
 #   CLAUDE.md     — agent instructions
 #   DEFERRED.md   — maintainer notes
@@ -114,11 +115,16 @@ EXCLUDES=(
   '.DS_Store'
   '.claude'
   '.codex'
+  '.github'
+  '.cursorignore'
+  'DECISIONS.md'
   '.vscode'
   '.luarc.json'
   '.libraries'
+  '.previews'
   'AGENTS.md'
   'CLAUDE.md'
+  'GEMINI.md'
   'DEFERRED.md'
   'TOKEN_TIERS.md'
   'NEW_CHANGES.md'
@@ -129,6 +135,7 @@ EXCLUDES=(
   'README.md'
   'cspell.json'
   'deploy-to-wow.sh'
+  'package-addon.sh'
 )
 
 if command -v rsync >/dev/null 2>&1; then
@@ -141,6 +148,10 @@ else
   tar_args=()
   for e in "${EXCLUDES[@]}"; do tar_args+=(--exclude="./$e"); done
   tar -C "$SRC" "${tar_args[@]}" -cf - . | tar -C "$DEST" -xf -
+fi
+
+if [[ -f "$SRC/package-addon.sh" ]]; then
+  bash "$SRC/package-addon.sh" --write-notices "$DEST"
 fi
 
 echo "Done. Reload UI in-game (/reload) or relaunch the client to pick up changes."

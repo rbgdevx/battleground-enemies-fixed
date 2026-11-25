@@ -17,6 +17,9 @@ local InCombatLockdown = InCombatLockdown
 local UnitGUID = UnitGUID
 local UnitRace = UnitRace
 local GetClassColor = C_ClassColor and C_ClassColor.GetClassColor
+local isMopClassic = WOW_PROJECT_ID == WOW_PROJECT_MISTS_CLASSIC
+local GetArenaOpponentSpec = GetArenaOpponentSpec
+local GetSpecializationInfoByID = GetSpecializationInfoByID
 local GetRandomTableValue = GetRandomTableValue
 
 --lua
@@ -1971,6 +1974,14 @@ function BattleGroundEnemies.Allies:UpdateAllUnitIDs()
   end
 end
 
+local function getMopArenaOpponentSpec(index)
+  local specID, gender = GetArenaOpponentSpec(index)
+  if specID and specID > 0 then
+    local _, name, _, _, _, class = GetSpecializationInfoByID(specID, gender)
+    return name, class and string.upper(class)
+  end
+end
+
 function BattleGroundEnemies.Enemies:CreateArenaEnemies()
   if not BattleGroundEnemies.states.real.isInArena then
     return
@@ -2001,6 +2012,12 @@ function BattleGroundEnemies.Enemies:CreateArenaEnemies()
     local name = BattleGroundEnemies:GetCanonicalUnitName(unitID)
     local displayName = UnitName(unitID) -- display-only, may be secret
     local _, classToken = UnitClass(unitID)
+    local specName
+    if isMopClassic then
+      local specClass
+      specName, specClass = getMopArenaOpponentSpec(i)
+      classToken = classToken or specClass
+    end
     local classTokenIsSecret = issecretvalue and issecretvalue(classToken)
     local classColor
     if classTokenIsSecret and GetClassColor then
@@ -2012,6 +2029,7 @@ function BattleGroundEnemies.Enemies:CreateArenaEnemies()
     self:AddPlayerToSource(source, {
       name = name,
       classToken = classToken,
+      specName = specName,
       additionalData = {
         PlayerArenaUnitID = unitID,
         SecretDisplayName = displayName,

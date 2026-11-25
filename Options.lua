@@ -2,6 +2,7 @@
 local AddonName = ...
 ---@class Data
 local Data = select(2, ...)
+local SupportsArena = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE or WOW_PROJECT_ID == WOW_PROJECT_MISTS_CLASSIC
 local CreateProfileOptions = Data.CreateProfileOptions
 local print = Data.print
 local GetAddOnMetadata = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
@@ -1922,6 +1923,7 @@ function BattleGroundEnemies:SetupOptions()
             order = 1,
           },
           ShowBGEInArena = {
+            hidden = not SupportsArena,
             type = "toggle",
             name = L.EnableInArenas,
             order = 2,
@@ -2039,6 +2041,7 @@ function BattleGroundEnemies:SetupOptions()
                 order = 7,
                 args = {
                   DisableArenaFramesInArena = {
+                    hidden = not SupportsArena,
                     type = "toggle",
                     name = ARENA,
                     order = 1,
@@ -2057,6 +2060,7 @@ function BattleGroundEnemies:SetupOptions()
                 order = 8,
                 args = {
                   DisableRaidFramesInArena = {
+                    hidden = not SupportsArena,
                     type = "toggle",
                     name = ARENA,
                     order = 1,
@@ -2345,7 +2349,8 @@ function BattleGroundEnemies:SetupOptions()
   self.options.args.profiles.disabled = InCombatLockdown
 end
 
-SLASH_BattleGroundEnemies1, SLASH_BattleGroundEnemies2 = "/BattleGroundEnemies", "/bge"
+SLASH_BattleGroundEnemies1, SLASH_BattleGroundEnemies2, SLASH_BattleGroundEnemies3 =
+  "/BattleGroundEnemies", "/bge", "/bgef"
 SlashCmdList["BattleGroundEnemies"] = function(msg)
   local cmd = strtrim((msg or "")):lower()
   if cmd == "debug" then

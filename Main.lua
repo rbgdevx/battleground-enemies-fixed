@@ -33,6 +33,9 @@ local C_Spell = C_Spell
 local CreateFrame = CreateFrame
 local CTimerNewTicker = C_Timer.NewTicker
 local GetBattlefieldTeamInfo = GetBattlefieldTeamInfo
+local GetBattlefieldScore = GetBattlefieldScore
+local GetBattlefieldArenaFaction = GetBattlefieldArenaFaction
+local GetBattlefieldWinner = GetBattlefieldWinner
 -- local GetBestMapForUnit = C_Map.GetBestMapForUnit
 local GetNumBattlefieldScores = GetNumBattlefieldScores
 local GetNumGroupMembers = GetNumGroupMembers
@@ -48,6 +51,7 @@ local UnitClassBase = UnitClassBase
 local UnitExists = UnitExists
 local UnitFactionGroup = UnitFactionGroup
 local UnitGUID = UnitGUID
+local UnitHonorLevel = UnitHonorLevel
 local UnitIsDeadOrGhost = UnitIsDeadOrGhost
 local UnitIsGhost = UnitIsGhost
 local UnitName = UnitName
@@ -58,6 +62,9 @@ local UsesSurnames = RegionalUniqueNamesEnabled and RegionalUniqueNamesEnabled()
 local UnitNameSeparator = UsesSurnames and Constants.CharacterNameSeparatorConsts.CHARACTERNAME_SURNAME_SEPARATOR or "-"
 
 local IsRetail = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+local isMopClassic = WOW_PROJECT_ID == WOW_PROJECT_MISTS_CLASSIC
+local SupportsArena = IsRetail or isMopClassic
+local allTeamsFaction = not isMopClassic and -1 or nil
 local IsClassic = WOW_PROJECT_ID == WOW_PROJECT_CLASSIC
 local IsWrath = WOW_PROJECT_ID == WOW_PROJECT_WRATH_CLASSIC
 
@@ -194,15 +201,8 @@ end
 -- on our end via PlayerSortingByClassName, so the row order from
 -- SortBattlefieldScoreData is irrelevant to the addon.
 --
--- Initialized to -1 (NOT nil) to match Blizzard's own default: the scoreboard
--- opens on the "All" tab (factionEnum -1, per PVPMatchScoreboard.xml). Starting
--- at nil made the first UPDATE_BATTLEFIELD_SCORE tick on a fresh join see
--- `nil ~= -1` and call SetBattlefieldScoreFaction(-1) unnecessarily — which
--- synchronously rebuilds Blizzard's scoreboard under our taint and crashed on
--- the (secret, mid-match) honor level. The filter is already -1 on join, so we
--- no longer force it there; the hook below keeps this in sync if anything ever
--- changes it, and the existing re-assert handles that case unchanged.
-BattleGroundEnemies._scoreboardFaction = -1
+-- Use the native All tab value: nil on MoP, -1 on Mainline.
+BattleGroundEnemies._scoreboardFaction = allTeamsFaction
 hooksecurefunc("SetBattlefieldScoreFaction", function(factionEnum)
   BattleGroundEnemies._scoreboardFaction = factionEnum
 end)
@@ -278,7 +278,17 @@ local bgMaxPlayerCorrections = {
 -- one degrades gracefully to 16-40 instead of blanking. A method on
 -- BattleGroundEnemies (not a file-local) so Mainframe.lua's
 -- SelectPlayerCountProfile can reach the Main.lua-local corrections table.
+if isMopClassic then
+  bgMaxPlayerCorrections[489] = 10 -- Warsong Gulch
+  bgMaxPlayerCorrections[529] = 15 -- Arathi Basin
+  bgMaxPlayerCorrections[968] = 10 -- Rated Eye of the Storm
+end
+
 function BattleGroundEnemies:GetCorrectedMaxPlayers()
+  if isMopClassic then
+    local _, _, _, _, maxPlayers, _, _, instanceID = GetInstanceInfo()
+    return bgMaxPlayerCorrections[instanceID] or maxPlayers or 0
+  end
   if C_PvP and C_PvP.IsSoloRBG and C_PvP.IsSoloRBG() then
     return 8
   end
@@ -1331,6 +1341,9 @@ function BattleGroundEnemies:Enable()
   -- test mode (AfterPlayerSourceUpdate uses the FakePlayers source there).
   self:GROUP_ROSTER_UPDATE()
   self:ARENA_PREP_OPPONENT_SPECIALIZATIONS()
+  if isMopClassic and self.states.real.isInArena and not self:IsTestmodeActive() and GetNumArenaOpponents() > 0 then
+    self:CheckForArenaEnemies()
+  end
 end
 
 function BattleGroundEnemies:ARENA_PREP_OPPONENT_SPECIALIZATIONS()
@@ -1341,7 +1354,7 @@ end
 
 function BattleGroundEnemies:CheckEnableState()
   local states = BattleGroundEnemies:GetActiveStates()
-  if states.isInArena and BattleGroundEnemies.db.profile.ShowBGEInArena then
+  if SupportsArena and states.isInArena and BattleGroundEnemies.db.profile.ShowBGEInArena then
     return self:Enable()
   end
   if states.isInBattleground and BattleGroundEnemies.db.profile.ShowBGEInBattleground then
@@ -2444,7 +2457,8 @@ end
 -- 417=Kotmogu, 1339=Warsong Gulch, 206=Twin Peaks, 112=Eye of the Storm,
 -- 397=Eye of the Storm Rated, 2345=Deephaul Ravine.
 local function IsObjectiveBG(mapId)
-  return mapId == 417 or mapId == 206 or mapId == 1339 or mapId == 112 or mapId == 397 or mapId == 2345
+  return not isMopClassic
+    and (mapId == 417 or mapId == 206 or mapId == 1339 or mapId == 112 or mapId == 397 or mapId == 2345)
 end
 
 --fires when data requested by C_PvP.RequestCrowdControlSpell(unitID) is available
@@ -2551,7 +2565,8 @@ function BattleGroundEnemies:ARENA_COOLDOWNS_UPDATE(unitID)
     end
   else
     -- No unitID: general refresh. Only apply real API data, never fake.
-    for i = 1, 4 do
+    local slotCount = self.states.real.isInArena and math.max(4, GetNumArenaOpponents()) or 4
+    for i = 1, slotCount do
       local arenaUnit = "arena" .. i
       -- Use ArenaIDToPlayerButton directly for arena units
       local playerButton = self.ArenaIDToPlayerButton[arenaUnit]
@@ -3013,7 +3028,7 @@ local function changeVisibility(frame, visible)
 end
 
 local function shouldHideBlizzardFrames(states, profile, arenaKey, battlegroundKey)
-  return (states.isInArena and profile.ShowBGEInArena and profile[arenaKey])
+  return (SupportsArena and states.isInArena and profile.ShowBGEInArena and profile[arenaKey])
     or (states.isInBattleground and profile.ShowBGEInBattleground and profile[battlegroundKey])
 end
 
@@ -3030,6 +3045,9 @@ function BattleGroundEnemies:ToggleArenaFrames()
   changeVisibility(ArenaEnemyFrames, not hidden)
   changeVisibility(ArenaEnemyFramesContainer, not hidden)
   changeVisibility(CompactArenaFrame, not hidden)
+  if isMopClassic then
+    changeVisibility(ArenaPrepFrames, not (self.states.real.isInArena and hidden))
+  end
 end
 
 function BattleGroundEnemies:ToggleRaidFrames()
@@ -3266,6 +3284,19 @@ local SCORE_ROW_FIELDS = {
 }
 
 local function parseBattlefieldScore(index, result)
+  if isMopClassic then
+    local name, _, _, _, _, faction, _, raceName, className, classToken = GetBattlefieldScore(index)
+    if not name then
+      return
+    end
+    result.name = name
+    result.faction = faction
+    result.raceName = raceName
+    result.className = className
+    result.classToken = classToken
+    return result
+  end
+
   local scoreInfo = C_PvP.GetScoreInfo(index)
   if not scoreInfo then
     return
@@ -3351,7 +3382,7 @@ end
 -- talentSpec can be secret during an active match, so keep it as a pure
 -- pass-through to SpecName:SetSpec(), which renders it without evaluating it.
 function BattleGroundEnemies:UpdateFriendlyScoreboardSpecs()
-  if self.AllyFaction == nil or not self.Allies:ShouldBeEnabled() then
+  if isMopClassic or self.AllyFaction == nil or not self.Allies:ShouldBeEnabled() then
     return
   end
 
@@ -3562,6 +3593,9 @@ end
 -- a match via _harvestedThisMatch (cleared on Inactive). Reads survive across
 -- sessions in db.global.PlayerHistory; pruned on PLAYER_LOGIN.
 function BattleGroundEnemies:HarvestPlayerHistory()
+  if isMopClassic then
+    return
+  end
   local db = self.db and self.db.global
   if not db then
     return
@@ -3779,7 +3813,7 @@ function BattleGroundEnemies:HarvestRaidRoster()
     end
 
     local gender = UnitSexBase(unit) -- modern enum (0=Male, 1=Female, 2=None); Nilable=true
-    local honor = UnitHonorLevel(unit)
+    local honor = UnitHonorLevel and UnitHonorLevel(unit)
     local powerType = UnitPowerType(unit) -- numeric enum; MayReturnNothing
 
     local guildName = GetGuildInfo(unit)
@@ -3858,6 +3892,35 @@ function BattleGroundEnemies:SetAllyFaction(allyFaction)
   end
 end
 
+local function findMopAllyFaction(addon)
+  local faction = GetBattlefieldArenaFaction()
+  local playerName = addon.UserDetails.PlayerName
+  for index = 1, GetNumBattlefieldScores() do
+    local name, _, _, _, _, rowFaction = GetBattlefieldScore(index)
+    if name and addon:CanonicalName(name) == playerName then
+      if faction == rowFaction then
+        return faction
+      end
+      return
+    end
+  end
+end
+
+local function hasMopRosterChanged(rows, enemyFaction)
+  local enemyIndex = 0
+  for index = 1, GetNumBattlefieldScores() do
+    local name, _, _, _, _, faction, _, _, _, classToken = GetBattlefieldScore(index)
+    if faction == enemyFaction and name and classToken then
+      enemyIndex = enemyIndex + 1
+      local row = rows[enemyIndex]
+      if not row or row.name ~= name or row.classToken ~= classToken then
+        return true
+      end
+    end
+  end
+  return enemyIndex ~= #rows
+end
+
 local function getArenaPartyPeerNames(self)
   local names = {}
   for i = 1, GetNumGroupMembers() - 1 do
@@ -3870,6 +3933,7 @@ local function getArenaPartyPeerNames(self)
 end
 
 function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
+
   -- Re-assert factionEnum -1 if the user (or Blizzard's PVPMatch UI) clicked
   -- a faction tab and filtered the scoreboard to one team — without -1 our
   -- GetNumBattlefieldScores / GetScoreInfo iteration would only see that
@@ -3878,6 +3942,7 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
   -- after they close it will re-assert.
   local scoreboardShown = (PVPMatchScoreboard and PVPMatchScoreboard:IsShown())
     or (PVPMatchResults and PVPMatchResults:IsShown())
+    or (isMopClassic and WorldStateScoreFrame:IsShown())
   -- Hard re-entry guard: SetBattlefieldScoreFaction fires UPDATE_BATTLEFIELD_SCORE
   -- synchronously (plus Blizzard's scoreboard UI updates may also fire UBS
   -- mid-call). Without this, we recurse infinitely:
@@ -3885,11 +3950,25 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
   if self._reassertingScoreboard then
     return
   end
+  if isMopClassic then
+    local states = self.states.real
+    if not self.enabled or not (states.isInBattleground or states.isInArena) then
+      return
+    end
+    if GetBattlefieldWinner() ~= nil then
+      self:Disable()
+      return
+    end
+  end
+
+  if isMopClassic and scoreboardShown and self._scoreboardFaction ~= allTeamsFaction then
+    return
+  end
   if not scoreboardShown then
-    if self._scoreboardFaction ~= -1 then
+    if self._scoreboardFaction ~= allTeamsFaction then
       self._reassertingScoreboard = true
-      self._scoreboardFaction = -1
-      SetBattlefieldScoreFaction(-1)
+      self._scoreboardFaction = allTeamsFaction
+      SetBattlefieldScoreFaction(allTeamsFaction)
       self._reassertingScoreboard = false
       return
     end
@@ -3935,7 +4014,13 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
   -- AllyFaction stays nil — every consumer is gated on AllyFaction being
   -- set, so an empty enemy panel for a tick or two is the explicit
   -- trade-off against ever showing real teammates as enemies.
-  if self.AllyFaction == nil then
+  if isMopClassic and self.AllyFaction == nil and self._pvpGracePeriodElapsed then
+    local faction = findMopAllyFaction(self)
+    if faction ~= nil then
+      self:SetAllyFaction(faction)
+    end
+  end
+  if not isMopClassic and self.AllyFaction == nil then
     -- Grace period: skip validation entirely until the 3s post-zone-in
     -- timer has fired. The scoreboard takes time to populate and
     -- querying it sooner is wasted work. While we're in this window we
@@ -4075,7 +4160,10 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
   -- First run has nil cache → proceeds. Nil numEnemies (API hiccup) also
   -- proceeds so we don't get stuck if the API briefly misbehaves.
   if numEnemies and self._lastEnemyCount == numEnemies then
-    return
+    local rows = self.Enemies.PlayerSources[self.consts.PlayerSources.Scoreboard]
+    if not isMopClassic or not hasMopRosterChanged(rows, self.EnemyFaction) then
+      return
+    end
   end
 
   -- #10a: wipe the scoreboard source FIRST (this drops last tick's references to
@@ -4384,7 +4472,7 @@ function BattleGroundEnemies:PLAYER_ENTERING_WORLD()
     -- end
   end
 
-  if zone == "pvp" or zone == "arena" then
+  if zone == "pvp" or (SupportsArena and zone == "arena") then
     -- AllyFaction is derived (and cross-validated) in UPDATE_BATTLEFIELD_SCORE.
     -- Don't pre-set it here — a single C_PvP.GetScoreInfoByPlayerGuid call
     -- this early in zone-in can return the wrong team number when the
@@ -4402,7 +4490,10 @@ function BattleGroundEnemies:PLAYER_ENTERING_WORLD()
       BattleGroundEnemies.states.real.isInBattleground = true
 
       C_Timer.After(5, function() --Delay this check, since its happening sometimes that this data is not ready yet
-        if C_PvP then
+        if isMopClassic then
+          self.states.real.isRatedBG = C_PvP.IsRatedMap()
+          self.states.real.isSoloRBG = false
+        elseif C_PvP then
           self.states.real.isRatedBG = not not C_PvP.IsRatedBattleground and C_PvP.IsRatedBattleground()
           self.states.real.isSoloRBG = not not C_PvP.IsSoloRBG and C_PvP.IsSoloRBG()
         else

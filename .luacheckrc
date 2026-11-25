@@ -35,11 +35,14 @@ ignore = { "_ADDON", "432/self" }
 -- Globals the addon DEFINES/WRITES (saved-vars, slash handlers).
 globals = {
   "BattleGroundEnemies", "ClickCastFrames", "ColorPickerFrame", "NineSliceLayouts",
-  "SLASH_BattleGroundEnemies1", "SLASH_BattleGroundEnemies2", "SlashCmdList",
+  "SLASH_BattleGroundEnemies1", "SLASH_BattleGroundEnemies2", "SLASH_BattleGroundEnemies3", "SlashCmdList",
 }
 
 -- Blizzard client API the addon READS.
 read_globals = {
+  "ArenaPrepFrames", "GetBattlefieldArenaFaction", "GetBattlefieldScore", "GetBattlefieldWinner",
+  "GetInspectSpecialization", "WorldStateScoreFrame", "WOW_PROJECT_MISTS_CLASSIC",
+  "CombatLogGetCurrentEventInfo", "COMBATLOG_OBJECT_CONTROL_PLAYER", "bit", "C_UnitAuras",
   "ACCEPT", "ACTION_BUTTON_USE_KEY_DOWN", "ARENA", "AbbreviateNumbers",
   "AceGUIEditBoxInsertLink", "AceGUIMultiLineEditBoxInsertLink", "AceGUIWidgetLSMlists",
   "Ambiguate", "AnchorUtil", "ArenaEnemyFrames", "ArenaEnemyFramesContainer",
