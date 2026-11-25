@@ -4,6 +4,7 @@ local Data = select(2, ...)
 local BattleGroundEnemies = BattleGroundEnemies
 local L = Data.L
 local IsRetail = Data.IsRetail
+local ReadArenaTrinket = Data.Arena.ReadTrinket
 local GetArenaOpponentIndex = BattleGroundEnemies.GetArenaOpponentIndex
 local CreateFrame = CreateFrame
 local hooksecurefunc = hooksecurefunc
@@ -155,7 +156,7 @@ function trinket:AttachToPlayerButton(playerButton)
       texture = spellTextureNoOverride
     end
     -- Use Medallion only when the native lookup returns no icon.
-    if not texture then
+    if not texture and not ReadArenaTrinket then
       local fallback = GetSpellTexture(208683) -- Gladiator's Medallion
       texture = fallback
     end

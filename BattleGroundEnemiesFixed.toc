@@ -1,6 +1,6 @@
-## Interface: 120105, 16001
+## Interface: 120105, 16001, 50504
 ## Title: BattleGroundEnemiesFixed
-## Version: 12.1.5.8
+## Version: 12.1.5.9
 ## Author: RBGDEV
 ## Category: RBGDEV
 ## Notes: Credit to BattleGroundEnemies for the original code, author: Bullsei
@@ -20,6 +20,15 @@ Locales.lua
 Helpers.lua
 Data.lua
 Defaults.lua
+
+Clients\Mainline\Scoreboard.lua [AllowLoadGameType mainline]
+Clients\Mainline\Match.lua [AllowLoadGameType mainline]
+Clients\Mainline\Arena.lua [AllowLoadGameType mainline]
+Clients\Mists\Scoreboard.lua [AllowLoadGameType mists]
+Clients\Mists\Battlegrounds.lua [AllowLoadGameType mists]
+Clients\Mists\Match.lua [AllowLoadGameType mists]
+Clients\Mists\Arena.lua [AllowLoadGameType mists]
+
 dbupgrades.lua
 Database.lua
 Main.lua
@@ -32,7 +41,9 @@ Modules\CastBar.lua
 Modules\HealthBar.lua
 Modules\Level.lua
 Modules\Name.lua
-Modules\ObjectiveAndRespawn.lua
+Modules\ObjectiveIcon.lua [AllowLoadGameType mainline, mists]
+Modules\ObjectiveAndRespawn.lua [AllowLoadGameType mainline]
+Clients\Mists\ObjectiveCarriers.lua [AllowLoadGameType mists]
 Modules\Power.lua
 Modules\RaidTargetIcon.lua
 Modules\Role.lua
@@ -42,7 +53,9 @@ Modules\TargetIndicatorNumeric.lua
 Modules\TargetIndicatorSymbolic.lua
 Modules\CombatIndicator.lua
 Modules\Trinket.lua
-Modules\DR.lua
+libs\DRList-1.0\DRList-1.0.xml [AllowLoadGameType mists]
+Clients\Mists\DiminishingReturns.lua [AllowLoadGameType mists]
+Modules\DR.lua [AllowLoadGameType mainline, mists]
 
 ProfileOptions.lua
 Options.lua

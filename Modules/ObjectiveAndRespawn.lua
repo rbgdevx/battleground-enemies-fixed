@@ -3,60 +3,27 @@ local BattleGroundEnemies = BattleGroundEnemies
 
 ---@class Data
 local Data = select(2, ...)
+local ObjectiveIcon = Data.ObjectiveIcon
 local GetSpellTexture = C_Spell and C_Spell.GetSpellTexture or GetSpellTexture
 
 local IsCataClassic = WOW_PROJECT_ID == WOW_PROJECT_CATACLYSM_CLASSIC
 
 local L = Data.L
 
-local defaultSettings = {
-  Enabled = true,
-  Parent = "Button",
-  ActivePoints = 1,
-  Points = {
-    {
-      Point = "LEFT",
-      RelativeFrame = "Button",
-      RelativePoint = "RIGHT",
-      OffsetX = 0,
-    },
-  },
-  Cooldown = {
-    FontSize = 15,
-    FontOutline = "OUTLINE", -- matches the global Cooldown default; preserves current look
-    JustifyV = "MIDDLE",
-    EnableShadow = true,
-    ShadowColor = { 0, 0, 0, 0.8 },
-    ShadowOffsetX = 1,
-    ShadowOffsetY = -1,
-  },
-  Text = {
-    FontSize = 15,
-    FontOutline = "OUTLINE", -- Normal (overrides the global Text default of None)
-    EnableShadow = true,
-    ShadowColor = { 0, 0, 0, 0.8 },
-    ShadowOffsetX = 1,
-    ShadowOffsetY = -1,
-  },
-  UseButtonHeightAsHeight = true,
-  UseButtonHeightAsWidth = true,
+local defaultSettings = ObjectiveIcon.DefaultSettings()
+defaultSettings.Cooldown = {
+  FontSize = 15,
+  FontOutline = "OUTLINE", -- matches the global Cooldown default; preserves current look
+  JustifyV = "MIDDLE",
+  EnableShadow = true,
+  ShadowColor = { 0, 0, 0, 0.8 },
+  ShadowOffsetX = 1,
+  ShadowOffsetY = -1,
 }
 
 local options = function(location)
   return {
-    TextSettings = {
-      type = "group",
-      name = L.Text,
-      inline = true,
-      order = 4,
-      get = function(option)
-        return Data.GetOption(location.Text, option)
-      end,
-      set = function(option, ...)
-        return Data.SetOption(location.Text, option, ...)
-      end,
-      args = Data.AddNormalTextSettings(location.Text, nil, true, true),
-    },
+    TextSettings = ObjectiveIcon.TextOptions(location.Text),
     CooldownTextSettings = {
       type = "group",
       name = L.Countdowntext,
@@ -1393,16 +1360,7 @@ local objectiveAndRespawn = BattleGroundEnemies:NewButtonModule({
 })
 
 function objectiveAndRespawn:AttachToPlayerButton(playerButton)
-  local frame = CreateFrame("frame", nil, playerButton)
-  frame:SetFrameLevel(playerButton:GetFrameLevel() + 5)
-
-  frame.Icon = frame:CreateTexture(nil, "BORDER")
-  frame.Icon:SetAllPoints()
-
-  frame:SetScript("OnSizeChanged", function(self, width, height)
-    BattleGroundEnemies.CropImage(self.Icon, width, height)
-  end)
-  frame:Hide()
+  local frame = ObjectiveIcon.Create(playerButton)
 
   -- Explicitly register the event and set the script handler
   frame:RegisterEvent("UPDATE_UI_WIDGET")

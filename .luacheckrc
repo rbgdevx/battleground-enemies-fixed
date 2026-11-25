@@ -35,7 +35,7 @@ ignore = { "_ADDON", "432/self" }
 -- Globals the addon DEFINES/WRITES (saved-vars, slash handlers).
 globals = {
   "BattleGroundEnemies", "ClickCastFrames", "ColorPickerFrame", "NineSliceLayouts",
-  "SLASH_BattleGroundEnemies1", "SLASH_BattleGroundEnemies2", "SlashCmdList",
+  "SLASH_BattleGroundEnemies1", "SLASH_BattleGroundEnemies2", "SLASH_BattleGroundEnemies3", "SlashCmdList",
 }
 
 -- Blizzard client API the addon READS.

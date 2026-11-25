@@ -17,6 +17,7 @@ local InCombatLockdown = InCombatLockdown
 local UnitGUID = UnitGUID
 local UnitRace = UnitRace
 local GetClassColor = C_ClassColor and C_ClassColor.GetClassColor
+local GetArenaOpponentSpec = Data.Arena.GetOpponentSpec
 local GetRandomTableValue = GetRandomTableValue
 
 --lua
@@ -2001,6 +2002,12 @@ function BattleGroundEnemies.Enemies:CreateArenaEnemies()
     local name = BattleGroundEnemies:GetCanonicalUnitName(unitID)
     local displayName = UnitName(unitID) -- display-only, may be secret
     local _, classToken = UnitClass(unitID)
+    local specName
+    if GetArenaOpponentSpec then
+      local specClass
+      specName, specClass = GetArenaOpponentSpec(i)
+      classToken = classToken or specClass
+    end
     local classTokenIsSecret = issecretvalue and issecretvalue(classToken)
     local classColor
     if classTokenIsSecret and GetClassColor then
@@ -2012,6 +2019,7 @@ function BattleGroundEnemies.Enemies:CreateArenaEnemies()
     self:AddPlayerToSource(source, {
       name = name,
       classToken = classToken,
+      specName = specName,
       additionalData = {
         PlayerArenaUnitID = unitID,
         SecretDisplayName = displayName,

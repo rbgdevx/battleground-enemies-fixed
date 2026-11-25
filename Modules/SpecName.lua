@@ -8,9 +8,9 @@ local IsForever = Data.IsForever
 local LSM = LibStub("LibSharedMedia-3.0")
 local UpdateArenaOpponentSpecDisplay = UnitFrameUtil and UnitFrameUtil.UpdateArenaOpponentSpecDisplay
 local GetArenaOpponentIndex = BattleGroundEnemies.GetArenaOpponentIndex
-local IsRetail = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
-local GetPlayerSpecName = IsRetail and PlayerUtil.GetSpecName
-local GetInspectSpecialization = IsRetail and C_SpecializationInfo.GetInspectSpecialization
+local GetPlayerSpecName = Data.Arena.GetPlayerSpecName
+local GetInspectSpecialization = Data.Arena.GetInspectSpecialization
+local HasScoreboardSpecs = Data.Scoreboard.HasTalentSpecs
 local GetSpecializationNameForSpecID = GetSpecializationNameForSpecID
 local CanInspect = CanInspect
 local NotifyInspect = NotifyInspect
@@ -87,7 +87,7 @@ local nextInspectCheck = 0
 local layoutRefreshQueued = false
 
 local function isFriendlyArenaRow(playerButton)
-  return IsRetail and BattleGroundEnemies.states.real.isInArena
+  return GetInspectSpecialization and BattleGroundEnemies.states.real.isInArena
     and not IsTestmodeActive(BattleGroundEnemies) and not playerButton.PlayerIsEnemy
 end
 
@@ -276,7 +276,7 @@ local function receiveFriendlyInspection(guid)
   local resolved = false
   if unit then
     local specID = GetInspectSpecialization(unit)
-    if not issecretvalue(specID) and specID > 0 then
+    if specID and not issecretvalue(specID) and specID > 0 then
       local name = GetSpecializationNameForSpecID(specID, UnitSex(unit))
       if name and name ~= "" then
         friendlySpecs[guid] = name
@@ -312,7 +312,7 @@ local function pruneFriendlyInspections()
   end
 end
 
-if IsRetail then
+if GetInspectSpecialization then
   specName:RegisterEvent("INSPECT_READY")
   specName:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
   specName:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -355,6 +355,9 @@ end
 local measureFontString
 function BattleGroundEnemies:GetSpecNameReservedHeight(playerCountConfig, playerButton)
   if not playerCountConfig then
+    return 0
+  end
+  if not HasScoreboardSpecs and not self.states.real.isInArena and not IsTestmodeActive(self) then
     return 0
   end
   local moduleConfig = playerCountConfig.ButtonModules and playerCountConfig.ButtonModules.SpecName

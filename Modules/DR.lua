@@ -3,6 +3,8 @@ local Data = select(2, ...)
 ---@class BattleGroundEnemies
 local BattleGroundEnemies = BattleGroundEnemies
 local L = Data.L
+local ClassicDR = Data.ClassicDiminishingReturns
+local GetSpellTexture = ClassicDR and C_Spell.GetSpellTexture
 local GetArenaOpponentIndex = BattleGroundEnemies.GetArenaOpponentIndex
 local MyCreateFontString = BattleGroundEnemies.MyCreateFontString
 local IsRetail = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
@@ -18,8 +20,8 @@ local GetTime = GetTime
 -- end
 
 -- C_SpellDiminish availability (added in Midnight)
-local hasSpellDiminishAPI = C_SpellDiminish and C_SpellDiminish.GetSpellDiminishCategoryInfo
-local hasSpellDiminishEnums = Enum and Enum.SpellDiminishCategory
+local hasSpellDiminishAPI = not ClassicDR and C_SpellDiminish and C_SpellDiminish.GetSpellDiminishCategoryInfo
+local hasSpellDiminishEnums = not ClassicDR and Enum and Enum.SpellDiminishCategory
 
 -- Map Enum.SpellDiminishCategory values to stable string keys for saved variables / filtering
 local categoryEnumToKey = {}
@@ -99,9 +101,11 @@ local locTypeToDRCategory = {
 }
 
 -- Filter list values for the settings multiselect: key = category key string, value = localized name
-local filterListValues = {}
-for key, info in pairs(categoryKeyToInfo) do
-  filterListValues[key] = info.name
+local filterListValues = ClassicDR and ClassicDR.Categories or {}
+if not ClassicDR then
+  for key, info in pairs(categoryKeyToInfo) do
+    filterListValues[key] = info.name
+  end
 end
 
 ---------------------------------------------------------------------------
@@ -221,7 +225,7 @@ local options = function(location)
         args.ShowDRCount = {
           type = "toggle",
           name = L.DrTracking_ShowDRCount,
-          desc = L.DrTracking_ShowDRCount_Desc,
+          desc = not ClassicDR and L.DrTracking_ShowDRCount_Desc or nil,
           width = "full",
           order = 5,
         }
@@ -235,16 +239,22 @@ end
 -- DR state colors (2-state: Midnight rules — 2 applications then immune)
 ---------------------------------------------------------------------------
 
+local maxApplications = ClassicDR and ClassicDR.MaxApplications or 2
 local dRstates = {
   [1] = { 0, 1, 0, 1 }, -- green  (1st CC ended — next will be half duration)
   [2] = { 1, 0, 0, 1 }, -- red    (immune)
 }
 
+if ClassicDR then
+  dRstates[3] = dRstates[2]
+  dRstates[2] = { 1, 0.75, 0, 1 }
+end
+
 local function updateStatusCounter(drFrame, status)
   if drFrame.StatusText and drFrame.StatusBG then
     local showCount = drFrame.Container.config.Cooldown.ShowDRCount
     if showCount then
-      drFrame.StatusText:SetText(status .. "/2")
+      drFrame.StatusText:SetText(status .. "/" .. maxApplications)
       local w = drFrame.StatusText:GetStringWidth() + 2
       local h = drFrame.StatusText:GetStringHeight() + 1
       drFrame.StatusBG:SetSize(w, h)
@@ -259,7 +269,7 @@ end
 
 local function drFrameUpdateStatusBorder(drFrame)
   local status = drFrame.input and drFrame.input.status or 1
-  status = math.min(status, 2)
+  status = math.min(status, maxApplications)
   local color = dRstates[status]
   if color then
     drFrame:SetBackdropBorderColor(unpack(color))
@@ -269,7 +279,7 @@ end
 
 local function drFrameUpdateStatusText(drFrame)
   local status = drFrame.input and drFrame.input.status or 1
-  status = math.min(status, 2)
+  status = math.min(status, maxApplications)
   local color = dRstates[status]
   if color then
     drFrame.Cooldown.Text:SetTextColor(unpack(color))
@@ -294,7 +304,7 @@ local dRTracking = BattleGroundEnemies:NewButtonModule({
   options = options,
   generalOptions = generalOptions,
   events = {
-    "DiminishStateUpdated",
+    ClassicDR and "ClassicDiminishingReturnsUpdated" or "DiminishStateUpdated",
     "UnitDied",
     "PeriodicUpdate",
     "OnTestmodeEnabled",
@@ -308,6 +318,10 @@ local dRTracking = BattleGroundEnemies:NewButtonModule({
 ---------------------------------------------------------------------------
 -- Frame creation & setup (ported from OG DR.lua, adapted for C_SpellDiminish)
 ---------------------------------------------------------------------------
+
+if ClassicDR then
+  ClassicDR.Install(BattleGroundEnemies)
+end
 
 local arenaDrBorderPieces = {
   "TopLeftCorner",
@@ -393,8 +407,8 @@ local function reconcileArenaDrInputs(container, tray)
   local changed = false
   local count = 0
   if tray then
-    for source in tray.trayItemPool:EnumerateActive() do
-      if source then
+    for _, source in ipairs({ tray:GetChildren() }) do
+      if source:IsShown() then
         count = count + 1
         local input = container.inputs[count]
         if not input then
@@ -497,7 +511,7 @@ local function setupDrFrame(container, drFrame, drDetails)
   -- Icon: prefer Blizzard's category icon, fall back to LoC-provided icon
   local icon
   local catInfo = categoryKeyToInfo[drDetails.drCat]
-  if catInfo and catInfo.icon then
+  if not ClassicDR and catInfo and catInfo.icon then
     icon = catInfo.icon
   elseif drDetails.iconTexture then
     icon = drDetails.iconTexture
@@ -741,7 +755,7 @@ function dRTracking:AttachToPlayerButton(playerButton)
   -- LoC polling fallback — dispatched from UpdateAll() every 0.1s via PeriodicUpdate event
   ---------------------------------------------------------------------------
   function container:PeriodicUpdate(unitID)
-    if unitID == "player" then
+    if ClassicDR or unitID == "player" then
       return
     end
     if (IsRetail and GetArenaOpponentIndex(playerButton)) then
@@ -762,6 +776,28 @@ function dRTracking:AttachToPlayerButton(playerButton)
   end
 
   ---------------------------------------------------------------------------
+  -- Mists counts a completed or replaced aura and starts the reset window there.
+  function container:ClassicDiminishingReturnsUpdated(category, resetTime, spellID)
+    if not self.Enabled or not self.config then
+      return
+    end
+    if self.config.Filtering_Enabled and not self.config.Filtering_Filterlist[category] then
+      return
+    end
+
+    local now = GetTime()
+    local input = self:FindInputByAttribute("drCat", category)
+    if not input then
+      input = self:NewInput({ drCat = category })
+    end
+    local applications = input.startTime and now < input.startTime + input.duration and input.status or 0
+    input.status = math.min(applications + 1, maxApplications)
+    input.startTime = now
+    input.duration = resetTime
+    input.iconTexture = GetSpellTexture(spellID)
+    self:Display()
+  end
+
   -- UnitDied — clear all DR icons
   ---------------------------------------------------------------------------
   function container:UnitDied()
@@ -772,11 +808,15 @@ function dRTracking:AttachToPlayerButton(playerButton)
   -- Test mode
   ---------------------------------------------------------------------------
   -- Only use categories that have icons (PvP-relevant ones)
-  local testCategories = {}
-  for key, info in pairs(categoryKeyToInfo) do
-    if info.icon then
-      testCategories[#testCategories + 1] = key
+  local testIcons = ClassicDR and ClassicDR.Preview or {}
+  if not ClassicDR then
+    for key, info in pairs(categoryKeyToInfo) do
+      testIcons[key] = info.icon
     end
+  end
+  local testCategories = {}
+  for key in pairs(testIcons) do
+    testCategories[#testCategories + 1] = key
   end
 
   local TEST_MAX_ICONS = 3 -- realistic max simultaneous DRs per enemy
@@ -814,7 +854,7 @@ function dRTracking:AttachToPlayerButton(playerButton)
     local input, inputIdx = self:FindInputByAttribute("drCat", catKey)
     if input then
       -- Cycle: 1 -> 2, 2 -> remove (expired)
-      if input.status >= 2 then
+      if input.status >= maxApplications then
         if inputIdx then
           self:RemoveFromInput(inputIdx)
         end
@@ -831,6 +871,7 @@ function dRTracking:AttachToPlayerButton(playerButton)
           status = 1,
           startTime = GetTime(),
           duration = 16,
+          iconTexture = testIcons[catKey],
         })
       end
     end

@@ -5,10 +5,8 @@ local BattleGroundEnemies = BattleGroundEnemies
 local LSM = LibStub("LibSharedMedia-3.0")
 local L = Data.L
 local GetArenaOpponentIndex = BattleGroundEnemies.GetArenaOpponentIndex
-local GetActiveMatchState = C_PvP.GetActiveMatchState
-local PvPMatchState = Enum.PvPMatchState
-local IsRetail = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
-local ArenaUnitExists = IsRetail and ArenaUtil.UnitExists
+local CanShowArenaPower = Data.Arena.CanShowPower
+local RefreshPowerOnOpponentUpdate = Data.Arena.RefreshPowerOnOpponentUpdate
 local After = C_Timer.After
 
 local PowerBarColor = PowerBarColor --table
@@ -146,7 +144,7 @@ local function refreshArenaPowerVisibility(unitID)
   end
 end
 
-if IsRetail then
+if RefreshPowerOnOpponentUpdate then
   power:RegisterEvent("ARENA_OPPONENT_UPDATE")
   power:SetScript("OnEvent", function(_, _, unitID)
     -- Let Blizzard's ArenaUtil process its unseen override before reading it.
@@ -210,8 +208,7 @@ function power:AttachToPlayerButton(playerButton)
 
   function playerButton.Power:ShouldShowInArena()
     local arenaIndex = GetArenaOpponentIndex(playerButton)
-    return not arenaIndex or (GetActiveMatchState() == PvPMatchState.Engaged
-      and (not IsRetail or ArenaUnitExists("arena" .. arenaIndex)))
+    return not arenaIndex or CanShowArenaPower(arenaIndex)
   end
 
   function playerButton.Power:UpdateArenaVisibility()
