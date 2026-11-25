@@ -18,6 +18,7 @@ local C_GameRules = _G.C_GameRules
 local UnitClass = UnitClass
 local defaultSettings = Data.defaultSettings
 local legacyProfileDefaults = Data.legacyProfileDefaults
+local newInstallProfileDefaults = Data.newInstallProfileDefaults
 local UpgradeProfile = Data.UpgradeProfile
 local SetCurrentDbVersion = Data.SetCurrentDbVersion
 
@@ -133,8 +134,8 @@ function Database:Initialize(addon)
 
   copyDefaults({ profiles = {}, profileKeys = {}, global = {} }, saved)
   -- Keep the install's starting defaults for new profiles and explicit resets.
-  if type(saved.profileDefaults) ~= "table" and existingInstall then
-    saved.profileDefaults = CopyTable(legacyProfileDefaults)
+  if type(saved.profileDefaults) ~= "table" then
+    saved.profileDefaults = CopyTable(existingInstall and legacyProfileDefaults or newInstallProfileDefaults)
   end
   saved.profileDefaults = copyDefaults(defaultSettings.profile, saved.profileDefaults)
   _G.BattleGroundEnemiesDB = saved

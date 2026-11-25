@@ -1529,3 +1529,21 @@ Data.legacyProfileDefaults = {
     },
   },
 }
+
+-- Apply these defaults when a new account database is created.
+Data.newInstallProfileDefaults = {
+  Allies = {
+    playerCountConfigs = {
+      { Enabled = false, Position_X = 180, Position_Y = 590 },
+      { Enabled = false, Position_X = 180, Position_Y = 590 },
+      { Enabled = false, Position_X = 180, Position_Y = 590 },
+    },
+  },
+  Enemies = {
+    playerCountConfigs = {
+      { Position_X = 780, Position_Y = 590 },
+      { Position_X = 780, Position_Y = 590 },
+      { Position_X = 780, Position_Y = 590 },
+    },
+  },
+}
