@@ -3,7 +3,7 @@ local Data = select(2, ...)
 ---@class BattleGroundEnemies
 local BattleGroundEnemies = BattleGroundEnemies
 local L = Data.L
-local IsRetail = Data.IsRetail
+local IsRetail = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
 local ReadArenaTrinket = Data.Arena.ReadTrinket
 local GetArenaOpponentIndex = BattleGroundEnemies.GetArenaOpponentIndex
 local CreateFrame = CreateFrame
