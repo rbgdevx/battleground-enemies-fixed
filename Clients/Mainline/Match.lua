@@ -3,7 +3,7 @@ local C_PvP = C_PvP
 local GetInstanceInfo = GetInstanceInfo
 local IsRatedBattleground = IsRatedBattleground
 
-local Match = { SupportsArena = true }
+local Match = { SupportsArena = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE }
 Data.Match = Match
 
 local bgMaxPlayerCorrections = {
