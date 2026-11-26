@@ -353,10 +353,10 @@ if isMopClassic then
     end
   end
 
-  local function dispatchCategory(button, category, spellID)
+  local function dispatchCategory(button, category, spellID, event)
     local key = getCategoryKey(category)
     if mopDRCategories[key] then
-      button:DispatchEvent("ClassicDiminishingReturnsUpdated", key, DRList:GetResetTime(category), spellID)
+      button:DispatchEvent("ClassicDiminishingReturnsUpdated", key, DRList:GetResetTime(category), spellID, event)
     end
   end
 
@@ -365,7 +365,10 @@ if isMopClassic then
       return
     end
     local _, event, _, _, _, sourceFlags, _, guid, name, _, _, spellID, _, _, auraType = CombatLogGetCurrentEventInfo()
-    if (event ~= "SPELL_AURA_REMOVED" and event ~= "SPELL_AURA_REFRESH") or auraType ~= "DEBUFF" then
+    if auraType ~= "DEBUFF" then
+      return
+    end
+    if event ~= "SPELL_AURA_APPLIED" and event ~= "SPELL_AURA_REFRESH" and event ~= "SPELL_AURA_REMOVED" then
       return
     end
     if bit.band(sourceFlags, COMBATLOG_OBJECT_CONTROL_PLAYER) == 0 then
@@ -382,10 +385,10 @@ if isMopClassic then
 
     if categories then
       for _, sharedCategory in ipairs(categories) do
-        dispatchCategory(button, sharedCategory, spellID)
+        dispatchCategory(button, sharedCategory, spellID, event)
       end
     else
-      dispatchCategory(button, category, spellID)
+      dispatchCategory(button, category, spellID, event)
     end
   end
 
@@ -515,6 +518,10 @@ local function createNewDrFrame(playerButton, container)
   drFrame.Cooldown = BattleGroundEnemies.MyCreateCooldown(drFrame)
 
   drFrame.Cooldown:SetScript("OnCooldownDone", function()
+    local activeAuras = drFrame.input and drFrame.input.activeAuras
+    if activeAuras and next(activeAuras) then
+      return
+    end
     drFrame:Remove()
   end)
 
@@ -602,7 +609,10 @@ local function setupDrFrame(container, drFrame, drDetails)
 
   -- Cooldown: startTime/duration may be secret values from arena opponents.
   -- SetCooldown accepts secrets via InsecureSecretArguments.
-  if drDetails.startTime and drDetails.duration then
+  if drDetails.activeAuras and next(drDetails.activeAuras) then
+    drFrame.Cooldown:Clear()
+    drFrame.Cooldown:Hide()
+  elseif drDetails.startTime and drDetails.duration then
     if issecretvalue and (issecretvalue(drDetails.duration) or issecretvalue(drDetails.startTime)) then
       drFrame.Cooldown:SetCooldown(drDetails.startTime, drDetails.duration)
     elseif drDetails.duration > 0 then
@@ -858,24 +868,41 @@ function dRTracking:AttachToPlayerButton(playerButton)
   end
 
   ---------------------------------------------------------------------------
-  -- Mists counts a completed or replaced aura and starts the reset window there.
-  function container:ClassicDiminishingReturnsUpdated(category, resetTime, spellID)
+  -- Keep the chain while any aura in the category is active; reset after the last removal.
+  function container:ClassicDiminishingReturnsUpdated(category, resetTime, spellID, event)
     if not self.Enabled or not self.config then
       return
     end
-    if self.config.Filtering_Enabled and not self.config.Filtering_Filterlist[category] then
+    local input = self:FindInputByAttribute("drCat", category)
+    if self.config.Filtering_Enabled and not self.config.Filtering_Filterlist[category] and not input then
       return
     end
 
     local now = GetTime()
-    local input = self:FindInputByAttribute("drCat", category)
     if not input then
-      input = self:NewInput({ drCat = category })
+      input = self:NewInput({ drCat = category, status = 0, activeAuras = {} })
+    elseif not next(input.activeAuras) and input.startTime and now >= input.startTime + input.duration then
+      input.status = 0
     end
-    local applications = input.startTime and now < input.startTime + input.duration and input.status or 0
-    input.status = math.min(applications + 1, maxApplications)
-    input.startTime = now
-    input.duration = resetTime
+
+    if event == "SPELL_AURA_REMOVED" then
+      local activeCount = input.activeAuras[spellID]
+      input.activeAuras[spellID] = activeCount and activeCount > 1 and activeCount - 1 or nil
+      input.status = math.max(input.status, 1)
+      if not next(input.activeAuras) then
+        input.startTime = now
+        input.duration = resetTime
+      end
+    else
+      input.status = math.min(input.status + 1, maxApplications)
+      if event == "SPELL_AURA_APPLIED" then
+        input.activeAuras[spellID] = (input.activeAuras[spellID] or 0) + 1
+      else
+        input.activeAuras[spellID] = input.activeAuras[spellID] or 1
+      end
+      input.startTime = nil
+      input.duration = nil
+    end
     input.iconTexture = GetSpellTexture(spellID)
     self:Display()
   end
