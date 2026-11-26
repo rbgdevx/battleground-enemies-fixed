@@ -3912,9 +3912,12 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
   if self._reassertingScoreboard then
     return
   end
+  local states = self.states.real
+  if not (states.isInBattleground or states.isInArena) then
+    return
+  end
   if isMopClassic then
-    local states = self.states.real
-    if not self.enabled or not (states.isInBattleground or states.isInArena) then
+    if not self.enabled then
       return
     end
     if GetBattlefieldWinner() ~= nil then
@@ -3945,38 +3948,10 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
   -- mark-and-sweep cycle further down — any button whose scoreboard row
   -- is missing this tick gets status=2 (untouched) and is removed.
 
-  -- AllyFaction identifies both teams' scoreboard rows. Ally frame identity
-  -- remains driven entirely by raidN/partyN tokens from GROUP_ROSTER_UPDATE;
-  -- scoreboard ally rows only supply the live spec display value.
-  --
-  -- AUTHORITATIVE source: the user's own scoreboard row via
-  -- C_PvP.GetScoreInfoByPlayerGuid(UnitGUID("player")). info.faction =
-  -- team number for THIS match (correct for mercenary mode and
-  -- cross-faction Blitz where the character's home faction differs
-  -- from the assigned team).
-  --
-  -- Cross-validation. A single C_PvP.GetScoreInfoByPlayerGuid call can
-  -- return a wrong team number while the scoreboard is still populating
-  -- (observed in the wild: every real teammate ended up bucketed as
-  -- enemy because the early lookup said the player was on the opposite
-  -- team). To prevent that, we only commit AllyFaction once a known
-  -- raid peer's scoreboard row reports the same team.
-  --
-  -- Validation is name-based, NOT GUID-based. UnitGUID("raidN") is
-  -- documented as SecretWhenUnitIdentityRestricted, which by spec
-  -- shouldn't fire for party/raid members — but the addon's own
-  -- AddGroupMember already has an issecretvalue(GUID) guard for raid
-  -- units, suggesting it has been observed empirically. PVPScoreInfo.name
-  -- is NeverSecret per Blizzard's API docs, and GetRaidRosterInfo names
-  -- are what the addon already trusts as the ally roster source — both
-  -- are reliable here.
-  --
-  -- If we can't confirm yet (own row not populated, no raid peer found
-  -- in the scoreboard yet, or the player is somehow not in a group),
-  -- AllyFaction stays nil — every consumer is gated on AllyFaction being
-  -- set, so an empty enemy panel for a tick or two is the explicit
-  -- trade-off against ever showing real teammates as enemies.
-  if isMopClassic and self.AllyFaction == nil and self._pvpGracePeriodElapsed then
+  -- Validate the player's match team when scoreboard data arrives. Retail and
+  -- Forever check the player's row against known teammates. MoP compares the
+  -- player's row with GetBattlefieldArenaFaction().
+  if isMopClassic and self.AllyFaction == nil then
     local faction = GetBattlefieldArenaFaction()
     for index = 1, GetNumBattlefieldScores() do
       local name, _, _, _, _, rowFaction = GetBattlefieldScore(index)
@@ -3989,17 +3964,6 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
     end
   end
   if not isMopClassic and self.AllyFaction == nil then
-    -- Grace period: skip validation entirely until the 3s post-zone-in
-    -- timer has fired. The scoreboard takes time to populate and
-    -- querying it sooner is wasted work. While we're in this window we
-    -- bail out of UBS entirely (consumers below all gate on AllyFaction
-    -- != nil anyway, and an empty enemy panel is correct behavior
-    -- during the grace period). The flag is set true by the C_Timer
-    -- scheduled in PLAYER_ENTERING_WORLD when entering PvP.
-    if not self._pvpGracePeriodElapsed then
-      return
-    end
-
     local ok, myInfo = pcall(C_PvP.GetScoreInfoByPlayerGuid, UnitGUID("player"))
     -- myInfo.name is documented as NeverSecret but in practice has been
     -- observed flagged as secret while the addon's execution is tainted.
@@ -4404,26 +4368,10 @@ function BattleGroundEnemies:PLAYER_ENTERING_WORLD()
   local enteringPvP = (zone == "pvp" or zone == "arena") and prevInstanceType ~= zone
   local leavingPvP = (prevInstanceType == "pvp" or prevInstanceType == "arena") and zone ~= prevInstanceType
   if enteringPvP or leavingPvP then
-    -- Clear stale faction cache from the previous match. UBS handles
-    -- faction derivation now; AllyFaction stays nil until peer-validated.
+    -- Clear the previous match's teams. Scoreboard updates confirm the new assignment.
     self.AllyFaction = nil
     self.EnemyFaction = nil
-    -- Grace period before UBS attempts validation. The scoreboard isn't
-    -- usually populated enough in the first ~3 seconds for the
-    -- peer-cross-check to succeed, so polling earlier is just wasted
-    -- work. A C_Timer.After sets the "elapsed" flag once; UBS gates its
-    -- validation block on that flag. On leave-PvP we cancel any pending
-    -- timer and clear the flag so a subsequent re-entry starts fresh.
-    if self._pvpGraceTimer then
-      self._pvpGraceTimer:Cancel()
-      self._pvpGraceTimer = nil
-    end
-    self._pvpGracePeriodElapsed = false
     if enteringPvP then
-      self._pvpGraceTimer = C_Timer.NewTimer(3, function()
-        self._pvpGracePeriodElapsed = true
-        self._pvpGraceTimer = nil
-      end)
       -- Reset the per-side "no custom profile covers this size" warning throttle
       -- so SelectPlayerCountProfile's gap hint can fire once for this new match.
       self.Allies._warnedNoCustomProfile = nil
@@ -4438,14 +4386,6 @@ function BattleGroundEnemies:PLAYER_ENTERING_WORLD()
   end
 
   if zone == "pvp" or (SupportsArena and zone == "arena") then
-    -- AllyFaction is derived (and cross-validated) in UPDATE_BATTLEFIELD_SCORE.
-    -- Don't pre-set it here — a single C_PvP.GetScoreInfoByPlayerGuid call
-    -- this early in zone-in can return the wrong team number when the
-    -- scoreboard isn't fully populated yet, and a wrong cached value would
-    -- mis-bucket every teammate as an enemy until match end. UBS waits for
-    -- a peer's scoreboard row to confirm; AllyFaction stays nil and the
-    -- enemy panel stays empty until validation succeeds.
-
     if zone == "arena" then
       BattleGroundEnemies.states.real.isInArena = true
       -- Refresh trinket icons on zone-in. GROUP_ROSTER_UPDATE also does this but may
