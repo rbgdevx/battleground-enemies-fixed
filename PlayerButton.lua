@@ -540,11 +540,10 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
 
   -- Query the API for real trinket cooldown data and apply it.
   -- Returns true if the API returned real data, false otherwise.
-  -- Uses GetArenaCrowdControlInfo for the spellId and GetArenaCrowdControlDuration
-  -- for the DurationObject — avoids arithmetic on secret millisecond values entirely.
+  -- GetArenaCrowdControlDuration supplies the DurationObject without millisecond arithmetic.
   function playerButton:UpdateCrowdControlCooldown(unitID)
-    -- Get spell ID from GetArenaCrowdControlInfo (only need the first return value)
-    local spellId = C_PvP.GetArenaCrowdControlInfo(unitID)
+    -- MoP Classic includes the trinket item ID as its second return value.
+    local spellId, itemID = C_PvP.GetArenaCrowdControlInfo(unitID)
     -- Get duration as a LuaDurationObject — no secret value arithmetic needed
     local durationObj = C_PvP.GetArenaCrowdControlDuration and C_PvP.GetArenaCrowdControlDuration(unitID)
 
@@ -553,7 +552,7 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     end
 
     self.Trinket:ResetFakeCooldown()
-    self.Trinket:DisplayTrinket(spellId)
+    self.Trinket:DisplayTrinket(spellId, isMopClassic and itemID or nil)
 
     if durationObj then
       -- Arena discovery owns icon visibility; a ready cooldown clears only the swipe.
