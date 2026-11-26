@@ -371,9 +371,6 @@ function BattleGroundEnemies:GetSpecNameReservedHeight(playerCountConfig, player
   if not playerCountConfig then
     return 0
   end
-  if isMopClassic and not self.states.real.isInArena and not IsTestmodeActive(self) then
-    return 0
-  end
   local moduleConfig = playerCountConfig.ButtonModules and playerCountConfig.ButtonModules.SpecName
   if not (moduleConfig and moduleConfig.Enabled) then
     return 0

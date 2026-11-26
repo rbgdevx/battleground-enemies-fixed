@@ -4,7 +4,6 @@ local Data = select(2, ...)
 local BattleGroundEnemies = BattleGroundEnemies
 local L = Data.L
 local IsRetail = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
-local isMopClassic = WOW_PROJECT_ID == WOW_PROJECT_MISTS_CLASSIC
 local GetArenaOpponentIndex = BattleGroundEnemies.GetArenaOpponentIndex
 local CreateFrame = CreateFrame
 local hooksecurefunc = hooksecurefunc
@@ -156,7 +155,7 @@ function trinket:AttachToPlayerButton(playerButton)
       texture = spellTextureNoOverride
     end
     -- Use Medallion only when the native lookup returns no icon.
-    if not texture and not isMopClassic then
+    if not texture then
       local fallback = GetSpellTexture(208683) -- Gladiator's Medallion
       texture = fallback
     end

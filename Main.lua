@@ -1341,9 +1341,6 @@ function BattleGroundEnemies:Enable()
   -- test mode (AfterPlayerSourceUpdate uses the FakePlayers source there).
   self:GROUP_ROSTER_UPDATE()
   self:ARENA_PREP_OPPONENT_SPECIALIZATIONS()
-  if isMopClassic and self.states.real.isInArena and not self:IsTestmodeActive() and GetNumArenaOpponents() > 0 then
-    self:CheckForArenaEnemies()
-  end
 end
 
 function BattleGroundEnemies:ARENA_PREP_OPPONENT_SPECIALIZATIONS()
@@ -3906,21 +3903,6 @@ local function findMopAllyFaction(addon)
   end
 end
 
-local function hasMopRosterChanged(rows, enemyFaction)
-  local enemyIndex = 0
-  for index = 1, GetNumBattlefieldScores() do
-    local name, _, _, _, _, faction, _, _, _, classToken = GetBattlefieldScore(index)
-    if faction == enemyFaction and name and classToken then
-      enemyIndex = enemyIndex + 1
-      local row = rows[enemyIndex]
-      if not row or row.name ~= name or row.classToken ~= classToken then
-        return true
-      end
-    end
-  end
-  return enemyIndex ~= #rows
-end
-
 local function getArenaPartyPeerNames(self)
   local names = {}
   for i = 1, GetNumGroupMembers() - 1 do
@@ -4160,10 +4142,7 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
   -- First run has nil cache → proceeds. Nil numEnemies (API hiccup) also
   -- proceeds so we don't get stuck if the API briefly misbehaves.
   if numEnemies and self._lastEnemyCount == numEnemies then
-    local rows = self.Enemies.PlayerSources[self.consts.PlayerSources.Scoreboard]
-    if not isMopClassic or not hasMopRosterChanged(rows, self.EnemyFaction) then
-      return
-    end
+    return
   end
 
   -- #10a: wipe the scoreboard source FIRST (this drops last tick's references to

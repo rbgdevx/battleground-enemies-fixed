@@ -40,8 +40,6 @@ local FAKE_TRINKET_SPELL = 208683 -- Gladiator's Medallion (for icon texture)
 
 --WoW API
 local C_PvP = C_PvP
-local isMopClassic = WOW_PROJECT_ID == WOW_PROJECT_MISTS_CLASSIC
-local GetArenaCrowdControlInfo = C_PvP.GetArenaCrowdControlInfo
 local CreateFrame = CreateFrame
 local GetTime = GetTime
 local InCombatLockdown = InCombatLockdown
@@ -526,28 +524,11 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     self:DispatchEvent("UpdateRaidTargetIcon", self.RaidTargetIconIndex)
   end
 
-  local function updateArenaTrinket(trinket, unitID)
-    if not trinket then
-      return false
-    end
-    local spellID, itemID, startTimeMs, durationMs = GetArenaCrowdControlInfo(unitID)
-    if not spellID then
-      return false
-    end
-    trinket:DisplayTrinket(spellID, itemID)
-    trinket:SetAlpha(1)
-    trinket:SetTrinketCooldown(startTimeMs / 1000, durationMs / 1000)
-    return true
-  end
-
   -- Query the API for real trinket cooldown data and apply it.
   -- Returns true if the API returned real data, false otherwise.
   -- Uses GetArenaCrowdControlInfo for the spellId and GetArenaCrowdControlDuration
   -- for the DurationObject — avoids arithmetic on secret millisecond values entirely.
   function playerButton:UpdateCrowdControlCooldown(unitID)
-    if isMopClassic then
-      return updateArenaTrinket(self.Trinket, unitID)
-    end
     -- Get spell ID from GetArenaCrowdControlInfo (only need the first return value)
     local spellId = C_PvP.GetArenaCrowdControlInfo(unitID)
     -- Get duration as a LuaDurationObject — no secret value arithmetic needed
@@ -584,9 +565,6 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
   -- with .Duration/.Start/.SpellId fields). Use SetCooldownFromDurationObject — no arithmetic
   -- on secret timing values needed.
   function playerButton:UpdateAllyCrowdControlCooldown(unitID)
-    if isMopClassic then
-      return updateArenaTrinket(self.Trinket, unitID)
-    end
     if not self.Trinket or not C_PvP.GetArenaCrowdControlDuration then
       return
     end
@@ -607,7 +585,7 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
   -- (e.g. ARENA_CROWD_CONTROL_SPELL_UPDATE fired but GetArenaCrowdControlInfo
   -- returned no real cooldown data). Uses estimated durations.
   function playerButton:ApplyFakeTrinketCooldown()
-    if isMopClassic or not FAKE_TRINKET or not self.Trinket then
+    if not FAKE_TRINKET or not self.Trinket then
       return
     end
     local duration = FAKE_TRINKET_DURATION

@@ -1974,14 +1974,6 @@ function BattleGroundEnemies.Allies:UpdateAllUnitIDs()
   end
 end
 
-local function getMopArenaOpponentSpec(index)
-  local specID, gender = GetArenaOpponentSpec(index)
-  if specID and specID > 0 then
-    local _, name, _, _, _, class = GetSpecializationInfoByID(specID, gender)
-    return name, class and string.upper(class)
-  end
-end
-
 function BattleGroundEnemies.Enemies:CreateArenaEnemies()
   if not BattleGroundEnemies.states.real.isInArena then
     return
@@ -2014,9 +2006,12 @@ function BattleGroundEnemies.Enemies:CreateArenaEnemies()
     local _, classToken = UnitClass(unitID)
     local specName
     if isMopClassic then
-      local specClass
-      specName, specClass = getMopArenaOpponentSpec(i)
-      classToken = classToken or specClass
+      local specID, gender = GetArenaOpponentSpec(i)
+      if specID and specID > 0 then
+        local _, name, _, _, _, class = GetSpecializationInfoByID(specID, gender)
+        specName = name
+        classToken = classToken or (class and string.upper(class))
+      end
     end
     local classTokenIsSecret = issecretvalue and issecretvalue(classToken)
     local classColor
