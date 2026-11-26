@@ -593,7 +593,7 @@ local function setupDrFrame(container, drFrame, drDetails)
   -- Icon: prefer Blizzard's category icon, fall back to LoC-provided icon
   local icon
   local catInfo = categoryKeyToInfo[drDetails.drCat]
-  if not isMopClassic and catInfo and catInfo.icon then
+  if catInfo and catInfo.icon then
     icon = catInfo.icon
   elseif drDetails.iconTexture then
     icon = drDetails.iconTexture
