@@ -42,7 +42,7 @@ globals = {
 read_globals = {
   "ArenaPrepFrames", "GetBattlefieldArenaFaction", "GetBattlefieldScore", "GetBattlefieldWinner",
   "GetInspectSpecialization", "WorldStateScoreFrame", "WOW_PROJECT_MISTS_CLASSIC",
-  "CombatLogGetCurrentEventInfo", "COMBATLOG_OBJECT_CONTROL_PLAYER", "bit", "C_UnitAuras",
+  "CombatLogGetCurrentEventInfo", "COMBATLOG_OBJECT_CONTROL_PLAYER", "bit",
   "ACCEPT", "ACTION_BUTTON_USE_KEY_DOWN", "ARENA", "AbbreviateNumbers",
   "AceGUIEditBoxInsertLink", "AceGUIMultiLineEditBoxInsertLink", "AceGUIWidgetLSMlists",
   "Ambiguate", "AnchorUtil", "ArenaEnemyFrames", "ArenaEnemyFramesContainer",

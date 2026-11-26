@@ -285,20 +285,16 @@ if isMopClassic then
 end
 
 function BattleGroundEnemies:GetCorrectedMaxPlayers()
-  if isMopClassic then
-    local _, instanceType, _, _, maxPlayers, _, _, instanceID = GetInstanceInfo()
-    if instanceType == "pvp" and C_PvP.IsRatedMap() then
-      return 10
-    end
-    return bgMaxPlayerCorrections[instanceID] or maxPlayers or 0
-  end
   if C_PvP and C_PvP.IsSoloRBG and C_PvP.IsSoloRBG() then
     return 8
   end
   if C_PvP and C_PvP.IsRatedBattleground and C_PvP.IsRatedBattleground() then
     return 10
   end
-  local _, _, _, _, maxPlayers, _, _, instanceID = GetInstanceInfo()
+  local _, instanceType, _, _, maxPlayers, _, _, instanceID = GetInstanceInfo()
+  if isMopClassic and instanceType == "pvp" and C_PvP.IsRatedMap() then
+    return 10
+  end
   if instanceID and bgMaxPlayerCorrections[instanceID] then
     return bgMaxPlayerCorrections[instanceID]
   end

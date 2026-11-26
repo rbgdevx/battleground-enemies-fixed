@@ -2004,7 +2004,7 @@ function BattleGroundEnemies.Enemies:CreateArenaEnemies()
     local name = BattleGroundEnemies:GetCanonicalUnitName(unitID)
     local displayName = UnitName(unitID) -- display-only, may be secret
     local _, classToken = UnitClass(unitID)
-    if isMopClassic then
+    if isMopClassic and not classToken then
       local specID, gender = GetArenaOpponentSpec(i)
       if specID and specID > 0 then
         local _, _, _, _, _, class = GetSpecializationInfoByID(specID, gender)

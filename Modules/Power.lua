@@ -241,11 +241,13 @@ function power:AttachToPlayerButton(playerButton)
     if not playerDetails.PlayerClass then
       return
     end
-    if not playerDetails.PlayerRole then
+    local specData = playerButton:GetSpecData()
+    local roleID = (specData and specData.roleID) or playerDetails.PlayerRole
+    if not roleID then
       return
     end
 
-    if playerDetails.PlayerRole == "HEALER" or not self.config.OnlyShowForHealers then
+    if roleID == "HEALER" or not self.config.OnlyShowForHealers then
       self:SetHeight(self.config.Height or 0.01)
     else
       self:SetHeight(0.01)
@@ -254,11 +256,14 @@ function power:AttachToPlayerButton(playerButton)
 
     local powerToken
 
-    local t = Data.Classes[playerDetails.PlayerClass]
-    if t then
-      local spec = playerDetails.PlayerSpecName
-      if spec and not (issecretvalue and issecretvalue(spec)) then
-        t = t[spec]
+    local t = specData
+    if not t then
+      t = Data.Classes[playerDetails.PlayerClass]
+      if t then
+        local spec = playerDetails.PlayerSpecName
+        if spec and not (issecretvalue and issecretvalue(spec)) then
+          t = t[spec]
+        end
       end
     end
     if t then
