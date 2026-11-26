@@ -1668,7 +1668,7 @@ for i = 1, 5 do
 end
 
 function BattleGroundEnemies:ScanTargets()
-  if not self.states.userIsAlive then
+  if not self.states.userIsAlive or (#self.Allies.PlayerList == 0 and #self.Enemies.PlayerList == 0) then
     return
   end
 
