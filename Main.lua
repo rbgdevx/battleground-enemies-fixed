@@ -3899,7 +3899,6 @@ local function getArenaPartyPeerNames(self)
 end
 
 function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
-
   -- Re-assert factionEnum -1 if the user (or Blizzard's PVPMatch UI) clicked
   -- a faction tab and filtered the scoreboard to one team — without -1 our
   -- GetNumBattlefieldScores / GetScoreInfo iteration would only see that
