@@ -2004,12 +2004,10 @@ function BattleGroundEnemies.Enemies:CreateArenaEnemies()
     local name = BattleGroundEnemies:GetCanonicalUnitName(unitID)
     local displayName = UnitName(unitID) -- display-only, may be secret
     local _, classToken = UnitClass(unitID)
-    local specName
     if isMopClassic then
       local specID, gender = GetArenaOpponentSpec(i)
       if specID and specID > 0 then
-        local _, name, _, _, _, class = GetSpecializationInfoByID(specID, gender)
-        specName = name
+        local _, _, _, _, _, class = GetSpecializationInfoByID(specID, gender)
         classToken = classToken or (class and string.upper(class))
       end
     end
@@ -2024,7 +2022,6 @@ function BattleGroundEnemies.Enemies:CreateArenaEnemies()
     self:AddPlayerToSource(source, {
       name = name,
       classToken = classToken,
-      specName = specName,
       additionalData = {
         PlayerArenaUnitID = unitID,
         SecretDisplayName = displayName,

@@ -51,6 +51,10 @@ local UnitIsVisible = UnitIsVisible
 local CheckInteractDistance = CheckInteractDistance
 local IsItemInRange = C_Item and C_Item.IsItemInRange
 local C_Spell = C_Spell
+local isMopClassic = WOW_PROJECT_ID == WOW_PROJECT_MISTS_CLASSIC
+local GetArenaOpponentSpec = GetArenaOpponentSpec
+local GetSpecializationInfoByID = GetSpecializationInfoByID
+local GetArenaOpponentIndex = BattleGroundEnemies.GetArenaOpponentIndex
 
 --lua
 local math_floor = math.floor
@@ -474,6 +478,16 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     end
     local class = self.PlayerDetails.PlayerClass
     local spec = self.PlayerDetails.PlayerSpecName
+    if isMopClassic then
+      local arenaIndex = GetArenaOpponentIndex(self)
+      if arenaIndex then
+        local specID, gender = GetArenaOpponentSpec(arenaIndex)
+        if specID and specID > 0 then
+          local _, arenaSpecName = GetSpecializationInfoByID(specID, gender)
+          spec = arenaSpecName
+        end
+      end
+    end
     if class and spec and not (issecretvalue and (issecretvalue(class) or issecretvalue(spec))) then
       local t = Data.Classes[class]
       if t then

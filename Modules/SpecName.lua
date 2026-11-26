@@ -10,6 +10,8 @@ local UpdateArenaOpponentSpecDisplay = UnitFrameUtil and UnitFrameUtil.UpdateAre
 local GetArenaOpponentIndex = BattleGroundEnemies.GetArenaOpponentIndex
 local IsRetail = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
 local isMopClassic = WOW_PROJECT_ID == WOW_PROJECT_MISTS_CLASSIC
+local GetArenaOpponentSpec = GetArenaOpponentSpec
+local GetSpecializationInfoByID = GetSpecializationInfoByID
 local GetSpecialization = isMopClassic and C_SpecializationInfo.GetSpecialization
 local GetSpecializationInfo = isMopClassic and C_SpecializationInfo.GetSpecializationInfo
 local GetPlayerSpecName = IsRetail and PlayerUtil.GetSpecName
@@ -452,13 +454,21 @@ function specName:AttachToPlayerButton(playerButton)
     -- PREVIOUS game (needed for role/icon logic, which can't use a secret), and
     -- rendering it here showed stale specs. Pass current scoreboard text
     -- directly to SetText; type() safely selects the missing-value path.
-    -- When absent, real arena rows use the native text helper; other rows clear.
+    -- When absent, use the current arena spec display path; other rows clear.
     local spec = playerButton.PlayerDetails.PlayerSpecNameScoreboard
     local specType = type(spec)
     if specType == "nil" or specType == "boolean" then
       local arenaIndex = GetArenaOpponentIndex(playerButton)
       if arenaIndex and UpdateArenaOpponentSpecDisplay then
         UpdateArenaOpponentSpecDisplay({ specNameText = self.fs }, arenaIndex)
+      elseif arenaIndex and isMopClassic then
+        local specID, gender = GetArenaOpponentSpec(arenaIndex)
+        local arenaSpecName
+        if specID and specID > 0 then
+          local _, name = GetSpecializationInfoByID(specID, gender)
+          arenaSpecName = name
+        end
+        self.fs:SetText(arenaSpecName or "")
       else
         self.fs:SetText("")
       end
