@@ -466,9 +466,6 @@ Data.defaultSettings = {
     DisableRaidFramesInArena = true,
     DisableRaidFramesInBattleground = true,
 
-    ShowBGEInArena = true,
-    ShowBGEInBattleground = true,
-
     MyTarget_Color = { 1, 1, 1, 1 },
     MyTarget_BorderSize = 2,
     MyFocus_Color = { 0, 0.988235294117647, 0.729411764705882, 1 },
@@ -1495,7 +1492,6 @@ Data.legacyProfileDefaults = {
   DisableArenaFramesInBattleground = false,
   DisableRaidFramesInArena = false,
   DisableRaidFramesInBattleground = false,
-  ShowBGEInArena = false,
   Enemies = {
     playerCountConfigs = {
       {

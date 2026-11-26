@@ -1922,34 +1922,6 @@ function BattleGroundEnemies:SetupOptions()
             desc = L.Locked_Desc,
             order = 1,
           },
-          ShowBGEInArena = {
-            hidden = not SupportsArena,
-            type = "toggle",
-            name = L.EnableInArenas,
-            order = 2,
-            -- Toggling the per-instance-type enable on a live panel hits
-            -- the same state-drift issues as the per-panel Enable toggle.
-            -- Force a reload for a clean cold start.
-            confirm = function()
-              return L.ReloadRequired
-            end,
-            set = function(option, ...)
-              Data.SetOption(location, option, ...)
-              ReloadUI()
-            end,
-          },
-          ShowBGEInBattleground = {
-            type = "toggle",
-            name = L.EnableInBattlegrounds,
-            order = 3,
-            confirm = function()
-              return L.ReloadRequired
-            end,
-            set = function(option, ...)
-              Data.SetOption(location, option, ...)
-              ReloadUI()
-            end,
-          },
           miscellaneous = {
             type = "group",
             name = MISCELLANEOUS,

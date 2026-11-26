@@ -1349,11 +1349,8 @@ function BattleGroundEnemies:ARENA_PREP_OPPONENT_SPECIALIZATIONS()
 end
 
 function BattleGroundEnemies:CheckEnableState()
-  local states = BattleGroundEnemies:GetActiveStates()
-  if SupportsArena and states.isInArena and BattleGroundEnemies.db.profile.ShowBGEInArena then
-    return self:Enable()
-  end
-  if states.isInBattleground and BattleGroundEnemies.db.profile.ShowBGEInBattleground then
+  local states = self:GetActiveStates()
+  if states.isInBattleground or (SupportsArena and states.isInArena) then
     return self:Enable()
   end
   self:Disable()
@@ -3023,8 +3020,8 @@ local function changeVisibility(frame, visible)
 end
 
 local function shouldHideBlizzardFrames(states, profile, arenaKey, battlegroundKey)
-  return (SupportsArena and states.isInArena and profile.ShowBGEInArena and profile[arenaKey])
-    or (states.isInBattleground and profile.ShowBGEInBattleground and profile[battlegroundKey])
+  return (SupportsArena and states.isInArena and profile[arenaKey])
+    or (states.isInBattleground and profile[battlegroundKey])
 end
 
 function BattleGroundEnemies:ToggleArenaFrames()
