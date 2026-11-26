@@ -7,209 +7,9 @@ local GetSpellTexture = C_Spell and C_Spell.GetSpellTexture or GetSpellTexture
 
 local IsCataClassic = WOW_PROJECT_ID == WOW_PROJECT_CATACLYSM_CLASSIC
 local isMopClassic = WOW_PROJECT_ID == WOW_PROJECT_MISTS_CLASSIC
-local GetUnitAuraBySpellID = isMopClassic and C_UnitAuras.GetUnitAuraBySpellID
-local MyCreateFontString = BattleGroundEnemies.MyCreateFontString
+local GetBattlefieldInstanceRunTime = GetBattlefieldInstanceRunTime
 
 local L = Data.L
-
-if isMopClassic then
-  local defaultSettings = {
-    Enabled = true,
-    Parent = "Button",
-    ActivePoints = 1,
-    Points = {
-      {
-        Point = "LEFT",
-        RelativeFrame = "Button",
-        RelativePoint = "RIGHT",
-        OffsetX = 0,
-      },
-    },
-    Text = {
-      FontSize = 15,
-      FontOutline = "OUTLINE", -- Normal (overrides the global Text default of None)
-      EnableShadow = true,
-      ShadowColor = { 0, 0, 0, 0.8 },
-      ShadowOffsetX = 1,
-      ShadowOffsetY = -1,
-    },
-    UseButtonHeightAsHeight = true,
-    UseButtonHeightAsWidth = true,
-  }
-
-  local unitTokens = { "arena1", "arena2" }
-  local factionFlags = { 301091, 301089 }
-  local netherstormFlags = { 34976, 34976 }
-
-  -- Instance IDs, including the rated Eye of the Storm variant.
-  local carrierSpellsByInstance = {
-    [489] = factionFlags, -- Warsong Gulch
-    [566] = netherstormFlags, -- Eye of the Storm
-    [726] = factionFlags, -- Twin Peaks
-    [968] = netherstormFlags, -- Rated Eye of the Storm
-  }
-
-  local module = BattleGroundEnemies:NewButtonModule({
-    moduleName = "ObjectiveAndRespawn",
-    localizedModuleName = L.ObjectiveAndRespawn_ObjectiveEnabled,
-    defaultSettings = defaultSettings,
-    options = function(location)
-      return {
-        TextSettings = {
-          type = "group",
-          name = L.Text,
-          inline = true,
-          order = 4,
-          get = function(option)
-            return Data.GetOption(location.Text, option)
-          end,
-          set = function(option, ...)
-            return Data.SetOption(location.Text, option, ...)
-          end,
-          args = Data.AddNormalTextSettings(location.Text, nil, true, true),
-        },
-      }
-    end,
-    enabledInThisExpansion = true,
-    attachSettingsToButton = false,
-    flags = { SetZeroWidthWhenDisabled = true },
-  })
-
-  local function createMopObjectiveIcon(playerButton)
-    local frame = CreateFrame("frame", nil, playerButton)
-    frame:SetFrameLevel(playerButton:GetFrameLevel() + 5)
-
-    frame.Icon = frame:CreateTexture(nil, "BORDER")
-    frame.Icon:SetAllPoints()
-
-    frame:SetScript("OnSizeChanged", function(self, width, height)
-      BattleGroundEnemies.CropImage(self.Icon, width, height)
-    end)
-    frame:Hide()
-
-    return frame
-  end
-
-  local function createStackText(frame)
-    local text = MyCreateFontString(frame)
-    text:SetPoint("CENTER", frame, "CENTER")
-    return text
-  end
-
-  function module:AttachToPlayerButton(playerButton)
-    local frame = createMopObjectiveIcon(playerButton)
-    frame.StackText = createStackText(frame)
-
-    function frame:Reset()
-      self.carrierUnit = nil
-      self:Hide()
-    end
-
-    function frame:SetCarrier(unit, spellID, stackText)
-      self.carrierUnit = unit
-      self.Icon:SetTexture(GetSpellTexture(spellID))
-      self.StackText:SetText(stackText or "")
-      self:SetShown(self.Enabled == true)
-    end
-
-    function frame:ApplyAllSettings()
-      self.StackText:ApplyFontStringSettings(self.config.Text)
-      self:SetShown(self.Enabled == true and self.carrierUnit ~= nil)
-    end
-
-    playerButton.ObjectiveAndRespawn = frame
-    return frame
-  end
-
-  local activeSpells
-  local displayedByUnit = {}
-  local clearedUnits = {}
-
-  local function clearCarrier(unit)
-    local frame = displayedByUnit[unit]
-    if frame and frame.carrierUnit == unit then
-      frame:Reset()
-    end
-    displayedByUnit[unit] = nil
-  end
-
-  local function getCarrierStackText(unit)
-    local aura = GetUnitAuraBySpellID(unit, 46393) or GetUnitAuraBySpellID(unit, 46392)
-    local stacks = aura and aura.applications
-    return stacks and stacks > 0 and tostring(stacks) or nil
-  end
-
-  local function refreshCarrier(unit, spellID)
-    if clearedUnits[unit] then
-      return
-    end
-    local name = BattleGroundEnemies:GetCanonicalUnitName(unit)
-    if not name then
-      return
-    end
-
-    local button = BattleGroundEnemies.Allies.Players[name] or BattleGroundEnemies.Enemies.Players[name]
-    local frame = button and button.ObjectiveAndRespawn
-    if displayedByUnit[unit] ~= frame then
-      clearCarrier(unit)
-    end
-    if frame then
-      displayedByUnit[unit] = frame
-      frame:SetCarrier(unit, spellID, getCarrierStackText(unit))
-    end
-  end
-
-  local function refreshCarriers()
-    if not activeSpells or not BattleGroundEnemies.enabled or BattleGroundEnemies:IsTestmodeActive() then
-      return
-    end
-    for index, spellID in ipairs(activeSpells) do
-      refreshCarrier(unitTokens[index], spellID)
-    end
-  end
-
-  local function enterWorld()
-    for _, unit in ipairs(unitTokens) do
-      clearCarrier(unit)
-    end
-    wipe(clearedUnits)
-    local _, instanceType, _, _, _, _, _, instanceID = GetInstanceInfo()
-    activeSpells = instanceType == "pvp" and carrierSpellsByInstance[instanceID] or nil
-    refreshCarriers()
-  end
-
-  local frame = CreateFrame("Frame")
-  frame:RegisterEvent("PLAYER_ENTERING_WORLD")
-  frame:RegisterEvent("ARENA_OPPONENT_UPDATE")
-  frame:RegisterUnitEvent("UNIT_AURA", unpack(unitTokens))
-  frame:RegisterUnitEvent("UNIT_NAME_UPDATE", unpack(unitTokens))
-  frame:SetScript("OnEvent", function(_, event, unit, reason)
-    if event == "PLAYER_ENTERING_WORLD" then
-      enterWorld()
-    elseif activeSpells and BattleGroundEnemies.enabled and not BattleGroundEnemies:IsTestmodeActive() then
-      local index = unit:match("^arena([12])$")
-      local spellID = index and activeSpells[tonumber(index)]
-      if not spellID then
-        return
-      end
-      if event == "ARENA_OPPONENT_UPDATE" then
-        if reason == "cleared" then
-          clearedUnits[unit] = true
-          clearCarrier(unit)
-          return
-        elseif reason == "seen" then
-          clearedUnits[unit] = nil
-        end
-      end
-      refreshCarrier(unit, spellID)
-    end
-  end)
-
-  -- Reconcile again after the roster has built or recycled its player buttons.
-  hooksecurefunc(BattleGroundEnemies.Enemies, "CreateOrRemovePlayerButtons", refreshCarriers)
-  hooksecurefunc(BattleGroundEnemies.Allies, "CreateOrRemovePlayerButtons", refreshCarriers)
-  return
-end
 
 local defaultSettings = {
   Enabled = true,
@@ -285,7 +85,8 @@ end
 -- event-handler sweeps to the maps they target: small perf win (skip
 -- non-existent arena3/4 in flag BGs) and explicit map-type intent.
 local function IsFlagBG(mapId)
-  return mapId == 206 -- Twin Peaks
+  return mapId == 92 -- Warsong Gulch (MoP Classic)
+    or mapId == 206 -- Twin Peaks
     or mapId == 1339 -- Warsong Gulch
     or mapId == 112 -- Eye of the Storm
     or mapId == 397 -- Eye of the Storm RBG
@@ -891,9 +692,13 @@ local STACK_NUM_SLOTS = 4 -- Kotmogu has 4 orb slots; flag maps use 1-2 (shared 
 -- ns.objectiveStackConfig exactly so the two addons stay in lockstep).
 local stackConfig = {
   [417] = { mode = "orb", increment = 30, interval = 15 }, -- Kotmogu: 30% on pickup, +30% per 15s held
-  [1339] = { mode = "flag", interval = 30, blitzInterval = 15 }, -- Warsong Gulch: 1 stack / 30s (15s Blitz)
-  [206] = { mode = "flag", interval = 30, blitzInterval = 15 }, -- Twin Peaks: 1 stack / 30s (15s Blitz)
+  [1339] = { mode = "flag", interval = isMopClassic and 60 or 30, blitzInterval = 15 }, -- Warsong Gulch
+  [206] = { mode = "flag", interval = isMopClassic and 60 or 30, blitzInterval = 15 }, -- Twin Peaks
 }
+
+if isMopClassic then
+  stackConfig[92] = stackConfig[1339]
+end
 
 -- Kotmogu arena tokens are fixed orb colors. Chat is the only signal that names
 -- the orb, as a color-coded word ("|cFF01DFD7Blue|r"). English clients only,
@@ -961,7 +766,12 @@ local function StackRestoreState(mapId)
   if not (saved and saved.mapId == mapId) then
     return false
   end
-  local matchDuration = C_PvP and C_PvP.GetActiveMatchDuration and C_PvP.GetActiveMatchDuration()
+  local matchDuration
+  if isMopClassic then
+    matchDuration = GetBattlefieldInstanceRunTime() / 1000
+  else
+    matchDuration = C_PvP and C_PvP.GetActiveMatchDuration and C_PvP.GetActiveMatchDuration()
+  end
   if not matchDuration or matchDuration == 0 then
     return false
   end
@@ -1872,10 +1682,11 @@ function objectiveAndRespawn:AttachToPlayerButton(playerButton)
     -- Just check everything on load (map checks handle if it runs or not)
     local states = BattleGroundEnemies:GetActiveStates()
     -- UI map IDs (from C_Map.GetBestMapForUnit), see Data.BattlegroundspezificBuffs:
-    --   1339 = Warsong Gulch, 206 = Twin Peaks, 112 = Eye of the Storm,
+    --   1339 = Warsong Gulch, 92 = MoP Warsong, 206 = Twin Peaks, 112 = Eye of the Storm,
     --   397 = Eye of the Storm RBG, 2345 = Deephaul Ravine
     if
       states.currentMapId == 206
+      or states.currentMapId == 92
       or states.currentMapId == 1339
       or states.currentMapId == 112
       or states.currentMapId == 397

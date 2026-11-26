@@ -2451,11 +2451,10 @@ end
 -- Helper to check if current map is an objective BG (flags/orbs)
 -- In these BGs, arena tokens are only assigned to objective carriers.
 -- IDs below are UI *map* IDs (C_Map.GetBestMapForUnit), NOT instance IDs.
--- 417=Kotmogu, 1339=Warsong Gulch, 206=Twin Peaks, 112=Eye of the Storm,
+-- 417=Kotmogu, 1339=Warsong Gulch, 92=MoP Warsong, 206=Twin Peaks, 112=Eye of the Storm,
 -- 397=Eye of the Storm Rated, 2345=Deephaul Ravine.
 local function IsObjectiveBG(mapId)
-  return not isMopClassic
-    and (mapId == 417 or mapId == 206 or mapId == 1339 or mapId == 112 or mapId == 397 or mapId == 2345)
+  return mapId == 417 or mapId == 206 or mapId == 1339 or mapId == 92 or mapId == 112 or mapId == 397 or mapId == 2345
 end
 
 --fires when data requested by C_PvP.RequestCrowdControlSpell(unitID) is available
@@ -3889,20 +3888,6 @@ function BattleGroundEnemies:SetAllyFaction(allyFaction)
   end
 end
 
-local function findMopAllyFaction(addon)
-  local faction = GetBattlefieldArenaFaction()
-  local playerName = addon.UserDetails.PlayerName
-  for index = 1, GetNumBattlefieldScores() do
-    local name, _, _, _, _, rowFaction = GetBattlefieldScore(index)
-    if name and addon:CanonicalName(name) == playerName then
-      if faction == rowFaction then
-        return faction
-      end
-      return
-    end
-  end
-end
-
 local function getArenaPartyPeerNames(self)
   local names = {}
   for i = 1, GetNumGroupMembers() - 1 do
@@ -3997,9 +3982,15 @@ function BattleGroundEnemies:UPDATE_BATTLEFIELD_SCORE()
   -- set, so an empty enemy panel for a tick or two is the explicit
   -- trade-off against ever showing real teammates as enemies.
   if isMopClassic and self.AllyFaction == nil and self._pvpGracePeriodElapsed then
-    local faction = findMopAllyFaction(self)
-    if faction ~= nil then
-      self:SetAllyFaction(faction)
+    local faction = GetBattlefieldArenaFaction()
+    for index = 1, GetNumBattlefieldScores() do
+      local name, _, _, _, _, rowFaction = GetBattlefieldScore(index)
+      if name and self:CanonicalName(name) == self.UserDetails.PlayerName then
+        if faction == rowFaction then
+          self:SetAllyFaction(faction)
+        end
+        break
+      end
     end
   end
   if not isMopClassic and self.AllyFaction == nil then
