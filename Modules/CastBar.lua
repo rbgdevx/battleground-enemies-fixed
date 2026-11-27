@@ -24,11 +24,18 @@ local math_random = math.random
 local PREVIEW_FALLBACK_ICON = "Interface/Icons/INV_Misc_QuestionMark"
 local PREVIEW_CAST_DURATION = 2.5
 local PREVIEW_CAST_CYCLE = PREVIEW_CAST_DURATION + 0.5
-local previewStageFraction = PREVIEW_CAST_DURATION / (4 * PREVIEW_CAST_CYCLE)
 local previewCasts = {
   { spellID = 118, name = "Polymorph", notInterruptible = false },
   { spellID = 118, name = "Polymorph", notInterruptible = true },
-  {
+}
+
+if
+  DoesTemplateExist("CastingBarFrameStagePipTemplate")
+  and DoesTemplateExist("CastingBarFrameStagePipFXTemplate")
+  and DoesTemplateExist("CastingBarFrameStageTierTemplate")
+then
+  local previewStageFraction = PREVIEW_CAST_DURATION / (4 * PREVIEW_CAST_CYCLE)
+  previewCasts[#previewCasts + 1] = {
     spellID = 357208,
     name = "Fire Breath",
     notInterruptible = false,
@@ -39,8 +46,8 @@ local previewCasts = {
       previewStageFraction,
       1 - 4 * previewStageFraction,
     },
-  },
-}
+  }
+end
 
 -- Blizzard's Normal and Small TextBorder extends 12 units under the fill.
 local CAST_BAR_LABEL_HEIGHT = 12
