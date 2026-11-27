@@ -1059,11 +1059,9 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     end
 
     self:SetWidth(conf.BarWidth)
-    -- Grow the button by the spec-name text height when that module is enabled
-    -- (0 otherwise). The row spacing in mainframe:ButtonPositioning adds the same
-    -- amount, so taller buttons don't overlap.
+    -- Reserve the profile's spec-name space even while a friendly arena spec loads.
     local specNameExtra = BattleGroundEnemies.GetSpecNameReservedHeight
-        and BattleGroundEnemies:GetSpecNameReservedHeight(conf, self)
+        and BattleGroundEnemies:GetSpecNameReservedHeight(conf)
       or 0
     self:SetHeight(conf.BarHeight + specNameExtra)
 
