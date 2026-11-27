@@ -54,7 +54,7 @@ local L = {
 	intro = "You can change the active database profile, so you can have different settings for every character.",
 	name_too_long = "Profile names cannot be longer than 50 characters.",
 	new = "New",
-	new_sub = "Create a new empty profile.",
+	new_sub = "Create a new profile using the selected profile's settings.",
 	profiles = "Profiles",
 	profiles_sub = "Manage Profiles",
 	reset = "Reset Profile",
@@ -79,7 +79,7 @@ if LOCALE == "deDE" then
 	L["intro"] = "Hier kannst du das aktive Datenbankprofil ändern, damit du verschiedene Einstellungen für jeden Charakter erstellen kannst, wodurch eine sehr flexible Konfiguration möglich wird."
 	L["name_too_long"] = "Profilnamen können nicht länger als 50 Zeichen sein."
 	L["new"] = "Neu"
-	L["new_sub"] = "Ein neues Profil erstellen."
+	L["new_sub"] = "Ein neues Profil mit den Einstellungen des ausgewählten Profils erstellen."
 	L["profiles"] = "Profile"
 	L["profiles_sub"] = "Profile verwalten"
 	L["reset"] = "Profil zurücksetzen"
@@ -101,7 +101,7 @@ elseif LOCALE == "frFR" then
 	L["intro"] = "Vous pouvez changer le profil actuel afin d'avoir des paramètres différents pour chaque personnage, permettant ainsi d'avoir une configuration très flexible."
 	L["name_too_long"] = "Les noms de profil ne peuvent pas dépasser 50 caractères."
 	L["new"] = "Nouveau"
-	L["new_sub"] = "Créée un nouveau profil vierge."
+	L["new_sub"] = "Créer un nouveau profil à partir des paramètres du profil sélectionné."
 	L["profiles"] = "Profils"
 	L["profiles_sub"] = "Gestion des profils"
 	L["reset"] = "Réinitialiser le profil"
@@ -123,7 +123,7 @@ elseif LOCALE == "koKR" then
 	L["intro"] = "활성 데이터베이스 프로필을 변경할 수 있으며, 모든 캐릭터마다 서로 다른 설정을 지정할 수 있습니다."
 	L["name_too_long"] = "프로필 이름은 50자리를 초과할 수 없습니다."
 	L["new"] = "새로운 프로필"
-	L["new_sub"] = "비어 있는 프로필을 새로 만듭니다."
+	L["new_sub"] = "선택한 프로필의 설정으로 새 프로필을 만듭니다."
 	L["profiles"] = "프로필"
 	L["profiles_sub"] = "프로필 관리"
 	L["reset"] = "프로필 재설정"
@@ -145,7 +145,7 @@ elseif LOCALE == "esES" or LOCALE == "esMX" then
 	L["intro"] = "Puedes cambiar el perfil activo de tal manera que cada personaje tenga diferentes configuraciones."
 	L["name_too_long"] = "Los nombres de perfil no pueden exceder los 50 caracteres."
 	L["new"] = "Nuevo"
-	L["new_sub"] = "Crear un nuevo perfil vacio."
+	L["new_sub"] = "Crear un nuevo perfil con los ajustes del perfil seleccionado."
 	L["profiles"] = "Perfiles"
 	L["profiles_sub"] = "Manejar Perfiles"
 	L["reset"] = "Reiniciar Perfil"
@@ -167,7 +167,7 @@ elseif LOCALE == "zhTW" then
 	L["intro"] = "您可以從資料庫中選擇一個設定檔來使用，如此就可以讓每個角色使用不同的設定。"
 	L["name_too_long"] = "設定檔名稱不能超過50個字元。"
 	L["new"] = "新建"
-	L["new_sub"] = "新建一個空的設定檔。"
+	L["new_sub"] = "使用所選設定檔的設定建立新的設定檔。"
 	L["profiles"] = "設定檔"
 	L["profiles_sub"] = "管理設定檔"
 	L["reset"] = "重置設定檔"
@@ -189,7 +189,7 @@ elseif LOCALE == "zhCN" then
 	L["intro"] = "你可以选择一个活动的数据配置文件，这样你的每个角色就可以拥有不同的设置值，可以给你的插件配置带来极大的灵活性。"
 	L["name_too_long"] = "配置文件名称不能超过50个字符。"
 	L["new"] = "新建"
-	L["new_sub"] = "新建一个空的配置文件。"
+	L["new_sub"] = "使用所选配置文件的设置创建新的配置文件。"
 	L["profiles"] = "配置文件"
 	L["profiles_sub"] = "管理配置文件"
 	L["reset"] = "重置配置文件"
@@ -211,7 +211,7 @@ elseif LOCALE == "ruRU" then
 	L["intro"] = "Изменяя активный профиль, Вы можете задать разные настройки для каждого персонажа."
 	L["name_too_long"] = "Имена профилей не могут превышать 50 символов."
 	L["new"] = "Новый"
-	L["new_sub"] = "Создание нового чистого профиля."
+	L["new_sub"] = "Создать новый профиль с настройками выбранного профиля."
 	L["profiles"] = "Профили"
 	L["profiles_sub"] = "Управление профилями"
 	L["reset"] = "Сбросить профиль"
@@ -233,7 +233,7 @@ elseif LOCALE == "itIT" then
 	L["intro"] = "Puoi cambiare il profilo attivo, in modo da usare impostazioni diverse per ogni personaggio."
 	L["name_too_long"] = "Il nome del profilo non può superare i 50 caratteri."
 	L["new"] = "Nuovo"
-	L["new_sub"] = "Crea un nuovo profilo vuoto."
+	L["new_sub"] = "Crea un nuovo profilo con le impostazioni del profilo selezionato."
 	L["profiles"] = "Profili"
 	L["profiles_sub"] = "Gestisci Profili"
 	L["reset"] = "Reimposta Profilo"
@@ -255,7 +255,7 @@ elseif LOCALE == "ptBR" then
 	L["intro"] = "Você pode alterar o perfil do banco de dados ativo, para que possa ter definições diferentes para cada personagem."
 	L["name_too_long"] = "O nome do perfil não pode exceder 50 caracteres."
 	L["new"] = "Novo"
-	L["new_sub"] = "Cria um novo perfil vazio."
+	L["new_sub"] = "Cria um novo perfil com as configurações do perfil selecionado."
 	L["profiles"] = "Perfis"
 	L["profiles_sub"] = "Gerenciar Perfis"
 	L["reset"] = "Resetar Perfil"
@@ -288,6 +288,10 @@ local ProfileOptions = {}
 
 function ProfileOptions:Reset()
   self.db:ResetProfile()
+end
+
+function ProfileOptions:NewProfile(_, value)
+  self.db:NewProfile(value)
 end
 
 function ProfileOptions:SetProfile(_, value)
@@ -351,7 +355,7 @@ local options = {
     type = "input",
     order = 30,
     get = false,
-    set = "SetProfile",
+    set = "NewProfile",
     usage = L["name_too_long"],
     validate = function(_, text)
       local length = strlenutf8(text)

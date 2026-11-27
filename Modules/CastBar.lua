@@ -24,11 +24,18 @@ local math_random = math.random
 local PREVIEW_FALLBACK_ICON = "Interface/Icons/INV_Misc_QuestionMark"
 local PREVIEW_CAST_DURATION = 2.5
 local PREVIEW_CAST_CYCLE = PREVIEW_CAST_DURATION + 0.5
-local previewStageFraction = PREVIEW_CAST_DURATION / (4 * PREVIEW_CAST_CYCLE)
 local previewCasts = {
   { spellID = 118, name = "Polymorph", notInterruptible = false },
   { spellID = 118, name = "Polymorph", notInterruptible = true },
-  {
+}
+
+if
+  DoesTemplateExist("CastingBarFrameStagePipTemplate")
+  and DoesTemplateExist("CastingBarFrameStagePipFXTemplate")
+  and DoesTemplateExist("CastingBarFrameStageTierTemplate")
+then
+  local previewStageFraction = PREVIEW_CAST_DURATION / (4 * PREVIEW_CAST_CYCLE)
+  previewCasts[#previewCasts + 1] = {
     spellID = 357208,
     name = "Fire Breath",
     notInterruptible = false,
@@ -39,8 +46,8 @@ local previewCasts = {
       previewStageFraction,
       1 - 4 * previewStageFraction,
     },
-  },
-}
+  }
+end
 
 -- Blizzard's Normal and Small TextBorder extends 12 units under the fill.
 local CAST_BAR_LABEL_HEIGHT = 12
@@ -64,6 +71,8 @@ local defaultSettings = {
   ActivePoints = 1,
   Style = "Small",
   Scale = 1,
+  EnableIcon = true,
+  IconScale = 1,
 }
 
 local options = function()
@@ -81,6 +90,25 @@ local options = function()
       max = 2,
       step = 0.05,
       order = 2,
+    },
+    IconRowBreak = {
+      type = "description",
+      name = "",
+      width = "full",
+      order = 3,
+    },
+    EnableIcon = {
+      type = "toggle",
+      name = "Enable Icon",
+      order = 4,
+    },
+    IconScale = {
+      type = "range",
+      name = "Icon Scale",
+      min = 0.1,
+      max = 2,
+      step = 0.05,
+      order = 5,
     },
   }
 end
@@ -139,9 +167,16 @@ local function configureCastBarIcon(bar, style, isEnemy)
   local iconPoint = isEnemy and "RIGHT" or "LEFT"
   local barPoint = isEnemy and "LEFT" or "RIGHT"
   local gap = style == "Small" and 2 or 5
-  bar.Icon:ClearAllPoints()
-  bar.Icon:SetPoint(iconPoint, bar.TextBorder or bar, barPoint, isEnemy and -gap or gap, 0)
-  bar.Icon:Show()
+  local icon = bar.Icon
+  bar.iconWidth, bar.iconHeight = icon:GetSize()
+  icon:ClearAllPoints()
+  icon:SetPoint(iconPoint, bar.TextBorder or bar, barPoint, isEnemy and -gap or gap, 0)
+end
+
+local function applyCastBarIconSettings(bar, config)
+  local icon = bar.Icon
+  icon:SetSize(bar.iconWidth * config.IconScale, bar.iconHeight * config.IconScale)
+  icon:SetShown(config.EnableIcon)
 end
 
 local function createCastBarDisplay(parent, style)
@@ -539,6 +574,7 @@ local function applyCastBarSettings(self)
   end
   applyCastBarStyle(self, self.config.Style)
   self:SetScale(self.config.Scale)
+  applyCastBarIconSettings(self.CastBar, self.config)
   local playerButton = self.playerButton
   if
     IsTestmodeActive(BattleGroundEnemies)

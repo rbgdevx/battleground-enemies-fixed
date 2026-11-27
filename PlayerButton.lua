@@ -51,6 +51,10 @@ local UnitIsVisible = UnitIsVisible
 local CheckInteractDistance = CheckInteractDistance
 local IsItemInRange = C_Item and C_Item.IsItemInRange
 local C_Spell = C_Spell
+local isMopClassic = WOW_PROJECT_ID == WOW_PROJECT_MISTS_CLASSIC
+local GetArenaOpponentSpec = GetArenaOpponentSpec
+local GetSpecializationInfoByID = GetSpecializationInfoByID
+local GetArenaOpponentIndex = BattleGroundEnemies.GetArenaOpponentIndex
 
 --lua
 local math_floor = math.floor
@@ -474,6 +478,16 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     end
     local class = self.PlayerDetails.PlayerClass
     local spec = self.PlayerDetails.PlayerSpecName
+    if isMopClassic then
+      local arenaIndex = GetArenaOpponentIndex(self)
+      if arenaIndex then
+        local specID, gender = GetArenaOpponentSpec(arenaIndex)
+        if specID and specID > 0 then
+          local _, arenaSpecName = GetSpecializationInfoByID(specID, gender)
+          spec = arenaSpecName
+        end
+      end
+    end
     if class and spec and not (issecretvalue and (issecretvalue(class) or issecretvalue(spec))) then
       local t = Data.Classes[class]
       if t then
@@ -526,11 +540,10 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
 
   -- Query the API for real trinket cooldown data and apply it.
   -- Returns true if the API returned real data, false otherwise.
-  -- Uses GetArenaCrowdControlInfo for the spellId and GetArenaCrowdControlDuration
-  -- for the DurationObject — avoids arithmetic on secret millisecond values entirely.
+  -- GetArenaCrowdControlDuration supplies the DurationObject without millisecond arithmetic.
   function playerButton:UpdateCrowdControlCooldown(unitID)
-    -- Get spell ID from GetArenaCrowdControlInfo (only need the first return value)
-    local spellId = C_PvP.GetArenaCrowdControlInfo(unitID)
+    -- MoP Classic includes the trinket item ID as its second return value.
+    local spellId, itemID = C_PvP.GetArenaCrowdControlInfo(unitID)
     -- Get duration as a LuaDurationObject — no secret value arithmetic needed
     local durationObj = C_PvP.GetArenaCrowdControlDuration and C_PvP.GetArenaCrowdControlDuration(unitID)
 
@@ -539,7 +552,7 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     end
 
     self.Trinket:ResetFakeCooldown()
-    self.Trinket:DisplayTrinket(spellId)
+    self.Trinket:DisplayTrinket(spellId, isMopClassic and itemID or nil)
 
     if durationObj then
       -- Arena discovery owns icon visibility; a ready cooldown clears only the swipe.
@@ -1046,11 +1059,9 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
     end
 
     self:SetWidth(conf.BarWidth)
-    -- Grow the button by the spec-name text height when that module is enabled
-    -- (0 otherwise). The row spacing in mainframe:ButtonPositioning adds the same
-    -- amount, so taller buttons don't overlap.
+    -- Reserve the profile's spec-name space even while a friendly arena spec loads.
     local specNameExtra = BattleGroundEnemies.GetSpecNameReservedHeight
-        and BattleGroundEnemies:GetSpecNameReservedHeight(conf, self)
+        and BattleGroundEnemies:GetSpecNameReservedHeight(conf)
       or 0
     self:SetHeight(conf.BarHeight + specNameExtra)
 
@@ -1088,15 +1099,9 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       --use a table to track changes and compare them to GetAttribute
       --set baseline
 
-      -- Enemy click `unit`: arena/flag/orb carriers get their STABLE arenaN token
-      -- (PlayerArenaUnitID) for secure target/focus below; all OTHER enemies carry
-      -- no `unit` and click via the /targetexact <PlayerName> macrotext. This is the
-      -- original pre-208f4bb behaviour. 208f4bb had GENERALISED the token to also
-      -- cover nameplateN/raidNtarget, which churn / go stale in combat and tripped
-      -- WoW's secure-click UnitExists veto (SecureTemplates.lua) — that's what broke
-      -- click-target/focus mid-fight. Only the nameplate generalisation is reverted;
-      -- the stable-arena-token carrier path is restored unchanged (arenaN never
-      -- churns, UnitExists(arenaN) holds, so it was never the problem).
+      -- Battleground carrier slots can change players during combat, when
+      -- protected click attributes cannot be rebound. Keep battleground clicks
+      -- on the exact-name macro path; only real arena opponents use arenaN.
       local newAttributes = {
         unit = not self.PlayerIsEnemy and self.unit or false,
         type1 = false,
@@ -1122,7 +1127,7 @@ function BattleGroundEnemies:CreatePlayerButton(mainframe, num)
       end
 
       if self.PlayerIsEnemy then
-        if self.PlayerDetails.PlayerArenaUnitID then --its a arena enemy / flag/orb carrier
+        if BattleGroundEnemies.states.real.isInArena and self.PlayerDetails.PlayerArenaUnitID then
           -- Secure unit-action targeting via the arenaN token. Works in combat,
           -- no macrotext / no PlayerName needed (and PlayerName is secret
           -- post-12.0.5 anyway). Left-click targets, right-click focuses.

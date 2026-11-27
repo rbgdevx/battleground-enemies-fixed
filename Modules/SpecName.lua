@@ -9,8 +9,14 @@ local LSM = LibStub("LibSharedMedia-3.0")
 local UpdateArenaOpponentSpecDisplay = UnitFrameUtil and UnitFrameUtil.UpdateArenaOpponentSpecDisplay
 local GetArenaOpponentIndex = BattleGroundEnemies.GetArenaOpponentIndex
 local IsRetail = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+local isMopClassic = WOW_PROJECT_ID == WOW_PROJECT_MISTS_CLASSIC
+local GetArenaOpponentSpec = GetArenaOpponentSpec
+local GetSpecializationInfoByID = GetSpecializationInfoByID
+local GetSpecialization = isMopClassic and C_SpecializationInfo.GetSpecialization
+local GetSpecializationInfo = isMopClassic and C_SpecializationInfo.GetSpecializationInfo
 local GetPlayerSpecName = IsRetail and PlayerUtil.GetSpecName
-local GetInspectSpecialization = IsRetail and C_SpecializationInfo.GetInspectSpecialization
+local GetInspectSpecialization = isMopClassic and GetInspectSpecialization
+  or (IsRetail and C_SpecializationInfo.GetInspectSpecialization)
 local GetSpecializationNameForSpecID = GetSpecializationNameForSpecID
 local CanInspect = CanInspect
 local NotifyInspect = NotifyInspect
@@ -24,6 +30,16 @@ local wipe = wipe
 local After = C_Timer.After
 local IsTestmodeActive = BattleGroundEnemies.IsTestmodeActive
 local QueueForUpdateAfterCombat = BattleGroundEnemies.QueueForUpdateAfterCombat
+
+if isMopClassic then
+  GetPlayerSpecName = function()
+    local index = GetSpecialization()
+    if index then
+      local _, name = GetSpecializationInfo(index)
+      return name
+    end
+  end
+end
 
 local defaultSettings = {
   Enabled = true,
@@ -87,7 +103,7 @@ local nextInspectCheck = 0
 local layoutRefreshQueued = false
 
 local function isFriendlyArenaRow(playerButton)
-  return IsRetail and BattleGroundEnemies.states.real.isInArena
+  return (IsRetail or isMopClassic) and BattleGroundEnemies.states.real.isInArena
     and not IsTestmodeActive(BattleGroundEnemies) and not playerButton.PlayerIsEnemy
 end
 
@@ -276,7 +292,7 @@ local function receiveFriendlyInspection(guid)
   local resolved = false
   if unit then
     local specID = GetInspectSpecialization(unit)
-    if not issecretvalue(specID) and specID > 0 then
+    if specID and not issecretvalue(specID) and specID > 0 then
       local name = GetSpecializationNameForSpecID(specID, UnitSex(unit))
       if name and name ~= "" then
         friendlySpecs[guid] = name
@@ -312,7 +328,7 @@ local function pruneFriendlyInspections()
   end
 end
 
-if IsRetail then
+if IsRetail or isMopClassic then
   specName:RegisterEvent("INSPECT_READY")
   specName:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
   specName:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -438,13 +454,21 @@ function specName:AttachToPlayerButton(playerButton)
     -- PREVIOUS game (needed for role/icon logic, which can't use a secret), and
     -- rendering it here showed stale specs. Pass current scoreboard text
     -- directly to SetText; type() safely selects the missing-value path.
-    -- When absent, real arena rows use the native text helper; other rows clear.
+    -- When absent, use the current arena spec display path; other rows clear.
     local spec = playerButton.PlayerDetails.PlayerSpecNameScoreboard
     local specType = type(spec)
     if specType == "nil" or specType == "boolean" then
       local arenaIndex = GetArenaOpponentIndex(playerButton)
       if arenaIndex and UpdateArenaOpponentSpecDisplay then
         UpdateArenaOpponentSpecDisplay({ specNameText = self.fs }, arenaIndex)
+      elseif arenaIndex and isMopClassic then
+        local specID, gender = GetArenaOpponentSpec(arenaIndex)
+        local arenaSpecName
+        if specID and specID > 0 then
+          local _, name = GetSpecializationInfoByID(specID, gender)
+          arenaSpecName = name
+        end
+        self.fs:SetText(arenaSpecName or "")
       else
         self.fs:SetText("")
       end

@@ -24,6 +24,7 @@ local GetSpecializationInfoForClassID = GetSpecializationInfoForClassID
 Data.IsForever = WOW_PROJECT_ID == WOW_PROJECT_CAMELOT
 
 local IsRetail = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+local isMopClassic = WOW_PROJECT_ID == WOW_PROJECT_MISTS_CLASSIC
 -- local IsClassic = WOW_PROJECT_ID == WOW_PROJECT_CLASSIC
 
 Data.PlayerRoles = { "TANK", "HEALER", "DAMAGER" }
@@ -287,6 +288,11 @@ Data.BattlegroundspezificBuffs =
       [3] = 121177, -- Orb of Power, Orange
     },
   }
+
+if isMopClassic then
+  Data.BattlegroundspezificBuffs[92] = Data.BattlegroundspezificBuffs[1460]
+  Data.BattlegroundspezificBuffs[206] = Data.BattlegroundspezificBuffs[1460]
+end
 
 -- Data.BattlegroundspezificDebuffs = { --key = mapID, value = table with key = number and value = debuff name
 --   [1339] = {        -- Warsong Gulch, used to be mapID 443 before BFA

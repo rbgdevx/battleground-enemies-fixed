@@ -3,6 +3,10 @@ local Data = select(2, ...)
 ---@class BattleGroundEnemies
 local BattleGroundEnemies = BattleGroundEnemies
 local L = Data.L
+local isMopClassic = WOW_PROJECT_ID == WOW_PROJECT_MISTS_CLASSIC
+local DRList = isMopClassic and LibStub("DRList-1.0")
+local GetSpellTexture = isMopClassic and C_Spell.GetSpellTexture
+local CombatLogGetCurrentEventInfo = CombatLogGetCurrentEventInfo
 local GetArenaOpponentIndex = BattleGroundEnemies.GetArenaOpponentIndex
 local MyCreateFontString = BattleGroundEnemies.MyCreateFontString
 local IsRetail = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
@@ -18,8 +22,8 @@ local GetTime = GetTime
 -- end
 
 -- C_SpellDiminish availability (added in Midnight)
-local hasSpellDiminishAPI = C_SpellDiminish and C_SpellDiminish.GetSpellDiminishCategoryInfo
-local hasSpellDiminishEnums = Enum and Enum.SpellDiminishCategory
+local hasSpellDiminishAPI = not isMopClassic and C_SpellDiminish and C_SpellDiminish.GetSpellDiminishCategoryInfo
+local hasSpellDiminishEnums = not isMopClassic and Enum and Enum.SpellDiminishCategory
 
 -- Map Enum.SpellDiminishCategory values to stable string keys for saved variables / filtering
 local categoryEnumToKey = {}
@@ -98,10 +102,31 @@ local locTypeToDRCategory = {
   DISARM = "disarm",
 }
 
+local mopDRCategories, mopDRPreview
+local function getCategoryKey(category)
+  return category == "incapacitate" and "incap" or category
+end
+
+if isMopClassic then
+  mopDRCategories, mopDRPreview = {}, {}
+  for category, name in pairs(DRList:GetCategories()) do
+    if category ~= "taunt" and category ~= "knockback" then
+      mopDRCategories[getCategoryKey(category)] = name
+    end
+  end
+
+  for _, spellID in ipairs({ 118, 408, 5782, 339 }) do
+    local category = DRList:GetCategoryBySpellID(spellID)
+    mopDRPreview[getCategoryKey(category)] = GetSpellTexture(spellID)
+  end
+end
+
 -- Filter list values for the settings multiselect: key = category key string, value = localized name
-local filterListValues = {}
-for key, info in pairs(categoryKeyToInfo) do
-  filterListValues[key] = info.name
+local filterListValues = isMopClassic and mopDRCategories or {}
+if not isMopClassic then
+  for key, info in pairs(categoryKeyToInfo) do
+    filterListValues[key] = info.name
+  end
 end
 
 ---------------------------------------------------------------------------
@@ -221,7 +246,7 @@ local options = function(location)
         args.ShowDRCount = {
           type = "toggle",
           name = L.DrTracking_ShowDRCount,
-          desc = L.DrTracking_ShowDRCount_Desc,
+          desc = not isMopClassic and L.DrTracking_ShowDRCount_Desc or nil,
           width = "full",
           order = 5,
         }
@@ -235,16 +260,22 @@ end
 -- DR state colors (2-state: Midnight rules — 2 applications then immune)
 ---------------------------------------------------------------------------
 
+local maxApplications = isMopClassic and 3 or 2
 local dRstates = {
   [1] = { 0, 1, 0, 1 }, -- green  (1st CC ended — next will be half duration)
   [2] = { 1, 0, 0, 1 }, -- red    (immune)
 }
 
+if isMopClassic then
+  dRstates[3] = dRstates[2]
+  dRstates[2] = { 1, 0.75, 0, 1 }
+end
+
 local function updateStatusCounter(drFrame, status)
   if drFrame.StatusText and drFrame.StatusBG then
     local showCount = drFrame.Container.config.Cooldown.ShowDRCount
     if showCount then
-      drFrame.StatusText:SetText(status .. "/2")
+      drFrame.StatusText:SetText(status .. "/" .. maxApplications)
       local w = drFrame.StatusText:GetStringWidth() + 2
       local h = drFrame.StatusText:GetStringHeight() + 1
       drFrame.StatusBG:SetSize(w, h)
@@ -259,7 +290,7 @@ end
 
 local function drFrameUpdateStatusBorder(drFrame)
   local status = drFrame.input and drFrame.input.status or 1
-  status = math.min(status, 2)
+  status = math.min(status, maxApplications)
   local color = dRstates[status]
   if color then
     drFrame:SetBackdropBorderColor(unpack(color))
@@ -269,7 +300,7 @@ end
 
 local function drFrameUpdateStatusText(drFrame)
   local status = drFrame.input and drFrame.input.status or 1
-  status = math.min(status, 2)
+  status = math.min(status, maxApplications)
   local color = dRstates[status]
   if color then
     drFrame.Cooldown.Text:SetTextColor(unpack(color))
@@ -294,7 +325,7 @@ local dRTracking = BattleGroundEnemies:NewButtonModule({
   options = options,
   generalOptions = generalOptions,
   events = {
-    "DiminishStateUpdated",
+    isMopClassic and "ClassicDiminishingReturnsUpdated" or "DiminishStateUpdated",
     "UnitDied",
     "PeriodicUpdate",
     "OnTestmodeEnabled",
@@ -308,6 +339,74 @@ local dRTracking = BattleGroundEnemies:NewButtonModule({
 ---------------------------------------------------------------------------
 -- Frame creation & setup (ported from OG DR.lua, adapted for C_SpellDiminish)
 ---------------------------------------------------------------------------
+
+if isMopClassic then
+  local function findPlayerButton(addon, guid, name)
+    if not name or not guid or not guid:find("^Player%-") then
+      return
+    end
+    local canonicalName = addon:CanonicalName(name)
+    local button = addon.Enemies.Players[canonicalName] or addon.Allies.Players[canonicalName]
+    local details = button and button.PlayerDetails
+    if details and (not details.guid or details.guid == guid) then
+      return button
+    end
+  end
+
+  local function dispatchCategory(button, category, spellID, event)
+    local key = getCategoryKey(category)
+    if mopDRCategories[key] then
+      button:DispatchEvent("ClassicDiminishingReturnsUpdated", key, DRList:GetResetTime(category), spellID, event)
+    end
+  end
+
+  local function dispatchCombatLog(addon)
+    if not addon.enabled or addon:IsTestmodeActive() then
+      return
+    end
+    local _, event, _, _, _, sourceFlags, _, guid, name, _, _, spellID, _, _, auraType = CombatLogGetCurrentEventInfo()
+    if auraType ~= "DEBUFF" then
+      return
+    end
+    if event ~= "SPELL_AURA_APPLIED" and event ~= "SPELL_AURA_REFRESH" and event ~= "SPELL_AURA_REMOVED" then
+      return
+    end
+    if bit.band(sourceFlags, COMBATLOG_OBJECT_CONTROL_PLAYER) == 0 then
+      return
+    end
+    local category, categories = DRList:GetCategoryBySpellID(spellID)
+    if not category then
+      return
+    end
+    local button = findPlayerButton(addon, guid, name)
+    if not button then
+      return
+    end
+
+    if categories then
+      for _, sharedCategory in ipairs(categories) do
+        dispatchCategory(button, sharedCategory, spellID, event)
+      end
+    else
+      dispatchCategory(button, category, spellID, event)
+    end
+  end
+
+  local frame = CreateFrame("Frame")
+  frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+  frame:SetScript("OnEvent", function(self, event)
+    if event == "PLAYER_ENTERING_WORLD" then
+      local _, instanceType = IsInInstance()
+      if instanceType == "pvp" or instanceType == "arena" then
+        self:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+      else
+        self:UnregisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+      end
+    else
+      dispatchCombatLog(BattleGroundEnemies)
+    end
+  end)
+end
 
 local arenaDrBorderPieces = {
   "TopLeftCorner",
@@ -393,8 +492,8 @@ local function reconcileArenaDrInputs(container, tray)
   local changed = false
   local count = 0
   if tray then
-    for source in tray.trayItemPool:EnumerateActive() do
-      if source then
+    for _, source in ipairs({ tray:GetChildren() }) do
+      if source:IsShown() then
         count = count + 1
         local input = container.inputs[count]
         if not input then
@@ -419,6 +518,10 @@ local function createNewDrFrame(playerButton, container)
   drFrame.Cooldown = BattleGroundEnemies.MyCreateCooldown(drFrame)
 
   drFrame.Cooldown:SetScript("OnCooldownDone", function()
+    local activeAuras = drFrame.input and drFrame.input.activeAuras
+    if activeAuras and next(activeAuras) then
+      return
+    end
     drFrame:Remove()
   end)
 
@@ -506,7 +609,10 @@ local function setupDrFrame(container, drFrame, drDetails)
 
   -- Cooldown: startTime/duration may be secret values from arena opponents.
   -- SetCooldown accepts secrets via InsecureSecretArguments.
-  if drDetails.startTime and drDetails.duration then
+  if drDetails.activeAuras and next(drDetails.activeAuras) then
+    drFrame.Cooldown:Clear()
+    drFrame.Cooldown:Hide()
+  elseif drDetails.startTime and drDetails.duration then
     if issecretvalue and (issecretvalue(drDetails.duration) or issecretvalue(drDetails.startTime)) then
       drFrame.Cooldown:SetCooldown(drDetails.startTime, drDetails.duration)
     elseif drDetails.duration > 0 then
@@ -741,7 +847,7 @@ function dRTracking:AttachToPlayerButton(playerButton)
   -- LoC polling fallback — dispatched from UpdateAll() every 0.1s via PeriodicUpdate event
   ---------------------------------------------------------------------------
   function container:PeriodicUpdate(unitID)
-    if unitID == "player" then
+    if isMopClassic or unitID == "player" then
       return
     end
     if (IsRetail and GetArenaOpponentIndex(playerButton)) then
@@ -762,6 +868,45 @@ function dRTracking:AttachToPlayerButton(playerButton)
   end
 
   ---------------------------------------------------------------------------
+  -- Keep the chain while any aura in the category is active; reset after the last removal.
+  function container:ClassicDiminishingReturnsUpdated(category, resetTime, spellID, event)
+    if not self.Enabled or not self.config then
+      return
+    end
+    local input = self:FindInputByAttribute("drCat", category)
+    if self.config.Filtering_Enabled and not self.config.Filtering_Filterlist[category] and not input then
+      return
+    end
+
+    local now = GetTime()
+    if not input then
+      input = self:NewInput({ drCat = category, status = 0, activeAuras = {} })
+    elseif not next(input.activeAuras) and input.startTime and now >= input.startTime + input.duration then
+      input.status = 0
+    end
+
+    if event == "SPELL_AURA_REMOVED" then
+      local activeCount = input.activeAuras[spellID]
+      input.activeAuras[spellID] = activeCount and activeCount > 1 and activeCount - 1 or nil
+      input.status = math.max(input.status, 1)
+      if not next(input.activeAuras) then
+        input.startTime = now
+        input.duration = resetTime
+      end
+    else
+      input.status = math.min(input.status + 1, maxApplications)
+      if event == "SPELL_AURA_APPLIED" then
+        input.activeAuras[spellID] = (input.activeAuras[spellID] or 0) + 1
+      else
+        input.activeAuras[spellID] = input.activeAuras[spellID] or 1
+      end
+      input.startTime = nil
+      input.duration = nil
+    end
+    input.iconTexture = GetSpellTexture(spellID)
+    self:Display()
+  end
+
   -- UnitDied — clear all DR icons
   ---------------------------------------------------------------------------
   function container:UnitDied()
@@ -772,11 +917,15 @@ function dRTracking:AttachToPlayerButton(playerButton)
   -- Test mode
   ---------------------------------------------------------------------------
   -- Only use categories that have icons (PvP-relevant ones)
-  local testCategories = {}
-  for key, info in pairs(categoryKeyToInfo) do
-    if info.icon then
-      testCategories[#testCategories + 1] = key
+  local testIcons = isMopClassic and mopDRPreview or {}
+  if not isMopClassic then
+    for key, info in pairs(categoryKeyToInfo) do
+      testIcons[key] = info.icon
     end
+  end
+  local testCategories = {}
+  for key in pairs(testIcons) do
+    testCategories[#testCategories + 1] = key
   end
 
   local TEST_MAX_ICONS = 3 -- realistic max simultaneous DRs per enemy
@@ -814,7 +963,7 @@ function dRTracking:AttachToPlayerButton(playerButton)
     local input, inputIdx = self:FindInputByAttribute("drCat", catKey)
     if input then
       -- Cycle: 1 -> 2, 2 -> remove (expired)
-      if input.status >= 2 then
+      if input.status >= maxApplications then
         if inputIdx then
           self:RemoveFromInput(inputIdx)
         end
@@ -831,6 +980,7 @@ function dRTracking:AttachToPlayerButton(playerButton)
           status = 1,
           startTime = GetTime(),
           duration = 16,
+          iconTexture = testIcons[catKey],
         })
       end
     end

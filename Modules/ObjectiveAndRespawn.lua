@@ -6,6 +6,8 @@ local Data = select(2, ...)
 local GetSpellTexture = C_Spell and C_Spell.GetSpellTexture or GetSpellTexture
 
 local IsCataClassic = WOW_PROJECT_ID == WOW_PROJECT_CATACLYSM_CLASSIC
+local isMopClassic = WOW_PROJECT_ID == WOW_PROJECT_MISTS_CLASSIC
+local GetBattlefieldInstanceRunTime = GetBattlefieldInstanceRunTime
 
 local L = Data.L
 
@@ -83,7 +85,8 @@ end
 -- event-handler sweeps to the maps they target: small perf win (skip
 -- non-existent arena3/4 in flag BGs) and explicit map-type intent.
 local function IsFlagBG(mapId)
-  return mapId == 206 -- Twin Peaks
+  return mapId == 92 -- Warsong Gulch (MoP Classic)
+    or mapId == 206 -- Twin Peaks
     or mapId == 1339 -- Warsong Gulch
     or mapId == 112 -- Eye of the Storm
     or mapId == 397 -- Eye of the Storm RBG
@@ -689,9 +692,13 @@ local STACK_NUM_SLOTS = 4 -- Kotmogu has 4 orb slots; flag maps use 1-2 (shared 
 -- ns.objectiveStackConfig exactly so the two addons stay in lockstep).
 local stackConfig = {
   [417] = { mode = "orb", increment = 30, interval = 15 }, -- Kotmogu: 30% on pickup, +30% per 15s held
-  [1339] = { mode = "flag", interval = 30, blitzInterval = 15 }, -- Warsong Gulch: 1 stack / 30s (15s Blitz)
-  [206] = { mode = "flag", interval = 30, blitzInterval = 15 }, -- Twin Peaks: 1 stack / 30s (15s Blitz)
+  [1339] = { mode = "flag", interval = isMopClassic and 60 or 30, blitzInterval = 15 }, -- Warsong Gulch
+  [206] = { mode = "flag", interval = isMopClassic and 60 or 30, blitzInterval = 15 }, -- Twin Peaks
 }
+
+if isMopClassic then
+  stackConfig[92] = stackConfig[1339]
+end
 
 -- Kotmogu arena tokens are fixed orb colors. Chat is the only signal that names
 -- the orb, as a color-coded word ("|cFF01DFD7Blue|r"). English clients only,
@@ -759,7 +766,12 @@ local function StackRestoreState(mapId)
   if not (saved and saved.mapId == mapId) then
     return false
   end
-  local matchDuration = C_PvP and C_PvP.GetActiveMatchDuration and C_PvP.GetActiveMatchDuration()
+  local matchDuration
+  if isMopClassic then
+    matchDuration = GetBattlefieldInstanceRunTime() / 1000
+  else
+    matchDuration = C_PvP and C_PvP.GetActiveMatchDuration and C_PvP.GetActiveMatchDuration()
+  end
   if not matchDuration or matchDuration == 0 then
     return false
   end
@@ -1670,10 +1682,11 @@ function objectiveAndRespawn:AttachToPlayerButton(playerButton)
     -- Just check everything on load (map checks handle if it runs or not)
     local states = BattleGroundEnemies:GetActiveStates()
     -- UI map IDs (from C_Map.GetBestMapForUnit), see Data.BattlegroundspezificBuffs:
-    --   1339 = Warsong Gulch, 206 = Twin Peaks, 112 = Eye of the Storm,
+    --   1339 = Warsong Gulch, 92 = MoP Warsong, 206 = Twin Peaks, 112 = Eye of the Storm,
     --   397 = Eye of the Storm RBG, 2345 = Deephaul Ravine
     if
       states.currentMapId == 206
+      or states.currentMapId == 92
       or states.currentMapId == 1339
       or states.currentMapId == 112
       or states.currentMapId == 397
