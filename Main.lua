@@ -1258,6 +1258,7 @@ end
 function BattleGroundEnemies:Disable()
   self.enabled = false
   self:UnregisterEvents()
+  self._ccSpellCache = nil
   RequestFrame:Hide()
   stopFakePlayersTicker()
   StopButtonUpdateTicker()
