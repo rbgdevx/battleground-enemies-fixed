@@ -133,7 +133,7 @@ function Database:Initialize(addon)
   end
 
   copyDefaults({ profiles = {}, profileKeys = {}, global = {} }, saved)
-  -- Keep the install's starting defaults for new profiles and explicit resets.
+  -- Keep the install's starting defaults for profiles created without a source.
   if type(saved.profileDefaults) ~= "table" then
     saved.profileDefaults = CopyTable(existingInstall and legacyProfileDefaults or newInstallProfileDefaults)
   end
@@ -174,6 +174,13 @@ function Database:SetProfile(name)
   end
 end
 
+function Database:NewProfile(name)
+  if validProfileName(name) and type(self.sv.profiles[name]) ~= "table" then
+    self.sv.profiles[name] = CopyTable(self.profile)
+  end
+  self:SetProfile(name)
+end
+
 function Database:CopyProfile(name)
   local source = self.sv.profiles[name]
   if type(source) == "table" and name ~= self.keys.profile then
@@ -184,8 +191,9 @@ function Database:CopyProfile(name)
 end
 
 function Database:ResetProfile()
+  local defaults = copyDefaults(defaultSettings.profile, CopyTable(newInstallProfileDefaults))
   wipe(self.profile)
-  applyProfileDefaults(self.profile, self.profileDefaults)
+  applyProfileDefaults(self.profile, splitProfileDefaults(defaults))
   SetCurrentDbVersion(self.profile)
   self.addon:ProfileReset()
 end

@@ -56,6 +56,7 @@ function BattleGroundEnemies:CreateAceGUIImportExportFrame(mode)
     ---@class importButton: AceGUIButton
     local importButton = AceGUI:Create("Button")
     importButton:SetWidth(200)
+    importButton:SetDisabled(true)
 
     importButton:SetCallback("OnClick", function(widget, ...)
       if frame:GetUserData("mode") == "Import" then
@@ -101,7 +102,7 @@ function BattleGroundEnemies:ImportExportFrameSetupForMode(mode, exportString)
     self.ImportExportFrame.EditBox:SetText("")
     self.ImportExportFrame.ImportButton:SetText(L.Import)
   else
-    self.ImportExportFrame.EditBox:SetLabel(L.ImportEditBoxLabel)
+    self.ImportExportFrame.EditBox:SetLabel(L.ExportEditBoxLabel)
     self.ImportExportFrame.EditBox:SetText(exportString)
     self.ImportExportFrame.EditBox:HighlightText()
   end
