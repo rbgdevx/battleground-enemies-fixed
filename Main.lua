@@ -1217,6 +1217,9 @@ local function UpdateAllPlayerButtons()
   if not BattleGroundEnemies.enabled or not BattleGroundEnemies.states.userIsAlive then
     return
   end
+  if IsRetail and BattleGroundEnemies.states.real.isInArena and not BattleGroundEnemies.betweenRounds then
+    BattleGroundEnemies.ButtonModules.Trinket:RefreshArenaDisplays()
+  end
   local containers = { BattleGroundEnemies.Enemies, BattleGroundEnemies.Allies }
   for c = 1, #containers do
     local container = containers[c]

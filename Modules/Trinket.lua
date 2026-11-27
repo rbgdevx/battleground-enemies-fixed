@@ -6,8 +6,6 @@ local L = Data.L
 local IsRetail = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
 local GetArenaOpponentIndex = BattleGroundEnemies.GetArenaOpponentIndex
 local CreateFrame = CreateFrame
-local hooksecurefunc = hooksecurefunc
-local setmetatable = setmetatable
 local GetTime = GetTime
 local GetItemIconByID = C_Item.GetItemIconByID
 local GetSpellTexture = C_Spell and C_Spell.GetSpellTexture or GetSpellTexture
@@ -63,8 +61,6 @@ local trinket = BattleGroundEnemies:NewButtonModule({
   enabledInThisExpansion = true,
 })
 
-local hookedArenaTrinkets = setmetatable({}, { __mode = "k" })
-
 local function getArenaTrinketSource(arenaIndex)
   local arenaFrame = CompactArenaFrame
   local member = arenaFrame and arenaFrame.memberUnitFrames[arenaIndex]
@@ -77,19 +73,13 @@ local function copyArenaTrinketDisplay(frame, source)
   frame.Cooldown:SetAlphaFromBoolean(source:IsShown(), 1, 0)
 end
 
-local function hookArenaTrinketSource(arenaIndex, source)
-  if hookedArenaTrinkets[source] then
-    return
-  end
-  hookedArenaTrinkets[source] = true
-  local function refreshBoundArenaTrinket()
-    local row = BattleGroundEnemies.ArenaIDToPlayerButton["arena" .. arenaIndex]
-    if row and row.Trinket and row.Trinket.Enabled and GetArenaOpponentIndex(row) == arenaIndex then
-      copyArenaTrinketDisplay(row.Trinket, source)
+function trinket:RefreshArenaDisplays()
+  for _, row in pairs(BattleGroundEnemies.ArenaIDToPlayerButton) do
+    local display = row.Trinket
+    if display and display.Enabled then
+      display:SyncArenaDisplay()
     end
   end
-  hooksecurefunc(source.Icon, "SetTexture", refreshBoundArenaTrinket)
-  hooksecurefunc(source, "SetShown", refreshBoundArenaTrinket)
 end
 
 function trinket:AttachToPlayerButton(playerButton)
@@ -125,7 +115,6 @@ function trinket:AttachToPlayerButton(playerButton)
     end
     local source = getArenaTrinketSource(arenaIndex)
     if source then
-      hookArenaTrinketSource(arenaIndex, source)
       copyArenaTrinketDisplay(self, source)
     else
       self.Icon:SetTexture(nil)
